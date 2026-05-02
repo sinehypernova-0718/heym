@@ -44,6 +44,7 @@ const tabs = [
 
 const activeTab = computed(() => {
   if (route.path === "/evals") return "evals";
+  if (route.path.startsWith("/chats")) return "chat";
   const tabParam = route.query.tab as string;
   if (
     tabParam === "schedules" ||
@@ -54,7 +55,6 @@ const activeTab = computed(() => {
     tabParam === "traces" ||
     tabParam === "analytics" ||
     tabParam === "logs" ||
-    tabParam === "chat" ||
     tabParam === "drive" ||
     tabParam === "datatable" ||
     tabParam === "templates" ||
@@ -70,6 +70,7 @@ const activeTab = computed(() => {
 
 function getTabHref(tabId: (typeof tabs)[number]["id"]): string {
   if (tabId === "evals") return "/evals";
+  if (tabId === "chat") return "/chats";
   if (tabId === "workflows") return "/";
   return `/?tab=${tabId}`;
 }
@@ -86,6 +87,10 @@ function goToTab(tabId: (typeof tabs)[number]["id"], event?: MouseEvent): void {
 
   if (tabId === "evals") {
     router.push("/evals");
+    return;
+  }
+  if (tabId === "chat") {
+    router.push("/chats");
     return;
   }
   if (tabId === "workflows") {
@@ -151,7 +156,7 @@ watch(activeTab, () => {
     ref="tabContainerRef"
     :class="cn(
       'tab-container flex items-center gap-5 p-2 sm:p-2.5 rounded-2xl bg-card/60 border border-border/50 overflow-x-auto backdrop-blur-md shadow-sm scrollbar-thin w-full shrink-0',
-      activeTab === 'chat' ? 'mb-3 sm:mb-4' : 'mb-5'
+      'mb-5'
     )"
   >
     <button

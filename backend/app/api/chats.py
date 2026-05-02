@@ -205,10 +205,7 @@ async def stream_message(
         .where(DashboardMessage.conversation_id == conversation_id)
         .order_by(DashboardMessage.created_at)
     )
-    history = [
-        {"role": m.role, "content": m.content}
-        for m in msg_result.scalars().all()[-25:]
-    ]
+    history = [{"role": m.role, "content": m.content} for m in msg_result.scalars().all()[-25:]]
 
     cred_result = await db.execute(
         select(Credential).where(

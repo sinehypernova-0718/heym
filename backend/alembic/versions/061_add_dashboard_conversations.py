@@ -27,9 +27,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
     )
-    op.create_index(
-        "ix_dashboard_conversations_user_id", "dashboard_conversations", ["user_id"]
-    )
+    op.create_index("ix_dashboard_conversations_user_id", "dashboard_conversations", ["user_id"])
 
     op.create_table(
         "dashboard_messages",
