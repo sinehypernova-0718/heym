@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { Pin, PinOff, Pencil, Trash2, Check, X } from "lucide-vue-next";
 
-import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types/chat";
+import { cn } from "@/lib/utils";
 
 interface Props {
   conversation: Conversation;
@@ -22,10 +22,16 @@ const emit = defineEmits<{
 const isEditing = ref(false);
 const editTitle = ref("");
 const isConfirmingDelete = ref(false);
+const editInputRef = ref<HTMLInputElement | null>(null);
+const confirmDeleteButtonRef = ref<HTMLButtonElement | null>(null);
 
 function startEdit(): void {
   editTitle.value = props.conversation.title;
   isEditing.value = true;
+  nextTick(() => {
+    editInputRef.value?.focus();
+    editInputRef.value?.select();
+  });
 }
 
 function commitEdit(): void {
@@ -47,6 +53,9 @@ function onEditKeydown(e: KeyboardEvent): void {
 
 function confirmDelete(): void {
   isConfirmingDelete.value = true;
+  nextTick(() => {
+    confirmDeleteButtonRef.value?.focus();
+  });
 }
 
 function doDelete(): void {
@@ -77,16 +86,21 @@ function cancelDelete(): void {
     <div class="flex-1 min-w-0">
       <template v-if="isEditing">
         <input
+          ref="editInputRef"
           v-model="editTitle"
           class="w-full text-sm bg-background border border-border rounded px-1 py-0.5 outline-none"
-          autofocus
           @keydown="onEditKeydown"
           @blur="commitEdit"
           @click.stop
         >
       </template>
       <template v-else>
-        <span class="block text-sm truncate leading-5">{{ conversation.title }}</span>
+        <span
+          class="block text-sm truncate leading-5"
+          @dblclick.stop="startEdit"
+        >
+          {{ conversation.title }}
+        </span>
       </template>
     </div>
 
@@ -131,6 +145,8 @@ function cancelDelete(): void {
       @click.stop
     >
       <button
+        ref="confirmDeleteButtonRef"
+        type="button"
         class="p-1 rounded bg-destructive/10 text-destructive hover:bg-destructive/20"
         title="Confirm delete"
         @click="doDelete"

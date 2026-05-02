@@ -1,18 +1,19 @@
 import unittest
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
 from app.api.chats import (
+    clear_conversations,
     create_conversation,
     delete_conversation,
     get_conversation,
     list_conversations,
     update_conversation,
 )
-from app.db.models import DashboardConversation, DashboardMessage
+from app.db.models import CredentialType, DashboardConversation, DashboardMessage
 from app.models.chat_schemas import ConversationCreate, ConversationUpdate
 
 
@@ -85,7 +86,7 @@ class TestCreateConversation(unittest.IsolatedAsyncioTestCase):
         mock_db = AsyncMock()
 
         added: list[DashboardConversation] = []
-        mock_db.add.side_effect = lambda obj: added.append(obj)
+        mock_db.add = MagicMock(side_effect=lambda obj: added.append(obj))
 
         async def fake_refresh(obj: DashboardConversation) -> None:
             obj.id = uuid.uuid4()
@@ -243,6 +244,17 @@ class TestDeleteConversation(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
 
+class TestClearConversations(unittest.IsolatedAsyncioTestCase):
+    async def test_deletes_all_conversations_for_user(self) -> None:
+        user = _make_user()
+        mock_db = AsyncMock()
+
+        await clear_conversations(current_user=user, db=mock_db)
+
+        mock_db.execute.assert_awaited_once()
+        mock_db.commit.assert_awaited_once()
+
+
 class TestStreamMessageAuth(unittest.IsolatedAsyncioTestCase):
     async def test_raises_404_when_conversation_not_found(self) -> None:
         from app.api.chats import stream_message
@@ -253,6 +265,7 @@ class TestStreamMessageAuth(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(HTTPException) as ctx:
             await stream_message(
+                http_request=MagicMock(),
                 conversation_id=uuid.uuid4(),
                 body=MessageCreate(
                     content="hello", credential_id=str(uuid.uuid4()), model="gpt-4o"
@@ -262,3 +275,187 @@ class TestStreamMessageAuth(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(ctx.exception.status_code, 404)
+
+    async def test_uses_accessible_credential_and_encrypted_config(self) -> None:
+        from app.api.chats import stream_message
+        from app.models.chat_schemas import MessageCreate
+
+        user = _make_user()
+        conv = _make_conversation(user.id)
+        credential_id = uuid.uuid4()
+        credential = MagicMock()
+        credential.id = credential_id
+        credential.type = CredentialType.openai
+        credential.encrypted_config = "encrypted-config"
+        mock_db = _make_db(scalars_result=[], scalar_one=conv)
+        mock_db.add = MagicMock()
+
+        with (
+            patch(
+                "app.api.chats.get_accessible_credential",
+                AsyncMock(return_value=credential),
+            ) as get_accessible,
+            patch(
+                "app.api.chats.decrypt_config",
+                return_value={"api_key": "test-key", "base_url": "https://example.test/v1"},
+            ) as decrypt,
+            patch("app.api.chats.get_openai_client", return_value=(MagicMock(), "OpenAI")),
+            patch("app.api.chats.get_workflows_for_user_with_inputs", AsyncMock(return_value=[])),
+            patch("app.api.chats._load_agents_md_content", return_value=""),
+            patch("app.api.chats.build_public_base_url", return_value="http://testserver"),
+        ):
+            response = await stream_message(
+                http_request=MagicMock(),
+                conversation_id=conv.id,
+                body=MessageCreate(
+                    content="hello",
+                    credential_id=str(credential_id),
+                    model="gpt-4o",
+                ),
+                current_user=user,
+                db=mock_db,
+            )
+
+        self.assertEqual(response.media_type, "text/event-stream")
+        get_accessible.assert_awaited_once_with(mock_db, credential_id, user.id)
+        decrypt.assert_called_once_with("encrypted-config")
+
+    async def test_first_message_stream_emits_fallback_title_event(self) -> None:
+        from app.api.chats import stream_message
+        from app.models.chat_schemas import MessageCreate
+
+        async def fake_stream(*args: object, **kwargs: object):
+            yield 'data: {"type": "content", "text": "Done"}\n\n'
+            yield 'data: {"type": "done"}\n\n'
+
+        user = _make_user()
+        conv = _make_conversation(user.id, title="New Chat")
+        credential_id = uuid.uuid4()
+        credential = MagicMock()
+        credential.id = credential_id
+        credential.type = CredentialType.openai
+        credential.encrypted_config = "encrypted-config"
+
+        conv_result = MagicMock()
+        conv_result.scalar_one_or_none.return_value = conv
+        messages_result = MagicMock()
+        messages_result.scalars.return_value.all.return_value = []
+
+        mock_db = AsyncMock()
+        mock_db.execute.side_effect = [conv_result, messages_result]
+        mock_db.add = MagicMock()
+
+        with (
+            patch("app.api.chats.get_accessible_credential", AsyncMock(return_value=credential)),
+            patch("app.api.chats.decrypt_config", return_value={"api_key": "test-key"}),
+            patch("app.api.chats.get_openai_client", return_value=(MagicMock(), "OpenAI")),
+            patch("app.api.chats.get_workflows_for_user_with_inputs", AsyncMock(return_value=[])),
+            patch("app.api.chats._load_agents_md_content", return_value=""),
+            patch("app.api.chats.build_public_base_url", return_value="http://testserver"),
+            patch("app.api.chats.stream_dashboard_chat", fake_stream),
+        ):
+            response = await stream_message(
+                http_request=MagicMock(),
+                conversation_id=conv.id,
+                body=MessageCreate(
+                    content="Please explain chat history",
+                    credential_id=str(credential_id),
+                    model="gpt-4o",
+                ),
+                current_user=user,
+                db=mock_db,
+            )
+            chunks = [chunk async for chunk in response.body_iterator]
+
+        self.assertEqual(conv.title, "Please explain chat history...")
+        self.assertTrue(any('"type": "title"' in chunk for chunk in chunks))
+        self.assertTrue(
+            any('"title": "Please explain chat history..."' in chunk for chunk in chunks)
+        )
+        self.assertEqual(mock_db.commit.await_count, 2)
+
+
+class TestGenerateConversationTitle(unittest.IsolatedAsyncioTestCase):
+    async def test_fallback_uses_first_word(self) -> None:
+        from app.api.chats import _fallback_title_from_content
+
+        self.assertEqual(
+            _fallback_title_from_content("Please explain dashboard automation history"),
+            "Please explain dashboard automation history...",
+        )
+
+    async def test_fallback_uses_first_space_after_50_characters(self) -> None:
+        from app.api.chats import _fallback_title_from_content
+
+        self.assertEqual(
+            _fallback_title_from_content(
+                "Please explain dashboard automation history for account owners today"
+            ),
+            "Please explain dashboard automation history for account...",
+        )
+
+    async def test_fallback_ignores_attachment_metadata(self) -> None:
+        from app.api.chats import _fallback_title_from_content
+
+        self.assertEqual(
+            _fallback_title_from_content("Summarize this\n\n[ATTACHED FILE: report.pdf]\nText"),
+            "Summarize this...",
+        )
+
+    async def test_endpoint_stores_fallback_title_for_new_chat(self) -> None:
+        from app.api.chats import generate_conversation_title
+        from app.models.chat_schemas import ConversationTitleGenerate
+
+        user = _make_user()
+        conv = _make_conversation(user.id, title="New Chat")
+        user_msg = DashboardMessage()
+        user_msg.role = "user"
+        user_msg.content = "Why do I get a 500?"
+        assistant_msg = DashboardMessage()
+        assistant_msg.role = "assistant"
+        assistant_msg.content = "The credential field is wrong."
+
+        conv_result = MagicMock()
+        conv_result.scalar_one_or_none.return_value = conv
+        messages_result = MagicMock()
+        messages_result.scalars.return_value.all.return_value = [user_msg, assistant_msg]
+
+        mock_db = AsyncMock()
+        mock_db.execute.side_effect = [conv_result, messages_result]
+
+        result = await generate_conversation_title(
+            conversation_id=conv.id,
+            body=ConversationTitleGenerate(
+                credential_id=str(uuid.UUID(int=1)),
+                model="gpt-4o",
+            ),
+            current_user=user,
+            db=mock_db,
+        )
+
+        self.assertEqual(result.title, "Why do I get a 500...")
+        self.assertEqual(conv.title, "Why do I get a 500...")
+        mock_db.commit.assert_awaited_once()
+        mock_db.refresh.assert_awaited_once_with(conv)
+
+    async def test_endpoint_does_not_overwrite_manual_title(self) -> None:
+        from app.api.chats import generate_conversation_title
+        from app.models.chat_schemas import ConversationTitleGenerate
+
+        conv = _make_conversation(uuid.uuid4(), title="Manual Title")
+        user = _make_user(conv.user_id)
+        mock_db = _make_db(scalar_one=conv)
+
+        result = await generate_conversation_title(
+            conversation_id=conv.id,
+            body=ConversationTitleGenerate(
+                credential_id=str(uuid.UUID(int=1)),
+                model="gpt-4o",
+            ),
+            current_user=user,
+            db=mock_db,
+        )
+
+        self.assertEqual(result.title, "Manual Title")
+        self.assertEqual(conv.title, "Manual Title")
+        mock_db.commit.assert_not_awaited()

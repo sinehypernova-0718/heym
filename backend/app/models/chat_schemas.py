@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -49,7 +50,19 @@ class ConversationDetailResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChatFileAttachment(BaseModel):
+    name: str
+    kind: Literal["text", "image", "pdf"]
+    content: str
+
+
 class MessageCreate(BaseModel):
     content: str
+    credential_id: str
+    model: str
+    attachment: ChatFileAttachment | None = None
+
+
+class ConversationTitleGenerate(BaseModel):
     credential_id: str
     model: str

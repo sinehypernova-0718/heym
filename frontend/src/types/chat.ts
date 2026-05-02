@@ -10,6 +10,7 @@ export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  attachmentName?: string
   created_at: string
 }
 

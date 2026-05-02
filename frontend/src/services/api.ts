@@ -2265,6 +2265,10 @@ export const chatApi = {
     await api.delete(`/chats/${id}`);
   },
 
+  clearConversations: async (): Promise<void> => {
+    await api.delete("/chats");
+  },
+
   streamMessage: (id: string, content: string, credentialId: string, model: string): EventSource => {
     const base = import.meta.env.VITE_API_URL || "";
     const url = `${base}/api/chats/${id}/messages`;
@@ -2277,9 +2281,12 @@ export const chatApi = {
     content: string,
     credentialId: string,
     model: string,
+    attachment: FileAttachmentPayload | null,
     onChunk: (text: string) => void,
     onDone: () => void,
     onError: (msg: string) => void,
+    onTitle?: (title: string) => void,
+    signal?: AbortSignal,
   ): Promise<void> => {
     const base = import.meta.env.VITE_API_URL || "";
     const url = `${base}/api/chats/${id}/messages`;
@@ -2287,7 +2294,13 @@ export const chatApi = {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, credential_id: credentialId, model }),
+      body: JSON.stringify({
+        content,
+        credential_id: credentialId,
+        model,
+        ...(attachment ? { attachment } : {}),
+      }),
+      signal,
     });
     if (!response.ok || !response.body) {
       onError(`HTTP ${response.status}`);
@@ -2310,6 +2323,9 @@ export const chatApi = {
           if (parsed.type === "content") onChunk(parsed.text);
           else if (parsed.type === "done") onDone();
           else if (parsed.type === "error") onError(parsed.text);
+          else if (parsed.type === "title" && typeof parsed.title === "string") {
+            onTitle?.(parsed.title);
+          }
         } catch {
           // ignore malformed lines
         }

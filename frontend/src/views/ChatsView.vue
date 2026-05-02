@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { SquarePen, ChevronRight, MessageCircle } from "lucide-vue-next";
+import { SquarePen, ChevronRight, Send } from "lucide-vue-next";
 
 import AppHeader from "@/components/Layout/AppHeader.vue";
 import DashboardNav from "@/components/Layout/DashboardNav.vue";
@@ -15,11 +15,29 @@ const router = useRouter();
 const chatStore = useChatStore();
 
 const conversationId = computed(() => route.params.id as string | undefined);
+const isCreateNewCoolingDown = ref(false);
+let createNewCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
 
 async function createNew(): Promise<void> {
-  const conv = await chatStore.createConversation();
-  router.push(`/chats/${conv.id}`);
+  if (isCreateNewCoolingDown.value) return;
+  isCreateNewCoolingDown.value = true;
+  createNewCooldownTimeout = setTimeout(() => {
+    isCreateNewCoolingDown.value = false;
+    createNewCooldownTimeout = null;
+  }, 2000);
+  try {
+    const conv = await chatStore.createConversation();
+    router.push(`/chats/${conv.id}`);
+  } catch {
+    if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
+    createNewCooldownTimeout = null;
+    isCreateNewCoolingDown.value = false;
+  }
 }
+
+onUnmounted(() => {
+  if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
+});
 </script>
 
 <template>
@@ -47,7 +65,14 @@ async function createNew(): Promise<void> {
         <div class="w-full max-w-7xl mx-auto relative flex-1 flex flex-col min-h-0">
           <DashboardNav />
 
-          <div class="flex flex-1 min-h-0 rounded-2xl border border-border/50 bg-card/60 overflow-hidden shadow-sm">
+          <div class="relative flex flex-1 min-h-0 rounded-2xl border border-border/50 bg-card/60 overflow-hidden shadow-sm">
+            <div
+              v-if="!chatStore.isSidebarOpen"
+              class="absolute left-0 top-0 z-20 h-full w-6"
+              aria-hidden="true"
+              @mouseenter="chatStore.openSidebar"
+            />
+
             <ChatListPanel
               v-if="chatStore.isSidebarOpen"
               :active-conversation-id="conversationId"
@@ -63,12 +88,13 @@ async function createNew(): Promise<void> {
                 v-else
                 class="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground"
               >
-                <MessageCircle class="w-12 h-12 opacity-20" />
-                <p class="text-sm">
-                  Select a conversation or start a new one
+                <Send class="w-10 h-10 sm:w-12 sm:h-12 opacity-50" />
+                <p class="text-xs sm:text-sm max-w-[280px] sm:max-w-none text-center">
+                  Ask to run a workflow, list workflows, or ask about your data.
                 </p>
                 <button
-                  class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 transition-colors"
+                  :disabled="isCreateNewCoolingDown"
                   @click="createNew"
                 >
                   <SquarePen class="w-4 h-4" />
