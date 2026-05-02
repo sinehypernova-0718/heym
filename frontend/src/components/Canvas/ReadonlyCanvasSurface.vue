@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { Background } from "@vue-flow/background";
+import { Background, BackgroundVariant } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
 import { VueFlow } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
@@ -180,8 +180,10 @@ onUnmounted(() => {
         :padding="fitPadding"
       />
       <Background
-        pattern-color="hsl(var(--muted-foreground) / 0.1)"
+        :variant="BackgroundVariant.Dots"
+        pattern-color="hsl(var(--muted-foreground) / 0.35)"
         :gap="backgroundGap"
+        :size="1.5"
       />
       <Controls
         v-if="showControls"

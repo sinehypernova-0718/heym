@@ -1,7 +1,7 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
-import type { Conversation, ConversationDetail, Message } from "@/types/chat";
+import type { Conversation, ConversationDetail, Message, WorkflowPreview } from "@/types/chat";
 import type { FileAttachmentPayload } from "@/services/api";
 import { chatApi } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
@@ -34,6 +34,7 @@ export const useChatStore = defineStore("chat", () => {
   const streamingContent = ref("");
   const streamingImages = ref<string[]>([]);
   const streamingSteps = ref<string[]>([]);
+  const streamingWorkflowPreview = ref<WorkflowPreview | null>(null);
   const activeAbortController = ref<AbortController | null>(null);
   let createConversationStartedAt = 0;
   let createConversationPromise: Promise<Conversation> | null = null;
@@ -205,6 +206,7 @@ export const useChatStore = defineStore("chat", () => {
     streamingContent.value = "";
     streamingImages.value = [];
     streamingSteps.value = [];
+    streamingWorkflowPreview.value = null;
     activeAbortController.value = new AbortController();
 
     try {
@@ -223,6 +225,9 @@ export const useChatStore = defineStore("chat", () => {
             role: "assistant",
             content: streamingContent.value,
             ...(streamingImages.value.length > 0 ? { images: [...streamingImages.value] } : {}),
+            ...(streamingWorkflowPreview.value
+              ? { workflowPreview: streamingWorkflowPreview.value }
+              : {}),
             created_at: new Date().toISOString(),
           };
           if (activeConversation.value) {
@@ -235,6 +240,7 @@ export const useChatStore = defineStore("chat", () => {
           streamingContent.value = "";
           streamingImages.value = [];
           streamingSteps.value = [];
+          streamingWorkflowPreview.value = null;
           isStreaming.value = false;
           activeAbortController.value = null;
           _refreshConversationTimestamp(conversationId);
@@ -244,6 +250,7 @@ export const useChatStore = defineStore("chat", () => {
           streamingContent.value = "";
           streamingImages.value = [];
           streamingSteps.value = [];
+          streamingWorkflowPreview.value = null;
           activeAbortController.value = null;
         },
         (label) => {
@@ -255,6 +262,9 @@ export const useChatStore = defineStore("chat", () => {
         (title) => {
           _patchConversationTitle(conversationId, title);
         },
+        (workflow) => {
+          streamingWorkflowPreview.value = workflow;
+        },
         activeAbortController.value.signal,
       );
     } catch {
@@ -262,6 +272,7 @@ export const useChatStore = defineStore("chat", () => {
       streamingContent.value = "";
       streamingImages.value = [];
       streamingSteps.value = [];
+      streamingWorkflowPreview.value = null;
       activeAbortController.value = null;
     }
   }
@@ -272,6 +283,7 @@ export const useChatStore = defineStore("chat", () => {
     streamingContent.value = "";
     streamingImages.value = [];
     streamingSteps.value = [];
+    streamingWorkflowPreview.value = null;
     isStreaming.value = false;
   }
 
@@ -462,6 +474,7 @@ export const useChatStore = defineStore("chat", () => {
     streamingContent,
     streamingImages,
     streamingSteps,
+    streamingWorkflowPreview,
     toggleSidebar,
     openSidebar,
     loadConversations,

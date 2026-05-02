@@ -1,7 +1,9 @@
 import asyncio
 import contextlib
+import copy
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -210,7 +212,9 @@ If a tool returns an error or no relevant data, do not invent an answer. Say cle
 When the user asks for something you cannot do with your tools (e.g. console logs, server logs) AND no workflow matches, say clearly that you do not have access to that, then offer what you can do in a short numbered list. Always include: (1) I can show recent runs, (2) I can show analytics stats, (3) I can show scheduled cron times (day/week/month), (4) I can run a workflow and show its result, (5) I can list workflows and you can talk about them or ask me to run one, (6) I can list your teams. End with something like: Which would you like?
 
 11. When the user asks about teams (e.g. "my teams", "which teams am I in?", "who is in team X?"), use get_teams. Optionally pass team_name to filter by name.
-12. When the user asks about Heym features, nodes, expressions, workflows, or how to use the platform, use search_documentation. Call search_documentation at most 2 times per user message. Use one comprehensive query first (e.g. "canvas features", "portal"). Only call again with a different query if the first returns no relevant docs. In your response, cite the documentation with markdown links: [Document Title](/docs/category/slug). Example: [LLM Node](/docs/nodes/llm-node). When the documentation contains a video tag (e.g. `<video src="/features/showcase/..."`), include it in your response so the user can watch a demo directly in chat. Respond in the user's language.\""""
+12. When the user asks about Heym features, nodes, expressions, workflows, or how to use the platform, use search_documentation. Call search_documentation at most 2 times per user message. Use one comprehensive query first (e.g. "canvas features", "portal"). Only call again with a different query if the first returns no relevant docs. In your response, cite the documentation with markdown links: [Document Title](/docs/category/slug). Example: [LLM Node](/docs/nodes/llm-node). When the documentation contains a video tag (e.g. `<video src="/features/showcase/..."`), include it in your response so the user can watch a demo directly in chat. Respond in the user's language.
+13. When the user asks you to create, build, generate, or set up a new workflow/automation and then do the requested job, call create_and_run_workflow. This tool uses the Workflow AI Builder engine to generate the workflow, saves it, and runs it immediately. After it succeeds, do not include a separate workflow link in your prose; the chat UI shows a workflow preview card with its own Open workflow link. Do not answer with only instructions or raw workflow JSON for these requests.
+14. When the user gives feedback in the same chat about a workflow you just created (for example "make it do X", "change it like this", "add a step", "remove that", "şöyle yap", "böyle değiştir"), call edit_and_run_workflow with the workflow_id from the previous workflow link, hidden workflow context marker, or tool result. Do not create a second workflow for feedback on the existing generated workflow unless the user explicitly asks for a new separate workflow."""
 
 DASHBOARD_CHAT_TOOLS = [
     {
@@ -239,6 +243,52 @@ DASHBOARD_CHAT_TOOLS = [
                     },
                 },
                 "required": ["workflow_id", "inputs"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_and_run_workflow",
+            "description": "Create a brand-new workflow using the Workflow AI Builder engine, save it to the user's workflows, and run it immediately. Use this when the user asks to create/build/generate/set up a workflow or automation and wants the multi-step job done. Do not use it for questions about existing workflows.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": "The user's full workflow creation goal, including all task details and constraints.",
+                    },
+                    "inputs": {
+                        "type": "object",
+                        "description": "Values to pass into the generated workflow on its first run. Use user-provided values keyed by expected input field names when known.",
+                    },
+                },
+                "required": ["goal"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_and_run_workflow",
+            "description": "Edit an existing workflow using the Workflow AI Builder engine, save the changes to the same workflow, and run it. Use this for follow-up feedback in the same chat about a workflow that was just created or previously linked.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {
+                        "type": "string",
+                        "description": "UUID of the existing workflow to edit. Use the workflow id from the previous workflow link or tool result.",
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "description": "The user's edit request and all constraints, in full detail.",
+                    },
+                    "inputs": {
+                        "type": "object",
+                        "description": "Values to pass into the edited workflow on its validation run.",
+                    },
+                },
+                "required": ["workflow_id", "instructions"],
             },
         },
     },
@@ -551,6 +601,561 @@ def _format_workflows_for_prompt(workflows: list[dict[str, Any]]) -> str:
             parts.append(f"  inputs: {input_keys}")
         lines.append(" ".join(parts))
     return "\n".join(lines)
+
+
+_WORKFLOW_JSON_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+
+_PLACEHOLDER_CREDENTIAL_PATTERNS = (
+    "YOUR_CREDENTIAL_ID",
+    "credential-uuid",
+    "llm-credential-uuid",
+    "slack-credential-uuid",
+    "telegram-credential-uuid",
+    "imap-credential-uuid",
+    "smtp-credential-uuid",
+    "redis-credential-uuid",
+    "grist-credential-uuid",
+    "rabbitmq-credential-uuid",
+    "flaresolverr-cred-id",
+    "openai-cred-id",
+)
+
+_INTEGRATION_CREDENTIAL_NODE_TYPES = {
+    "slack",
+    "telegram",
+    "imapTrigger",
+    "telegramTrigger",
+    "sendEmail",
+    "redis",
+    "grist",
+    "rabbitmq",
+    "crawler",
+    "googleSheets",
+    "slackTrigger",
+    "bigquery",
+}
+
+
+def _parse_json_object(raw: str) -> dict[str, Any] | None:
+    """Parse a JSON object, accepting one common LLM error: trailing commas."""
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            parsed = json.loads(re.sub(r",(\s*[}\]])", r"\1", raw))
+        except json.JSONDecodeError:
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _clean_generated_workflow_text(value: object, fallback: str, max_length: int) -> str:
+    cleaned = " ".join(str(value or "").split()).strip()
+    if not cleaned:
+        cleaned = fallback
+    return cleaned[:max_length].rstrip() or fallback
+
+
+def _fallback_generated_workflow_name(goal: str) -> str:
+    cleaned = " ".join(goal.replace("\n", " ").split()).strip("\"'` ")
+    if not cleaned:
+        return "Generated Workflow"
+    if len(cleaned) > 60:
+        word_boundary = cleaned.find(" ", 60)
+        cleaned = cleaned[: word_boundary if word_boundary != -1 else 60]
+    return cleaned.rstrip(".,:;!?") or "Generated Workflow"
+
+
+def _extract_generated_workflow_config(content: str, goal: str) -> dict[str, Any]:
+    """Extract a generated workflow JSON object with name, description, nodes, and edges."""
+    candidates = [
+        match.group(1).strip() for match in _WORKFLOW_JSON_BLOCK_PATTERN.finditer(content)
+    ]
+    candidates.append(content.strip())
+
+    for candidate in candidates:
+        parsed = _parse_json_object(candidate)
+        if parsed is None:
+            continue
+        workflow_obj = (
+            parsed.get("workflow") if isinstance(parsed.get("workflow"), dict) else parsed
+        )
+        nodes = workflow_obj.get("nodes") if isinstance(workflow_obj, dict) else None
+        if not isinstance(nodes, list):
+            continue
+        edges = workflow_obj.get("edges") if isinstance(workflow_obj.get("edges"), list) else []
+        name = _clean_generated_workflow_text(
+            workflow_obj.get("name"),
+            _fallback_generated_workflow_name(goal),
+            255,
+        )
+        description = _clean_generated_workflow_text(
+            workflow_obj.get("description"),
+            f"Generated from chat request: {goal}",
+            1000,
+        )
+        return {
+            "name": name,
+            "description": description,
+            "nodes": nodes,
+            "edges": edges,
+        }
+
+    raise ValueError("AI Builder did not return a valid workflow JSON object")
+
+
+def _normalize_agent_tool_parameters(nodes: list[dict[str, Any]]) -> None:
+    """Normalize agent tool parameter objects to JSON strings, matching the editor importer."""
+    for node in nodes:
+        data = node.get("data")
+        if not isinstance(data, dict):
+            continue
+        tools = data.get("tools")
+        if not isinstance(tools, list):
+            continue
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            params = tool.get("parameters")
+            if isinstance(params, dict):
+                tool["parameters"] = json.dumps(params)
+
+
+def _is_placeholder_or_unowned_credential_id(
+    credential_id: object,
+    owned_credential_ids: set[str],
+) -> bool:
+    if not isinstance(credential_id, str) or not credential_id.strip():
+        return True
+    lower = credential_id.strip().lower()
+    if any(pattern.lower() in lower for pattern in _PLACEHOLDER_CREDENTIAL_PATTERNS):
+        return True
+    try:
+        normalized = str(uuid.UUID(credential_id))
+    except ValueError:
+        return True
+    return normalized not in owned_credential_ids
+
+
+def _selected_credential_is_owned_llm(credential: Credential, user_id: uuid.UUID) -> bool:
+    return credential.owner_id == user_id and credential.type in (
+        CredentialType.openai,
+        CredentialType.google,
+        CredentialType.custom,
+    )
+
+
+def _clear_unowned_credential_field(
+    data: dict[str, Any], field_name: str, owned_ids: set[str]
+) -> None:
+    value = data.get(field_name)
+    if value and _is_placeholder_or_unowned_credential_id(value, owned_ids):
+        data[field_name] = ""
+
+
+def _sanitize_generated_workflow_nodes(
+    nodes: list[dict[str, Any]],
+    *,
+    owned_credential_ids: set[str],
+    selected_credential: Credential,
+    selected_model: str,
+    user_id: uuid.UUID,
+) -> list[dict[str, Any]]:
+    """Clear unsafe generated credentials and fill LLM nodes from the selected owned credential."""
+    selected_llm_credential_id = (
+        str(selected_credential.id)
+        if _selected_credential_is_owned_llm(selected_credential, user_id)
+        else ""
+    )
+    sanitized = copy.deepcopy(nodes)
+    for node in sanitized:
+        if not isinstance(node, dict):
+            continue
+        node_type = str(node.get("type") or "")
+        data = node.get("data")
+        if not isinstance(data, dict):
+            continue
+
+        if node_type in {"llm", "agent"}:
+            if _is_placeholder_or_unowned_credential_id(
+                data.get("credentialId"), owned_credential_ids
+            ):
+                data["credentialId"] = selected_llm_credential_id
+            if selected_llm_credential_id and not str(data.get("model") or "").strip():
+                data["model"] = selected_model
+            _clear_unowned_credential_field(data, "fallbackCredentialId", owned_credential_ids)
+            if not data.get("fallbackCredentialId"):
+                data["fallbackModel"] = ""
+            _clear_unowned_credential_field(data, "guardrailCredentialId", owned_credential_ids)
+            if not data.get("guardrailCredentialId"):
+                data["guardrailModel"] = ""
+
+        if node_type in _INTEGRATION_CREDENTIAL_NODE_TYPES or node_type == "playwright":
+            _clear_unowned_credential_field(data, "credentialId", owned_credential_ids)
+
+        if node_type == "playwright":
+            for steps_field in ("playwrightSteps", "playwrightAuthFallbackSteps"):
+                steps = data.get(steps_field)
+                if not isinstance(steps, list):
+                    continue
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    if step.get("action") != "aiStep":
+                        continue
+                    _clear_unowned_credential_field(step, "credentialId", owned_credential_ids)
+                    if not step.get("credentialId"):
+                        step["model"] = ""
+
+    _normalize_agent_tool_parameters(sanitized)
+    return sanitized
+
+
+async def _get_owned_credential_ids(db: AsyncSession, user_id: uuid.UUID) -> set[str]:
+    result = await db.execute(select(Credential.id).where(Credential.owner_id == user_id))
+    return {str(credential_id) for credential_id in result.scalars().all()}
+
+
+def _build_workflow_builder_user_message(
+    goal: str,
+    inputs: dict[str, Any],
+    attachment: FileAttachment | None,
+) -> str:
+    parts = [
+        "Create a complete Heym workflow for this dashboard chat request.",
+        "Return exactly one fenced ```json code block with an object containing name, description, nodes, and edges.",
+        "Generate a concise English workflow name and description.",
+        "The workflow will be saved and run immediately after your response.",
+        "If runtime values are needed, expose them as input nodes with clear field keys.",
+        "",
+        f"User request:\n{goal}",
+    ]
+    if inputs:
+        parts.append("\nInputs available for the first run:\n" + json.dumps(inputs, default=str))
+    if attachment is not None:
+        parts.append(
+            "\nAn attachment is available for the first run. "
+            f"Name: {attachment.name}. Kind: {attachment.kind}. "
+            "Use an input field suitable for this attachment if the workflow needs it."
+        )
+    return "\n".join(parts)
+
+
+def _build_workflow_editor_user_message(
+    workflow: Workflow,
+    instructions: str,
+    inputs: dict[str, Any],
+    attachment: FileAttachment | None,
+) -> str:
+    current_workflow = {
+        "id": str(workflow.id),
+        "name": workflow.name,
+        "description": workflow.description or "",
+        "nodes": workflow.nodes or [],
+        "edges": workflow.edges or [],
+    }
+    parts = [
+        "Edit the existing Heym workflow below according to the user's feedback.",
+        "Return exactly one fenced ```json code block with the complete updated workflow object containing name, description, nodes, and edges.",
+        "Update the workflow name, description, and node labels so they match the revised workflow behavior.",
+        "Preserve node ids, credentials, models, skills, and settings unless the user explicitly asks to change them.",
+        "Do not create a separate workflow. The returned JSON will replace this same saved workflow.",
+        "",
+        "Current workflow:",
+        json.dumps(current_workflow, ensure_ascii=False, default=str),
+        "",
+        f"User edit request:\n{instructions}",
+    ]
+    if inputs:
+        parts.append(
+            "\nInputs available for the validation run:\n" + json.dumps(inputs, default=str)
+        )
+    if attachment is not None:
+        parts.append(
+            "\nAn attachment is available for the validation run. "
+            f"Name: {attachment.name}. Kind: {attachment.kind}. "
+            "Use an input field suitable for this attachment if the workflow needs it."
+        )
+    return "\n".join(parts)
+
+
+def _build_saved_workflow_payload(
+    workflow: Workflow,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    input_fields: list[Any],
+    run_inputs: dict[str, Any],
+    execution_payload: Any,
+    *,
+    status_value: str,
+) -> str:
+    return json.dumps(
+        {
+            "status": status_value,
+            "workflow_id": str(workflow.id),
+            "workflow_name": workflow.name,
+            "workflow_description": workflow.description,
+            "workflow_url": f"/workflows/{workflow.id}",
+            "workflow_link_markdown": (
+                f'[Open "{workflow.name}" in a new tab](/workflows/{workflow.id})'
+            ),
+            "workflow_preview": {
+                "id": str(workflow.id),
+                "name": workflow.name,
+                "description": workflow.description,
+                "url": f"/workflows/{workflow.id}",
+                "nodes": nodes,
+                "edges": edges,
+            },
+            "input_fields": [field.model_dump(by_alias=True) for field in input_fields],
+            "run_inputs": run_inputs,
+            "execution": execution_payload,
+        },
+        default=str,
+    )
+
+
+async def create_and_run_generated_workflow_tool(
+    *,
+    db: AsyncSession,
+    user: User,
+    client: OpenAI,
+    model: str,
+    selected_credential: Credential,
+    selected_model: str,
+    goal: str,
+    inputs: dict[str, Any],
+    available_workflows: list[dict[str, Any]],
+    public_base_url: str,
+    attachment: FileAttachment | None = None,
+    cancel_event: Event | None = None,
+) -> str:
+    """Generate a workflow with the AI Builder prompt, save it, and execute it once."""
+    if cancel_event is not None and cancel_event.is_set():
+        return json.dumps({"status": "cancelled", "error": "Execution cancelled"})
+
+    try:
+        node_templates = await template_service.list_node_templates(db, user, None)
+        node_template_payload = [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "description": t.description,
+                "tags": list(t.tags or []),
+                "node_type": t.node_type,
+                "node_data": dict(t.node_data or {}),
+            }
+            for t in node_templates
+        ]
+        system_prompt = build_assistant_prompt(
+            None,
+            available_workflows,
+            user.user_rules,
+            available_node_templates=node_template_payload,
+        )
+        builder_messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": _build_workflow_builder_user_message(goal, inputs, attachment),
+            },
+        ]
+        builder_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": builder_messages,
+            "stream": False,
+        }
+        if not is_reasoning_model(model):
+            builder_kwargs["temperature"] = 0.1
+        builder_response = client.chat.completions.create(**builder_kwargs)
+        builder_choice = builder_response.choices[0] if builder_response.choices else None
+        builder_content = builder_choice.message.content if builder_choice else ""
+        workflow_config = _extract_generated_workflow_config(builder_content or "", goal)
+
+        owned_credential_ids = await _get_owned_credential_ids(db, user.id)
+        nodes = _sanitize_generated_workflow_nodes(
+            workflow_config["nodes"],
+            owned_credential_ids=owned_credential_ids,
+            selected_credential=selected_credential,
+            selected_model=selected_model,
+            user_id=user.id,
+        )
+        edges = workflow_config["edges"]
+        workflow = Workflow(
+            id=uuid.uuid4(),
+            name=workflow_config["name"],
+            description=workflow_config["description"],
+            owner_id=user.id,
+            nodes=nodes,
+            edges=edges,
+        )
+        db.add(workflow)
+        await db.flush()
+
+        run_inputs = dict(inputs or {})
+        input_fields = extract_input_fields_from_workflow(workflow)
+        if attachment is not None:
+            field_keys = [field.key for field in input_fields]
+            inject_key = _find_injection_field(field_keys, attachment.kind)
+            if inject_key:
+                run_inputs[inject_key] = attachment.content
+        if not run_inputs and input_fields:
+            run_inputs[input_fields[0].key] = goal
+
+        execution_result = await run_execute_workflow_tool(
+            db,
+            user.id,
+            str(workflow.id),
+            run_inputs,
+            public_base_url,
+            cancel_event,
+        )
+        try:
+            execution_payload: Any = json.loads(execution_result)
+        except json.JSONDecodeError:
+            execution_payload = {"raw": execution_result}
+
+        return _build_saved_workflow_payload(
+            workflow,
+            nodes,
+            edges,
+            input_fields,
+            run_inputs,
+            execution_payload,
+            status_value="created_and_ran",
+        )
+    except Exception as exc:
+        logger.exception("Dashboard chat create_and_run_workflow failed")
+        return json.dumps({"status": "error", "error": str(exc)})
+
+
+async def edit_and_run_generated_workflow_tool(
+    *,
+    db: AsyncSession,
+    user: User,
+    client: OpenAI,
+    model: str,
+    selected_credential: Credential,
+    selected_model: str,
+    workflow_id: str,
+    instructions: str,
+    inputs: dict[str, Any],
+    available_workflows: list[dict[str, Any]],
+    public_base_url: str,
+    attachment: FileAttachment | None = None,
+    cancel_event: Event | None = None,
+) -> str:
+    """Edit a saved workflow with the AI Builder prompt, save it, and execute it once."""
+    if cancel_event is not None and cancel_event.is_set():
+        return json.dumps({"status": "cancelled", "error": "Execution cancelled"})
+
+    try:
+        try:
+            workflow_uuid = uuid.UUID(workflow_id)
+        except ValueError:
+            return json.dumps({"status": "error", "error": "Invalid workflow_id"})
+
+        workflow = await get_workflow_for_user(db, workflow_uuid, user.id)
+        if workflow is None:
+            return json.dumps({"status": "error", "error": "Workflow not found or no access"})
+
+        node_templates = await template_service.list_node_templates(db, user, None)
+        node_template_payload = [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "description": t.description,
+                "tags": list(t.tags or []),
+                "node_type": t.node_type,
+                "node_data": dict(t.node_data or {}),
+            }
+            for t in node_templates
+        ]
+        current_workflow = {
+            "id": str(workflow.id),
+            "name": workflow.name,
+            "description": workflow.description,
+            "nodes": workflow.nodes or [],
+            "edges": workflow.edges or [],
+        }
+        system_prompt = build_assistant_prompt(
+            current_workflow,
+            available_workflows,
+            user.user_rules,
+            available_node_templates=node_template_payload,
+        )
+        builder_messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": _build_workflow_editor_user_message(
+                    workflow, instructions, inputs, attachment
+                ),
+            },
+        ]
+        builder_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": builder_messages,
+            "stream": False,
+        }
+        if not is_reasoning_model(model):
+            builder_kwargs["temperature"] = 0.1
+        builder_response = client.chat.completions.create(**builder_kwargs)
+        builder_choice = builder_response.choices[0] if builder_response.choices else None
+        builder_content = builder_choice.message.content if builder_choice else ""
+        workflow_config = _extract_generated_workflow_config(
+            builder_content or "", f"{workflow.name}: {instructions}"
+        )
+
+        owned_credential_ids = await _get_owned_credential_ids(db, user.id)
+        nodes = _sanitize_generated_workflow_nodes(
+            workflow_config["nodes"],
+            owned_credential_ids=owned_credential_ids,
+            selected_credential=selected_credential,
+            selected_model=selected_model,
+            user_id=user.id,
+        )
+        edges = workflow_config["edges"]
+        workflow.name = workflow_config["name"]
+        workflow.description = workflow_config["description"]
+        workflow.nodes = nodes
+        workflow.edges = edges
+        await db.flush()
+
+        run_inputs = dict(inputs or {})
+        input_fields = extract_input_fields_from_workflow(workflow)
+        if attachment is not None:
+            field_keys = [field.key for field in input_fields]
+            inject_key = _find_injection_field(field_keys, attachment.kind)
+            if inject_key:
+                run_inputs[inject_key] = attachment.content
+        if not run_inputs and input_fields:
+            run_inputs[input_fields[0].key] = instructions
+
+        execution_result = await run_execute_workflow_tool(
+            db,
+            user.id,
+            str(workflow.id),
+            run_inputs,
+            public_base_url,
+            cancel_event,
+        )
+        try:
+            execution_payload: Any = json.loads(execution_result)
+        except json.JSONDecodeError:
+            execution_payload = {"raw": execution_result}
+
+        return _build_saved_workflow_payload(
+            workflow,
+            nodes,
+            edges,
+            input_fields,
+            run_inputs,
+            execution_payload,
+            status_value="edited_and_ran",
+        )
+    except Exception as exc:
+        logger.exception("Dashboard chat edit_and_run_workflow failed")
+        return json.dumps({"status": "error", "error": str(exc)})
 
 
 async def run_execute_workflow_tool(
@@ -1135,7 +1740,10 @@ def _extract_pending_hitl_review_payload(result_json: str) -> dict[str, str] | N
         return None
 
     if not isinstance(data, dict) or data.get("status") != "pending":
-        return None
+        execution = data.get("execution") if isinstance(data, dict) else None
+        if not isinstance(execution, dict) or execution.get("status") != "pending":
+            return None
+        data = execution
 
     top_level_pending = data.get("pending_review")
     if isinstance(top_level_pending, dict):
@@ -1192,6 +1800,32 @@ def _summarize_tool_result(tool_name: str, result_json: str) -> str:
                 return " · ".join(parts)
             return "Workflow completed successfully"
         return f"Status: {status}"
+    if tool_name == "create_and_run_workflow":
+        if not isinstance(data, dict):
+            return str(data)[:200]
+        if data.get("error"):
+            return f"Error: {str(data.get('error'))[:150]}"
+        workflow_name = str(data.get("workflow_name") or "").strip()
+        execution = data.get("execution") if isinstance(data.get("execution"), dict) else {}
+        run_status = str(execution.get("status") or "").strip()
+        if workflow_name and run_status:
+            return f"Created and ran workflow: {workflow_name} ({run_status})"
+        if workflow_name:
+            return f"Created workflow: {workflow_name}"
+        return f"Status: {str(data.get('status') or '')[:80]}"
+    if tool_name == "edit_and_run_workflow":
+        if not isinstance(data, dict):
+            return str(data)[:200]
+        if data.get("error"):
+            return f"Error: {str(data.get('error'))[:150]}"
+        workflow_name = str(data.get("workflow_name") or "").strip()
+        execution = data.get("execution") if isinstance(data.get("execution"), dict) else {}
+        run_status = str(execution.get("status") or "").strip()
+        if workflow_name and run_status:
+            return f"Edited and ran workflow: {workflow_name} ({run_status})"
+        if workflow_name:
+            return f"Edited workflow: {workflow_name}"
+        return f"Status: {str(data.get('status') or '')[:80]}"
     if tool_name == "resolve_hitl_review":
         if not isinstance(data, dict):
             return str(data)[:200]
@@ -1278,6 +1912,7 @@ async def stream_dashboard_chat(
     trace_context: LLMTraceContext | None = None,
     cancel_event: Event | None = None,
     attachment: FileAttachment | None = None,
+    selected_credential: Credential | None = None,
 ) -> AsyncGenerator[str, None]:
     """Run dashboard chat with tool use: loop non-streaming calls with tools until no tool_calls, then yield final content."""
     user_id = user.id
@@ -1481,6 +2116,29 @@ async def stream_dashboard_chat(
                         }
                     )
                     pending_review = _extract_pending_hitl_review_payload(result)
+                    try:
+                        workflow_created_payload = json.loads(result)
+                    except json.JSONDecodeError:
+                        workflow_created_payload = {}
+                    if isinstance(workflow_created_payload, dict):
+                        preview = workflow_created_payload.get("workflow_preview")
+                        if isinstance(preview, dict):
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {
+                                        "type": "workflow_created",
+                                        "workflow_id": preview.get("id"),
+                                        "workflow_name": preview.get("name"),
+                                        "workflow_description": preview.get("description"),
+                                        "workflow_url": preview.get("url"),
+                                        "nodes": preview.get("nodes") or [],
+                                        "edges": preview.get("edges") or [],
+                                    },
+                                    default=str,
+                                )
+                                + "\n\n"
+                            )
                     if pending_review:
                         yield (
                             "data: "
@@ -1505,6 +2163,223 @@ async def stream_dashboard_chat(
                             if images:
                                 yield f"data: {json.dumps({'type': 'tool_output', 'tool': name, 'images': images})}\n\n"
                     except (json.JSONDecodeError, TypeError):
+                        pass
+                elif name == "create_and_run_workflow":
+                    if selected_credential is None:
+                        result = json.dumps(
+                            {
+                                "status": "error",
+                                "error": "No selected LLM credential is available",
+                            }
+                        )
+                        run_steps.append(
+                            {
+                                "label": "Building and running a new workflow...",
+                                "tool": name,
+                                "request": args,
+                                "response_summary": _summarize_tool_result(name, result),
+                                "execution_time_ms": 0,
+                            }
+                        )
+                    else:
+                        goal = str(args.get("goal") or "").strip() or last_user_message
+                        inputs = args.get("inputs") if isinstance(args.get("inputs"), dict) else {}
+                        step_label = "Building and running a new workflow..."
+                        yield f"data: {json.dumps({'type': 'step', 'label': step_label})}\n\n"
+                        step_start = time.time()
+                        workflows = await get_workflows_for_user_with_inputs(db, user_id)
+                        result = await create_and_run_generated_workflow_tool(
+                            db=db,
+                            user=user,
+                            client=client,
+                            model=model,
+                            selected_credential=selected_credential,
+                            selected_model=model,
+                            goal=goal,
+                            inputs=dict(inputs),
+                            available_workflows=workflows,
+                            public_base_url=public_base_url,
+                            attachment=attachment,
+                            cancel_event=cancel_event,
+                        )
+                        if cancel_event is not None and cancel_event.is_set():
+                            elapsed_ms = (time.time() - start_time) * 1000
+                            _record_dashboard_run("cancelled", round(elapsed_ms, 2))
+                            return
+                        step_ms = round((time.time() - step_start) * 1000, 2)
+                        run_steps.append(
+                            {
+                                "label": step_label,
+                                "tool": name,
+                                "request": {"goal": goal, "inputs": inputs},
+                                "response_summary": _summarize_tool_result(name, result),
+                                "execution_time_ms": step_ms,
+                            }
+                        )
+                    try:
+                        workflow_created_payload = json.loads(result)
+                    except json.JSONDecodeError:
+                        workflow_created_payload = {}
+                    if isinstance(workflow_created_payload, dict):
+                        preview = workflow_created_payload.get("workflow_preview")
+                        if isinstance(preview, dict):
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {
+                                        "type": "workflow_created",
+                                        "workflow_id": preview.get("id"),
+                                        "workflow_name": preview.get("name"),
+                                        "workflow_description": preview.get("description"),
+                                        "workflow_url": preview.get("url"),
+                                        "nodes": preview.get("nodes") or [],
+                                        "edges": preview.get("edges") or [],
+                                    },
+                                    default=str,
+                                )
+                                + "\n\n"
+                            )
+                    pending_review = _extract_pending_hitl_review_payload(result)
+                    if pending_review:
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {
+                                    "type": "workflow_pending",
+                                    **pending_review,
+                                }
+                            )
+                            + "\n\n"
+                        )
+                    try:
+                        data = json.loads(result)
+                        execution = data.get("execution") if isinstance(data, dict) else {}
+                        if isinstance(execution, dict) and execution.get("status") == "success":
+                            outputs = execution.get("outputs") or {}
+                            node_results = execution.get("node_results") or []
+                            to_scan: dict[str, Any] = {"outputs": outputs}
+                            if node_results:
+                                to_scan["node_results"] = node_results
+                            images = _extract_images_from_outputs(to_scan)
+                            if images:
+                                yield f"data: {json.dumps({'type': 'tool_output', 'tool': name, 'images': images})}\n\n"
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        pass
+                elif name == "edit_and_run_workflow":
+                    if selected_credential is None:
+                        result = json.dumps(
+                            {
+                                "status": "error",
+                                "error": "No selected LLM credential is available",
+                            }
+                        )
+                        run_steps.append(
+                            {
+                                "label": "Editing and running workflow...",
+                                "tool": name,
+                                "request": args,
+                                "response_summary": _summarize_tool_result(name, result),
+                                "execution_time_ms": 0,
+                            }
+                        )
+                    else:
+                        workflow_id_str = str(args.get("workflow_id") or "").strip()
+                        instructions = (
+                            str(args.get("instructions") or "").strip() or last_user_message
+                        )
+                        inputs = args.get("inputs") if isinstance(args.get("inputs"), dict) else {}
+                        step_label = "Editing and running workflow..."
+                        try:
+                            wid = uuid.UUID(workflow_id_str)
+                            w = await get_workflow_for_user(db, wid, user_id)
+                            if w and w.name:
+                                step_label = f'Editing workflow "{w.name}"...'
+                        except (ValueError, TypeError):
+                            pass
+                        yield f"data: {json.dumps({'type': 'step', 'label': step_label})}\n\n"
+                        step_start = time.time()
+                        workflows = await get_workflows_for_user_with_inputs(db, user_id)
+                        result = await edit_and_run_generated_workflow_tool(
+                            db=db,
+                            user=user,
+                            client=client,
+                            model=model,
+                            selected_credential=selected_credential,
+                            selected_model=model,
+                            workflow_id=workflow_id_str,
+                            instructions=instructions,
+                            inputs=dict(inputs),
+                            available_workflows=workflows,
+                            public_base_url=public_base_url,
+                            attachment=attachment,
+                            cancel_event=cancel_event,
+                        )
+                        if cancel_event is not None and cancel_event.is_set():
+                            elapsed_ms = (time.time() - start_time) * 1000
+                            _record_dashboard_run("cancelled", round(elapsed_ms, 2))
+                            return
+                        step_ms = round((time.time() - step_start) * 1000, 2)
+                        run_steps.append(
+                            {
+                                "label": step_label,
+                                "tool": name,
+                                "request": {
+                                    "workflow_id": workflow_id_str,
+                                    "instructions": instructions,
+                                    "inputs": inputs,
+                                },
+                                "response_summary": _summarize_tool_result(name, result),
+                                "execution_time_ms": step_ms,
+                            }
+                        )
+                    try:
+                        workflow_created_payload = json.loads(result)
+                    except json.JSONDecodeError:
+                        workflow_created_payload = {}
+                    if isinstance(workflow_created_payload, dict):
+                        preview = workflow_created_payload.get("workflow_preview")
+                        if isinstance(preview, dict):
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {
+                                        "type": "workflow_created",
+                                        "workflow_id": preview.get("id"),
+                                        "workflow_name": preview.get("name"),
+                                        "workflow_description": preview.get("description"),
+                                        "workflow_url": preview.get("url"),
+                                        "nodes": preview.get("nodes") or [],
+                                        "edges": preview.get("edges") or [],
+                                    },
+                                    default=str,
+                                )
+                                + "\n\n"
+                            )
+                    pending_review = _extract_pending_hitl_review_payload(result)
+                    if pending_review:
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {
+                                    "type": "workflow_pending",
+                                    **pending_review,
+                                }
+                            )
+                            + "\n\n"
+                        )
+                    try:
+                        data = json.loads(result)
+                        execution = data.get("execution") if isinstance(data, dict) else {}
+                        if isinstance(execution, dict) and execution.get("status") == "success":
+                            outputs = execution.get("outputs") or {}
+                            node_results = execution.get("node_results") or []
+                            to_scan: dict[str, Any] = {"outputs": outputs}
+                            if node_results:
+                                to_scan["node_results"] = node_results
+                            images = _extract_images_from_outputs(to_scan)
+                            if images:
+                                yield f"data: {json.dumps({'type': 'tool_output', 'tool': name, 'images': images})}\n\n"
+                    except (json.JSONDecodeError, TypeError, AttributeError):
                         pass
                 elif name == "resolve_hitl_review":
                     step_label = "Resolving human review..."
@@ -2133,6 +3008,7 @@ async def dashboard_chat_stream(
                 trace_context,
                 cancel_event,
                 request.attachment,
+                credential,
             ):
                 if cancel_event.is_set():
                     break

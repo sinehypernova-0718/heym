@@ -374,6 +374,80 @@ class TestStreamMessageAuth(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(mock_db.commit.await_count, 2)
 
+    async def test_stream_keeps_workflow_context_hidden_for_follow_up_edits(self) -> None:
+        from app.api.chats import stream_message
+        from app.models.chat_schemas import MessageCreate
+
+        workflow_id = str(uuid.uuid4())
+
+        async def fake_stream(*args: object, **kwargs: object):
+            yield 'data: {"type": "content", "text": "Workflow updated."}\n\n'
+            yield (
+                "data: "
+                + (
+                    '{"type": "workflow_created", '
+                    f'"workflow_id": "{workflow_id}", '
+                    '"workflow_name": "Echo Assistant", '
+                    f'"workflow_url": "/workflows/{workflow_id}", '
+                    '"nodes": [], "edges": []}'
+                )
+                + "\n\n"
+            )
+            yield 'data: {"type": "done"}\n\n'
+
+        user = _make_user()
+        conv = _make_conversation(user.id, title="Existing Chat")
+        credential_id = uuid.uuid4()
+        credential = MagicMock()
+        credential.id = credential_id
+        credential.type = CredentialType.openai
+        credential.encrypted_config = "encrypted-config"
+
+        conv_result = MagicMock()
+        conv_result.scalar_one_or_none.return_value = conv
+        messages_result = MagicMock()
+        messages_result.scalars.return_value.all.return_value = []
+
+        added_messages: list[DashboardMessage] = []
+        mock_db = AsyncMock()
+        mock_db.execute.side_effect = [conv_result, messages_result]
+        mock_db.add = MagicMock(side_effect=added_messages.append)
+
+        with (
+            patch("app.api.chats.get_accessible_credential", AsyncMock(return_value=credential)),
+            patch("app.api.chats.decrypt_config", return_value={"api_key": "test-key"}),
+            patch("app.api.chats.get_openai_client", return_value=(MagicMock(), "OpenAI")),
+            patch("app.api.chats.get_workflows_for_user_with_inputs", AsyncMock(return_value=[])),
+            patch("app.api.chats._load_agents_md_content", return_value=""),
+            patch("app.api.chats.build_public_base_url", return_value="http://testserver"),
+            patch("app.api.chats.stream_dashboard_chat", fake_stream),
+        ):
+            response = await stream_message(
+                http_request=MagicMock(),
+                conversation_id=conv.id,
+                body=MessageCreate(
+                    content="Change the workflow",
+                    credential_id=str(credential_id),
+                    model="gpt-4o",
+                ),
+                current_user=user,
+                db=mock_db,
+            )
+            chunks = [chunk async for chunk in response.body_iterator]
+
+        visible_content_chunks = [chunk for chunk in chunks if '"type": "content"' in chunk]
+        self.assertFalse(
+            any(f"/workflows/{workflow_id}" in chunk for chunk in visible_content_chunks)
+        )
+        self.assertFalse(any("Preview is shown in this message." in chunk for chunk in chunks))
+        assistant_message = next(m for m in added_messages if m.role == "assistant")
+        self.assertIn(f"heym-workflow-id:{workflow_id}", assistant_message.content)
+        self.assertIn("heym-workflow-name:Echo Assistant", assistant_message.content)
+        self.assertNotIn(
+            f"Workflow: [Echo Assistant](/workflows/{workflow_id})", assistant_message.content
+        )
+        self.assertNotIn("Preview is shown in this message.", assistant_message.content)
+
 
 class TestGenerateConversationTitle(unittest.IsolatedAsyncioTestCase):
     async def test_fallback_uses_first_word(self) -> None:

@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Copy,
   Check,
+  ExternalLink,
   Square,
   Mic,
   MicOff,
@@ -20,6 +21,7 @@ import DOMPurify from "dompurify";
 
 import type { Message } from "@/types/chat";
 import type { CredentialListItem, LLMModel } from "@/types/credential";
+import ReadonlyCanvasSurface from "@/components/Canvas/ReadonlyCanvasSurface.vue";
 import Button from "@/components/ui/Button.vue";
 import ImageLightbox from "@/components/ui/ImageLightbox.vue";
 import { aiApi, credentialsApi } from "@/services/api";
@@ -512,7 +514,8 @@ onUnmounted(() => {
 
         <div
           :class="[
-            'group/message relative max-w-[72%] rounded-2xl px-4 py-2.5 pr-10 text-sm leading-relaxed break-words',
+            'group/message relative rounded-2xl px-4 py-2.5 pr-10 text-sm leading-relaxed break-words',
+            msg.workflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
             msg.role === 'user'
               ? 'bg-primary text-primary-foreground rounded-tr-sm'
               : 'bg-muted text-foreground rounded-tl-sm'
@@ -555,6 +558,46 @@ onUnmounted(() => {
             >
           </div>
           <div
+            v-if="msg.workflowPreview"
+            class="mt-3 overflow-hidden rounded-xl border border-border/50 bg-background/70"
+          >
+            <div class="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-semibold">
+                  {{ msg.workflowPreview.name }}
+                </p>
+                <p
+                  v-if="msg.workflowPreview.description"
+                  class="line-clamp-2 text-xs text-muted-foreground"
+                >
+                  {{ msg.workflowPreview.description }}
+                </p>
+              </div>
+              <a
+                :href="msg.workflowPreview.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <ExternalLink class="h-3.5 w-3.5" />
+                Open workflow
+              </a>
+            </div>
+            <div class="h-64 min-h-0 w-full">
+              <ReadonlyCanvasSurface
+                :nodes="msg.workflowPreview.nodes"
+                :edges="msg.workflowPreview.edges"
+                :flow-key="msg.workflowPreview.id"
+                empty-message="No workflow preview"
+                :show-mini-map="false"
+                :fit-padding="0.24"
+                :max-zoom="1.1"
+                :background-gap="28"
+                :framed="false"
+              />
+            </div>
+          </div>
+          <div
             v-if="msg.attachmentName"
             class="mt-1.5 flex items-center gap-1 text-xs opacity-70"
           >
@@ -578,7 +621,12 @@ onUnmounted(() => {
         <div class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
           <Bot class="w-4 h-4 text-primary" />
         </div>
-        <div class="max-w-[72%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed bg-muted text-foreground break-words">
+        <div
+          :class="[
+            'rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed bg-muted text-foreground break-words',
+            chatStore.streamingWorkflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
+          ]"
+        >
           <div
             v-if="chatStore.streamingSteps.length > 0"
             class="mb-3 space-y-1.5"
@@ -627,6 +675,46 @@ onUnmounted(() => {
               class="max-h-48 max-w-full rounded-lg object-contain cursor-zoom-in border border-border/30 hover:border-border/60 transition-colors"
               @click.stop="imageLightboxSrc = imgSrc"
             >
+          </div>
+          <div
+            v-if="chatStore.streamingWorkflowPreview"
+            class="mt-3 overflow-hidden rounded-xl border border-border/50 bg-background/70"
+          >
+            <div class="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-semibold">
+                  {{ chatStore.streamingWorkflowPreview.name }}
+                </p>
+                <p
+                  v-if="chatStore.streamingWorkflowPreview.description"
+                  class="line-clamp-2 text-xs text-muted-foreground"
+                >
+                  {{ chatStore.streamingWorkflowPreview.description }}
+                </p>
+              </div>
+              <a
+                :href="chatStore.streamingWorkflowPreview.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <ExternalLink class="h-3.5 w-3.5" />
+                Open workflow
+              </a>
+            </div>
+            <div class="h-64 min-h-0 w-full">
+              <ReadonlyCanvasSurface
+                :nodes="chatStore.streamingWorkflowPreview.nodes"
+                :edges="chatStore.streamingWorkflowPreview.edges"
+                :flow-key="chatStore.streamingWorkflowPreview.id"
+                empty-message="No workflow preview"
+                :show-mini-map="false"
+                :fit-padding="0.24"
+                :max-zoom="1.1"
+                :background-gap="28"
+                :framed="false"
+              />
+            </div>
           </div>
         </div>
       </div>
