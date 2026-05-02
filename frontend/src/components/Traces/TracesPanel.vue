@@ -80,6 +80,42 @@ function getSkillsFromRequest(request: Record<string, unknown> | null): string[]
   return Array.isArray(arr) ? (arr as string[]) : undefined;
 }
 
+/** Heym MCP server: workflow invoked as MCP tool (`/api/mcp/...`). No LLM credential/model. */
+function isMcpWorkflowServerTrace(trace: {
+  source?: string | null;
+  request_type?: string | null;
+}): boolean {
+  return trace.source === "mcp" && trace.request_type === "mcp.workflow.execute";
+}
+
+function traceModelListLabel(trace: LLMTraceListItem): string | null {
+  if (trace.model)
+    return trace.model;
+  if (isMcpWorkflowServerTrace(trace))
+    return null;
+  return "Unknown model";
+}
+
+function traceCredentialListLabel(trace: LLMTraceListItem): string | null {
+  if (trace.credential_name)
+    return trace.credential_name;
+  if (isMcpWorkflowServerTrace(trace))
+    return null;
+  return "Unknown credential";
+}
+
+function traceListSubtitle(trace: LLMTraceListItem): string {
+  const parts: string[] = [];
+  const cred = traceCredentialListLabel(trace);
+  if (cred)
+    parts.push(cred);
+  if (trace.workflow_name)
+    parts.push(trace.workflow_name);
+  if (trace.node_label)
+    parts.push(trace.node_label);
+  return parts.join(" - ");
+}
+
 function computeInvocationTotalMs(children: TraceSpan[]): number {
   if (children.length === 0) return 0;
   const llmSpan = children.find((s) => s.id === "call_llm" || s.label === "call_llm");
@@ -660,8 +696,11 @@ onMounted(async () => {
               <span class="text-xs uppercase tracking-wide text-muted-foreground">
                 {{ trace.source }}
               </span>
-              <span class="text-xs text-muted-foreground">
-                {{ trace.model || "Unknown model" }}
+              <span
+                v-if="traceModelListLabel(trace)"
+                class="text-xs text-muted-foreground"
+              >
+                {{ traceModelListLabel(trace) }}
               </span>
             </div>
             <span
@@ -672,10 +711,11 @@ onMounted(async () => {
             </span>
           </div>
 
-          <div class="text-sm text-muted-foreground">
-            <span>{{ trace.credential_name || "Unknown credential" }}</span>
-            <span v-if="trace.workflow_name"> - {{ trace.workflow_name }}</span>
-            <span v-if="trace.node_label"> - {{ trace.node_label }}</span>
+          <div
+            v-if="traceListSubtitle(trace)"
+            class="text-sm text-muted-foreground"
+          >
+            {{ traceListSubtitle(trace) }}
           </div>
 
           <div class="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
@@ -777,6 +817,7 @@ onMounted(async () => {
             </div>
           </Card>
           <Card
+            v-if="selectedTrace.model || !isMcpWorkflowServerTrace(selectedTrace)"
             variant="flat"
             :hover="false"
             class="p-3"
@@ -833,6 +874,7 @@ onMounted(async () => {
             </div>
           </Card>
           <Card
+            v-if="selectedTrace.credential_name || !isMcpWorkflowServerTrace(selectedTrace)"
             variant="flat"
             :hover="false"
             class="p-3"

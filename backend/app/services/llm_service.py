@@ -1382,30 +1382,6 @@ class LLMService:
                 wf_display = _workflow_name_for_tool_entry(tool_def, args)
                 if wf_display:
                     entry["workflow_name"] = wf_display
-                if tool_source == "mcp":
-                    trace_request: dict[str, Any] = {
-                        "tool_name": name,
-                        "arguments": args,
-                    }
-                    if mcp_server:
-                        trace_request["mcp_server"] = mcp_server
-                    connection_id = tool_def.get("_connection_id") if tool_def else None
-                    if connection_id:
-                        trace_request["connection_id"] = connection_id
-                    error_text = None
-                    if isinstance(tool_result, dict):
-                        raw_error = tool_result.get("error")
-                        if isinstance(raw_error, str) and raw_error.strip():
-                            error_text = raw_error.strip()
-                    self._record_trace(
-                        request_type="mcp.call_tool",
-                        provider="MCP",
-                        model=None,
-                        request=trace_request,
-                        response={"result": tool_result},
-                        error=error_text,
-                        elapsed_ms=tool_elapsed_ms,
-                    )
                 if on_tool_call:
                     # Emit "tool finished" progress without sensitive payloads.
                     on_tool_call(
