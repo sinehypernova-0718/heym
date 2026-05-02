@@ -20,6 +20,7 @@ import DOMPurify from "dompurify";
 import type { Message } from "@/types/chat";
 import type { CredentialListItem, LLMModel } from "@/types/credential";
 import Button from "@/components/ui/Button.vue";
+import ImageLightbox from "@/components/ui/ImageLightbox.vue";
 import { aiApi, credentialsApi } from "@/services/api";
 import { useFileAttachment } from "@/composables/useFileAttachment";
 import type { AttachedFile } from "@/composables/useFileAttachment";
@@ -51,6 +52,7 @@ const speechRecognition = ref<SpeechRecognition | null>(null);
 const isSpeechSupported = ref(false);
 const isListening = ref(false);
 const isFixingTranscription = ref(false);
+const imageLightboxSrc = ref<string | null>(null);
 let copiedMessageIdTimeout: ReturnType<typeof setTimeout> | null = null;
 
 interface SpeechRecognitionResultAlternative {
@@ -102,6 +104,15 @@ const conversationTitle = computed(() =>
   chatStore.activeConversation?.title ?? "",
 );
 const canSendMessage = computed(() => isShowingConversation.value && !isConversationTransitioning.value);
+const canFocusInput = computed(
+  () =>
+    canSendMessage.value &&
+    !chatStore.isStreaming &&
+    !isLoadingModels.value &&
+    !modelsLoadFailed.value &&
+    Boolean(selectedCredentialId.value) &&
+    Boolean(selectedModel.value),
+);
 const userInitial = computed(() => {
   const source = authStore.user?.name?.trim() || authStore.user?.email?.trim() || "?";
   return source.charAt(0).toUpperCase();
@@ -111,12 +122,14 @@ onMounted(() => {
   setupSpeechRecognition();
   void chatStore.loadConversation(props.conversationId);
   void loadCredentials();
+  focusInputWhenReady();
 });
 
 watch(
   () => props.conversationId,
   (id) => {
     void chatStore.loadConversation(id);
+    focusInputWhenReady();
   },
 );
 
@@ -131,8 +144,32 @@ watch(
   },
 );
 
+watch(
+  canFocusInput,
+  (canFocus) => {
+    if (canFocus) {
+      focusInputWhenReady();
+    }
+  },
+);
+
+watch(
+  () => chatStore.activeConversation?.id,
+  () => {
+    focusInputWhenReady();
+  },
+);
+
 function scrollToBottom(): void {
   messagesEndRef.value?.scrollIntoView({ behavior: "smooth" });
+}
+
+function focusInputWhenReady(): void {
+  nextTick(() => {
+    if (canFocusInput.value) {
+      chatInputRef.value?.focus();
+    }
+  });
 }
 
 function renderMarkdown(content: string): string {
@@ -142,10 +179,20 @@ function renderMarkdown(content: string): string {
     ALLOWED_TAGS: [
       "p", "br", "strong", "em", "u", "s", "code", "pre", "blockquote",
       "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "a", "hr",
-      "table", "thead", "tbody", "tr", "th", "td", "img",
+      "table", "thead", "tbody", "tr", "th", "td", "img", "video", "source",
     ],
-    ALLOWED_ATTR: ["href", "target", "rel", "src", "alt"],
+    ALLOWED_ATTR: [
+      "href", "target", "rel", "src", "alt", "controls", "playsinline",
+      "muted", "loop", "preload", "type", "style",
+    ],
   });
+}
+
+function handleMarkdownImageClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement;
+  if (target.tagName === "IMG") {
+    imageLightboxSrc.value = (target as HTMLImageElement).src;
+  }
 }
 
 async function copyMessage(msg: Message): Promise<void> {
@@ -266,6 +313,7 @@ async function loadModels(credId: string): Promise<void> {
     modelsLoadFailed.value = true;
   } finally {
     isLoadingModels.value = false;
+    focusInputWhenReady();
   }
 }
 
@@ -303,6 +351,7 @@ async function send(): Promise<void> {
         }
       : null,
   );
+  focusInputWhenReady();
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -471,9 +520,23 @@ onUnmounted(() => {
           <!-- eslint-disable vue/no-v-html -->
           <div
             class="chat-markdown"
+            @click="handleMarkdownImageClick"
             v-html="renderMarkdown(msg.content)"
           />
           <!-- eslint-enable vue/no-v-html -->
+          <div
+            v-if="msg.images && msg.images.length > 0"
+            class="mt-2 flex flex-wrap gap-2"
+          >
+            <img
+              v-for="(imgSrc, index) in msg.images"
+              :key="`${msg.id}-${index}`"
+              :src="imgSrc"
+              alt="Generated image"
+              class="max-h-48 max-w-full rounded-lg object-contain cursor-zoom-in border border-border/30 hover:border-border/60 transition-colors"
+              @click.stop="imageLightboxSrc = imgSrc"
+            >
+          </div>
           <div
             v-if="msg.attachmentName"
             class="mt-1.5 flex items-center gap-1 text-xs opacity-70"
@@ -492,25 +555,73 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-if="chatStore.isStreaming && chatStore.streamingContent"
+        v-if="chatStore.isStreaming"
         class="flex gap-3 justify-start"
       >
         <div class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
           <Bot class="w-4 h-4 text-primary" />
         </div>
         <div class="max-w-[72%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed bg-muted text-foreground break-words">
+          <div
+            v-if="chatStore.streamingSteps.length > 0"
+            class="mb-3 space-y-1.5"
+          >
+            <div
+              v-for="(step, index) in chatStore.streamingSteps"
+              :key="`${step}-${index}`"
+              class="flex items-center gap-2 text-xs text-muted-foreground"
+            >
+              <Loader2
+                v-if="index === chatStore.streamingSteps.length - 1 && !chatStore.streamingContent"
+                class="w-3.5 h-3.5 shrink-0 animate-spin"
+              />
+              <span
+                v-else
+                class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20"
+              >
+                <span class="text-[10px] text-primary">✓</span>
+              </span>
+              <span>{{ step }}</span>
+            </div>
+          </div>
           <!-- eslint-disable vue/no-v-html -->
           <div
+            v-if="chatStore.streamingContent"
             class="chat-markdown"
+            @click="handleMarkdownImageClick"
             v-html="renderMarkdown(chatStore.streamingContent)"
           />
           <!-- eslint-enable vue/no-v-html -->
-          <span class="inline-block w-0.5 h-4 bg-current ml-0.5 animate-pulse" />
+          <div
+            v-if="!chatStore.streamingContent && chatStore.streamingImages.length === 0"
+            class="flex items-center gap-2 text-muted-foreground"
+          >
+            <span>{{ chatStore.streamingSteps.length > 0 ? "Preparing response..." : "Heyming..." }}</span>
+          </div>
+          <div
+            v-if="chatStore.streamingImages.length > 0"
+            class="mt-2 flex flex-wrap gap-2"
+          >
+            <img
+              v-for="(imgSrc, index) in chatStore.streamingImages"
+              :key="`streaming-${index}`"
+              :src="imgSrc"
+              alt="Generated image"
+              class="max-h-48 max-w-full rounded-lg object-contain cursor-zoom-in border border-border/30 hover:border-border/60 transition-colors"
+              @click.stop="imageLightboxSrc = imgSrc"
+            >
+          </div>
         </div>
       </div>
 
       <div ref="messagesEndRef" />
     </div>
+
+    <ImageLightbox
+      :src="imageLightboxSrc"
+      alt="Generated image"
+      @close="imageLightboxSrc = null"
+    />
 
     <div class="chat-input-area shrink-0 px-3 sm:px-4 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <input
@@ -676,5 +787,16 @@ onUnmounted(() => {
 .chat-markdown :deep(a) {
   color: inherit;
   text-decoration: underline;
+}
+
+.chat-markdown :deep(img),
+.chat-markdown :deep(video) {
+  border: 1px solid hsl(var(--border) / 0.35);
+  border-radius: 0.5rem;
+  cursor: zoom-in;
+  margin: 0.65rem 0;
+  max-height: 12rem;
+  max-width: 100%;
+  object-fit: contain;
 }
 </style>

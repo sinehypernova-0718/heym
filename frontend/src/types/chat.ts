@@ -10,6 +10,7 @@ export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  images?: string[]
   attachmentName?: string
   created_at: string
 }
@@ -35,5 +36,8 @@ export interface MessageCreate {
 
 export type SSEChunk =
   | { type: 'content'; text: string }
+  | { type: 'step'; label: string }
+  | { type: 'tool_output'; images: string[] }
+  | { type: 'title'; title: string }
   | { type: 'done' }
   | { type: 'error'; text: string }

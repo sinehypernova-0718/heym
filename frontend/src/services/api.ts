@@ -2285,6 +2285,8 @@ export const chatApi = {
     onChunk: (text: string) => void,
     onDone: () => void,
     onError: (msg: string) => void,
+    onStep?: (label: string) => void,
+    onToolOutput?: (images: string[]) => void,
     onTitle?: (title: string) => void,
     signal?: AbortSignal,
   ): Promise<void> => {
@@ -2323,6 +2325,16 @@ export const chatApi = {
           if (parsed.type === "content") onChunk(parsed.text);
           else if (parsed.type === "done") onDone();
           else if (parsed.type === "error") onError(parsed.text);
+          else if (parsed.type === "step" && typeof parsed.label === "string") {
+            onStep?.(parsed.label);
+          }
+          else if (
+            parsed.type === "tool_output" &&
+            Array.isArray(parsed.images) &&
+            parsed.images.length > 0
+          ) {
+            onToolOutput?.(parsed.images);
+          }
           else if (parsed.type === "title" && typeof parsed.title === "string") {
             onTitle?.(parsed.title);
           }

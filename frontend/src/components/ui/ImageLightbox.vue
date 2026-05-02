@@ -39,6 +39,13 @@ function handlePopState(): void {
   }
 }
 
+function handleKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || !props.src) return;
+  event.preventDefault();
+  event.stopPropagation();
+  close();
+}
+
 function setupListeners(): void {
   document.body.style.overflow = "hidden";
   document.body.dataset.heymLightboxOpen = "true";
@@ -46,6 +53,7 @@ function setupListeners(): void {
   hasPushedState = true;
   window.addEventListener("popstate", handlePopState);
   window.addEventListener(DISMISS_OVERLAYS_EVENT, handleDismissOverlays, true);
+  document.addEventListener("keydown", handleKeydown, true);
   nextTick(() => overlayRef.value?.focus());
 }
 
@@ -54,6 +62,7 @@ function teardownListeners(): void {
   delete document.body.dataset.heymLightboxOpen;
   window.removeEventListener("popstate", handlePopState);
   window.removeEventListener(DISMISS_OVERLAYS_EVENT, handleDismissOverlays, true);
+  document.removeEventListener("keydown", handleKeydown, true);
   if (!closedByPopState && hasPushedState) {
     if (document.body.dataset.heymQuickDrawerOpen === "true") {
       closedByPopState = false;
@@ -69,10 +78,10 @@ function teardownListeners(): void {
 
 watch(
   () => props.src,
-  (newSrc) => {
-    if (newSrc) {
+  (newSrc, oldSrc) => {
+    if (newSrc && !oldSrc) {
       setupListeners();
-    } else {
+    } else if (!newSrc && oldSrc) {
       teardownListeners();
     }
   },

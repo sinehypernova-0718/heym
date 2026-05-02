@@ -73,10 +73,17 @@ onUnmounted(() => {
               @mouseenter="chatStore.openSidebar"
             />
 
-            <ChatListPanel
-              v-if="chatStore.isSidebarOpen"
-              :active-conversation-id="conversationId"
-            />
+            <div
+              class="chat-sidebar-shell"
+              :class="{ 'chat-sidebar-shell--closed': !chatStore.isSidebarOpen }"
+              :aria-hidden="!chatStore.isSidebarOpen"
+            >
+              <ChatListPanel
+                class="chat-sidebar-panel"
+                :class="{ 'chat-sidebar-panel--closed': !chatStore.isSidebarOpen }"
+                :active-conversation-id="conversationId"
+              />
+            </div>
 
             <div class="flex-1 flex flex-col min-w-0 h-full">
               <ChatConversation
@@ -108,3 +115,32 @@ onUnmounted(() => {
     </div>
   </WorkspaceShell>
 </template>
+
+<style scoped>
+.chat-sidebar-shell {
+  width: 16rem;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width;
+}
+
+.chat-sidebar-shell--closed {
+  width: 0;
+}
+
+.chat-sidebar-panel {
+  transform: translate3d(0, 0, 0);
+  opacity: 1;
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease-out;
+  will-change: transform, opacity;
+}
+
+.chat-sidebar-panel--closed {
+  pointer-events: none;
+  transform: translate3d(-18px, 0, 0);
+  opacity: 0;
+}
+</style>

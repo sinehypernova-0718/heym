@@ -30,6 +30,8 @@ export const useChatStore = defineStore("chat", () => {
   const isLoadingMessages = ref(false);
   const isStreaming = ref(false);
   const streamingContent = ref("");
+  const streamingImages = ref<string[]>([]);
+  const streamingSteps = ref<string[]>([]);
   const activeAbortController = ref<AbortController | null>(null);
   let createConversationStartedAt = 0;
   let createConversationPromise: Promise<Conversation> | null = null;
@@ -187,6 +189,8 @@ export const useChatStore = defineStore("chat", () => {
 
     isStreaming.value = true;
     streamingContent.value = "";
+    streamingImages.value = [];
+    streamingSteps.value = [];
     activeAbortController.value = new AbortController();
 
     try {
@@ -204,6 +208,7 @@ export const useChatStore = defineStore("chat", () => {
             id: crypto.randomUUID(),
             role: "assistant",
             content: streamingContent.value,
+            ...(streamingImages.value.length > 0 ? { images: [...streamingImages.value] } : {}),
             created_at: new Date().toISOString(),
           };
           if (activeConversation.value) {
@@ -214,6 +219,8 @@ export const useChatStore = defineStore("chat", () => {
             void _writeCachedConversation(activeConversation.value);
           }
           streamingContent.value = "";
+          streamingImages.value = [];
+          streamingSteps.value = [];
           isStreaming.value = false;
           activeAbortController.value = null;
           _refreshConversationTimestamp(conversationId);
@@ -221,7 +228,15 @@ export const useChatStore = defineStore("chat", () => {
         (_err) => {
           isStreaming.value = false;
           streamingContent.value = "";
+          streamingImages.value = [];
+          streamingSteps.value = [];
           activeAbortController.value = null;
+        },
+        (label) => {
+          streamingSteps.value = [...streamingSteps.value, label];
+        },
+        (images) => {
+          streamingImages.value = [...streamingImages.value, ...images];
         },
         (title) => {
           _patchConversationTitle(conversationId, title);
@@ -231,6 +246,8 @@ export const useChatStore = defineStore("chat", () => {
     } catch {
       isStreaming.value = false;
       streamingContent.value = "";
+      streamingImages.value = [];
+      streamingSteps.value = [];
       activeAbortController.value = null;
     }
   }
@@ -239,6 +256,8 @@ export const useChatStore = defineStore("chat", () => {
     activeAbortController.value?.abort();
     activeAbortController.value = null;
     streamingContent.value = "";
+    streamingImages.value = [];
+    streamingSteps.value = [];
     isStreaming.value = false;
   }
 
@@ -415,6 +434,8 @@ export const useChatStore = defineStore("chat", () => {
     isLoadingMessages,
     isStreaming,
     streamingContent,
+    streamingImages,
+    streamingSteps,
     toggleSidebar,
     openSidebar,
     loadConversations,
