@@ -13,6 +13,17 @@ export function saveShowcaseChatDraft(draft: string): void {
   window.dispatchEvent(new CustomEvent(SHOWCASE_CHAT_DRAFT_EVENT));
 }
 
+/** True when Guidelines / showcase saved a draft and it has not been consumed yet. */
+export function hasShowcaseChatDraftPending(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.sessionStorage.getItem(SHOWCASE_CHAT_DRAFT_STORAGE_KEY) ?? "";
+    return raw.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function consumeShowcaseChatDraft(): string {
   if (typeof window === "undefined") return "";
 

@@ -38,6 +38,9 @@ export function resolveShowcaseContext(
   if (options.routePath.startsWith("/docs")) {
     return "docs";
   }
+  if (options.routePath.startsWith("/chats")) {
+    return "dashboard:chat";
+  }
   if (options.routePath === "/") {
     return `dashboard:${options.dashboardTab ?? "workflows"}`;
   }

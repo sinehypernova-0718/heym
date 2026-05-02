@@ -25,7 +25,6 @@ import {
 } from "lucide-vue-next";
 
 import AnalyticsDashboard from "@/components/Analytics/AnalyticsDashboard.vue";
-import DashboardChatPanel from "@/components/Dashboard/DashboardChatPanel.vue";
 import CredentialsPanel from "@/components/Credentials/CredentialsPanel.vue";
 import TemplatesPage from "@/features/templates/components/TemplatesPage.vue";
 import GlobalVariablesPanel from "@/components/GlobalVariables/GlobalVariablesPanel.vue";
@@ -81,6 +80,9 @@ const paletteAutoOpenId = ref<string | undefined>(undefined);
 const paletteAutoOpenKind = ref<"workflow" | "node" | undefined>(undefined);
 
 const tabParam = route.query.tab as string;
+if (tabParam === "chat") {
+  void router.replace("/chats");
+}
 
 function parseTabParam(raw: string | undefined | null): { tab: string; subPath: string | null } {
   if (!raw) return { tab: "workflows", subPath: null };
@@ -92,11 +94,11 @@ function parseTabParam(raw: string | undefined | null): { tab: string; subPath: 
 
 const validTabs = new Set([
   "workflows", "schedules", "credentials", "globalvariables", "vectorstores", "mcp",
-  "traces", "analytics", "templates", "teams", "logs", "chat", "drive", "datatable",
+  "traces", "analytics", "templates", "teams", "logs", "drive", "datatable",
 ]);
 
-const parsedInitial = parseTabParam(tabParam);
-type TabKey = "workflows" | "schedules" | "credentials" | "globalvariables" | "vectorstores" | "mcp" | "traces" | "analytics" | "templates" | "teams" | "logs" | "chat" | "drive" | "datatable";
+const parsedInitial = parseTabParam(tabParam === "chat" ? undefined : tabParam);
+type TabKey = "workflows" | "schedules" | "credentials" | "globalvariables" | "vectorstores" | "mcp" | "traces" | "analytics" | "templates" | "teams" | "logs" | "drive" | "datatable";
 const initialTab: TabKey = validTabs.has(parsedInitial.tab) ? (parsedInitial.tab as TabKey) : "workflows";
 const dataTableInitialId = ref<string | null>(parsedInitial.tab === "datatable" ? parsedInitial.subPath : null);
 const activeTab = ref<TabKey>(initialTab);
@@ -116,6 +118,10 @@ watch(activeTab, (newTab) => {
 watch(
   () => route.query.tab,
   (newTabParam) => {
+    if (newTabParam === "chat") {
+      void router.replace("/chats");
+      return;
+    }
     const parsed = parseTabParam(newTabParam as string);
     const newTab = validTabs.has(parsed.tab) ? parsed.tab : "workflows";
     if (parsed.tab === "datatable") {
@@ -319,6 +325,12 @@ function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
       window.open(joinOriginAndPath(window.location.origin, "/evals"), "_blank", "noopener,noreferrer");
     } else {
       router.push("/evals");
+    }
+  } else if (tabId === "chat") {
+    if (openInNewTab) {
+      window.open(joinOriginAndPath(window.location.origin, "/chats"), "_blank", "noopener,noreferrer");
+    } else {
+      router.push("/chats");
     }
   } else {
     if (openInNewTab) {
@@ -1146,12 +1158,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
     :enabled="true"
     :showcase-context="showcaseContext"
   >
-    <div
-      :class="cn(
-        'min-h-screen bg-background overflow-x-hidden',
-        activeTab === 'chat' && 'h-screen flex flex-col overflow-hidden'
-      )"
-    >
+    <div class="min-h-screen bg-background overflow-x-hidden">
       <AppHeader :on-open-command-palette="() => { showCommandPalette = true; pushOverlayState(); }">
         <template #actions>
           <Button
@@ -1166,30 +1173,13 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
         </template>
       </AppHeader>
 
-      <main
-        :class="cn(
-          'dashboard-main px-3 sm:px-4 py-4 sm:py-6 md:py-8',
-          activeTab === 'chat' && 'flex-1 flex flex-col min-h-0 overflow-hidden py-3 sm:py-4'
-        )"
-      >
+      <main class="dashboard-main px-3 sm:px-4 py-4 sm:py-6 md:py-8">
         <div class="absolute top-0 left-0 right-0 h-[500px] pointer-events-none overflow-hidden">
           <div class="absolute inset-0 bg-gradient-to-b from-primary/[0.03] via-transparent to-transparent" />
           <div class="absolute inset-0 bg-dots-pattern opacity-30" />
         </div>
-        <div
-          :class="cn(
-            'w-full max-w-7xl mx-auto relative',
-            activeTab === 'chat' && 'flex-1 flex flex-col min-h-0 overflow-hidden'
-          )"
-        >
+        <div class="w-full max-w-7xl mx-auto relative">
           <DashboardNav />
-
-          <div
-            v-if="activeTab === 'chat'"
-            class="flex-1 min-h-0 overflow-hidden flex flex-col w-full"
-          >
-            <DashboardChatPanel />
-          </div>
 
           <div
             v-if="activeTab === 'workflows'"

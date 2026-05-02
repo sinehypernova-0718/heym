@@ -95,10 +95,19 @@ function onPaletteTabSelect(tabId: string, event?: MouseEvent): void {
   showCommandPalette.value = false;
   const openInNewTab = event && (event.ctrlKey || event.metaKey);
   if (openInNewTab) {
-    const path = tabId === "evals" ? "/evals" : tabId === "workflows" ? "/" : `/?tab=${tabId}`;
+    const path =
+      tabId === "evals"
+        ? "/evals"
+        : tabId === "chat"
+          ? "/chats"
+          : tabId === "workflows"
+            ? "/"
+            : `/?tab=${tabId}`;
     window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
   } else if (tabId === "evals") {
     router.push("/evals");
+  } else if (tabId === "chat") {
+    router.push("/chats");
   } else if (tabId === "workflows") {
     router.push("/");
   } else {

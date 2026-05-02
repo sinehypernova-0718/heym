@@ -15,6 +15,7 @@ interface Props {
   selectedNode?: Record<string, unknown> | null;
   flowKey?: number | string;
   emptyMessage?: string;
+  showMiniMap?: boolean;
 }
 
 interface PreviewNodeData extends Record<string, unknown> {
@@ -28,6 +29,7 @@ const props = withDefaults(defineProps<Props>(), {
   selectedNode: null,
   flowKey: 0,
   emptyMessage: "No nodes to preview",
+  showMiniMap: true,
 });
 
 const emit = defineEmits<{
@@ -72,6 +74,7 @@ function clearSelection(): void {
       :selected-node-id="activeNode?.nodeId ?? null"
       :fit-padding="fitPadding"
       :empty-message="emptyMessage"
+      :show-mini-map="showMiniMap"
       @node-click="handleNodeClick"
       @pane-click="clearSelection"
     />

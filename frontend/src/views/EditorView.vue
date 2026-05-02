@@ -939,6 +939,12 @@ function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
     } else {
       router.push("/evals");
     }
+  } else if (tabId === "chat") {
+    if (openInNewTab) {
+      window.open(joinOriginAndPath(window.location.origin, "/chats"), "_blank", "noopener,noreferrer");
+    } else {
+      router.push("/chats");
+    }
   } else {
     if (openInNewTab) {
       const path = tabId === "workflows" ? "/" : `/?tab=${tabId}`;

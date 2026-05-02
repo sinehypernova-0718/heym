@@ -21,7 +21,6 @@ export type DashboardShowcaseTab =
   | "workflows"
   | "templates"
   | "globalvariables"
-  | "chat"
   | "credentials"
   | "vectorstores"
   | "mcp"

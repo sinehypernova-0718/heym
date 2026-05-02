@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { SquarePen, ChevronRight, Send } from "lucide-vue-next";
 
@@ -8,7 +8,11 @@ import DashboardNav from "@/components/Layout/DashboardNav.vue";
 import WorkspaceShell from "@/components/Layout/WorkspaceShell.vue";
 import ChatListPanel from "@/components/Chat/ChatListPanel.vue";
 import ChatConversation from "@/components/Chat/ChatConversation.vue";
+import type { ShowcaseContext } from "@/features/showcase/showcase.types";
+import { hasShowcaseChatDraftPending } from "@/features/showcase/showcaseChatDraft";
 import { useChatStore } from "@/stores/chat";
+
+const chatsShowcaseContext: ShowcaseContext = "dashboard:chat";
 
 const route = useRoute();
 const router = useRouter();
@@ -35,13 +39,19 @@ async function createNew(): Promise<void> {
   }
 }
 
+onMounted(() => {
+  if (!conversationId.value && hasShowcaseChatDraftPending()) {
+    void createNew();
+  }
+});
+
 onUnmounted(() => {
   if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
 });
 </script>
 
 <template>
-  <WorkspaceShell>
+  <WorkspaceShell :showcase-context="chatsShowcaseContext">
     <div class="h-screen flex flex-col bg-background overflow-hidden">
       <AppHeader>
         <template #actions>

@@ -27,6 +27,10 @@ import ImageLightbox from "@/components/ui/ImageLightbox.vue";
 import { aiApi, credentialsApi } from "@/services/api";
 import { useFileAttachment } from "@/composables/useFileAttachment";
 import type { AttachedFile } from "@/composables/useFileAttachment";
+import {
+  consumeShowcaseChatDraft,
+  SHOWCASE_CHAT_DRAFT_EVENT,
+} from "@/features/showcase/showcaseChatDraft";
 import { useAuthStore } from "@/stores/auth";
 import { useChatStore } from "@/stores/chat";
 
@@ -125,17 +129,11 @@ const userInitial = computed(() => {
   return source.charAt(0).toUpperCase();
 });
 
-onMounted(() => {
-  setupSpeechRecognition();
-  void loadConversationForRoute(props.conversationId);
-  void loadCredentials();
-  focusInputWhenReady();
-});
-
 watch(
   () => props.conversationId,
   (id) => {
     void loadConversationForRoute(id);
+    applyShowcaseDraft();
     focusInputWhenReady();
   },
 );
@@ -179,6 +177,13 @@ function focusInputWhenReady(): void {
   });
 }
 
+function applyShowcaseDraft(): void {
+  const draft = consumeShowcaseChatDraft();
+  if (!draft) return;
+  input.value = draft;
+  focusInputWhenReady();
+}
+
 async function loadConversationForRoute(id: string): Promise<void> {
   if (!UUID_PATTERN.test(id)) {
     await router.replace("/chats");
@@ -190,6 +195,15 @@ async function loadConversationForRoute(id: string): Promise<void> {
     await router.replace("/chats");
   }
 }
+
+onMounted(() => {
+  setupSpeechRecognition();
+  void loadConversationForRoute(props.conversationId);
+  void loadCredentials();
+  window.addEventListener(SHOWCASE_CHAT_DRAFT_EVENT, applyShowcaseDraft);
+  applyShowcaseDraft();
+  focusInputWhenReady();
+});
 
 function renderMarkdown(content: string): string {
   if (!content) return "";
@@ -388,6 +402,7 @@ function stopStreaming(): void {
 }
 
 onUnmounted(() => {
+  window.removeEventListener(SHOWCASE_CHAT_DRAFT_EVENT, applyShowcaseDraft);
   if (copiedMessageIdTimeout) clearTimeout(copiedMessageIdTimeout);
   speechRecognition.value?.stop();
 });

@@ -43,6 +43,7 @@ watch(
         :nodes="version?.nodes ?? []"
         :edges="version?.edges ?? []"
         :selected-node="selectedNode"
+        :show-mini-map="false"
         empty-message="No nodes in this version"
         @update:selected-node="emit('update:selectedNode', $event)"
       />

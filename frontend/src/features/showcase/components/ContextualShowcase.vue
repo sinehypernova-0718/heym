@@ -349,7 +349,7 @@ function buildAskAboutPagePrompt(): string {
 async function askAboutPage(): Promise<void> {
   saveShowcaseChatDraft(buildAskAboutPagePrompt());
   closeShowcase();
-  await router.push({ path: "/", query: { tab: "chat" } });
+  await router.push("/chats");
 }
 
 watch(

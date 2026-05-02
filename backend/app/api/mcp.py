@@ -2,7 +2,9 @@ import asyncio
 import json
 import secrets
 import uuid
+from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -20,6 +22,7 @@ from app.db.models import (
     Credential,
     CredentialType,
     ExecutionHistory,
+    LLMTrace,
     OAuthAccessToken,
     User,
     Workflow,
@@ -241,6 +244,69 @@ async def get_credentials_context_for_user(db: AsyncSession, user_id: uuid.UUID)
         except Exception:
             pass
     return context
+
+
+def _json_compatible(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return _json_compatible(asdict(value))
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _json_compatible(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_compatible(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_compatible(item) for item in value]
+    return value
+
+
+def _add_mcp_workflow_trace(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    workflow: Workflow,
+    tool_name: str,
+    arguments: dict,
+    execution_result: object | None = None,
+    error: str | None = None,
+) -> None:
+    request_payload = {
+        "tool_name": tool_name,
+        "arguments": _json_compatible(arguments),
+        "workflow_id": str(workflow.id),
+        "workflow_name": workflow.name,
+    }
+    response_payload: dict[str, Any] = {}
+    elapsed_ms: float | None = None
+    if execution_result is not None:
+        elapsed_ms = float(getattr(execution_result, "execution_time_ms", 0.0) or 0.0)
+        response_payload = {
+            "status": getattr(execution_result, "status", "error"),
+            "outputs": _json_compatible(getattr(execution_result, "outputs", {})),
+            "node_results": _json_compatible(getattr(execution_result, "node_results", [])),
+            "sub_workflow_executions": _json_compatible(
+                getattr(execution_result, "sub_workflow_executions", [])
+            ),
+            "execution_time_ms": elapsed_ms,
+        }
+
+    db.add(
+        LLMTrace(
+            user_id=user_id,
+            credential_id=None,
+            workflow_id=workflow.id,
+            source="mcp",
+            request_type="mcp.workflow.execute",
+            provider="Heym MCP",
+            model=None,
+            node_id=None,
+            node_label=workflow.name,
+            request=request_payload,
+            response=response_payload,
+            error=error,
+            elapsed_ms=elapsed_ms,
+        )
+    )
 
 
 @router.get("/config", response_model=MCPConfigResponse)
@@ -508,6 +574,14 @@ async def call_mcp_tool(
             execution_result.sub_workflow_executions,
         )
 
+        _add_mcp_workflow_trace(
+            db,
+            user_id=mcp_user.id,
+            workflow=target_workflow,
+            tool_name=tool_name,
+            arguments=arguments,
+            execution_result=execution_result,
+        )
         await db.flush()
 
         output_text = json.dumps(execution_result.outputs, indent=2, ensure_ascii=False)
@@ -517,6 +591,15 @@ async def call_mcp_tool(
             isError=execution_result.status == "error",
         )
     except Exception as e:
+        _add_mcp_workflow_trace(
+            db,
+            user_id=mcp_user.id,
+            workflow=target_workflow,
+            tool_name=tool_name,
+            arguments=arguments,
+            error=str(e),
+        )
+        await db.flush()
         return MCPToolResult(
             content=[MCPTextContent(text=f"Execution error: {str(e)}")],
             isError=True,
@@ -649,6 +732,14 @@ async def handle_mcp_message(
                     execution_time_ms=sub_exec.execution_time_ms,
                 )
 
+            _add_mcp_workflow_trace(
+                db,
+                user_id=mcp_user.id,
+                workflow=target_workflow,
+                tool_name=tool_name,
+                arguments=arguments,
+                execution_result=execution_result,
+            )
             await db.flush()
 
             output_text = json.dumps(execution_result.outputs, indent=2, ensure_ascii=False)
@@ -662,6 +753,15 @@ async def handle_mcp_message(
                 },
             }
         except Exception as e:
+            _add_mcp_workflow_trace(
+                db,
+                user_id=mcp_user.id,
+                workflow=target_workflow,
+                tool_name=tool_name,
+                arguments=arguments,
+                error=str(e),
+            )
+            await db.flush()
             return {
                 "jsonrpc": "2.0",
                 "id": msg.id,
@@ -799,6 +899,14 @@ async def mcp_sse_post_endpoint(
                     execution_time_ms=sub_exec.execution_time_ms,
                 )
 
+            _add_mcp_workflow_trace(
+                db,
+                user_id=mcp_user.id,
+                workflow=target_workflow,
+                tool_name=tool_name,
+                arguments=arguments,
+                execution_result=execution_result,
+            )
             await db.flush()
 
             output_text = json.dumps(execution_result.outputs, indent=2, ensure_ascii=False)
@@ -812,6 +920,15 @@ async def mcp_sse_post_endpoint(
                 },
             }
         except Exception as e:
+            _add_mcp_workflow_trace(
+                db,
+                user_id=mcp_user.id,
+                workflow=target_workflow,
+                tool_name=tool_name,
+                arguments=arguments,
+                error=str(e),
+            )
+            await db.flush()
             return {
                 "jsonrpc": "2.0",
                 "id": msg.id,
