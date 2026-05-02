@@ -47,6 +47,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONVERSATION_TITLE = "New Chat"
 
 
+def _build_hidden_workflow_context_marker(workflow_id: str, workflow_name: str) -> str:
+    safe_name = workflow_name.replace("--", "").strip()
+    return f"\n<!-- heym-workflow-id:{workflow_id} heym-workflow-name:{safe_name} -->"
+
+
 async def _get_conversation_or_404(
     conversation_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
 ) -> DashboardConversation:
@@ -306,6 +311,8 @@ async def stream_message(
 
     async def event_generator() -> AsyncGenerator[str, None]:
         assistant_chunks: list[str] = []
+        workflow_context_markers: list[str] = []
+        workflow_note_ids: set[str] = set()
         try:
             async for chunk in stream_dashboard_chat(
                 client,
@@ -319,6 +326,7 @@ async def stream_message(
                 trace_context,
                 cancel_event,
                 attachment,
+                credential,
             ):
                 if cancel_event.is_set():
                     break
@@ -329,8 +337,22 @@ async def stream_message(
                         payload = {}
                     if payload.get("type") == "content":
                         assistant_chunks.append(str(payload.get("text") or ""))
+                    elif payload.get("type") == "workflow_created":
+                        workflow_id = str(payload.get("workflow_id") or "").strip()
+                        workflow_name = str(payload.get("workflow_name") or "").strip()
+                        if workflow_id and workflow_id not in workflow_note_ids:
+                            workflow_note_ids.add(workflow_id)
+                            workflow_context_markers.append(
+                                _build_hidden_workflow_context_marker(
+                                    workflow_id,
+                                    workflow_name or "Workflow",
+                                )
+                            )
                     elif payload.get("type") == "done":
                         assistant_content = "".join(assistant_chunks)
+                        for marker in workflow_context_markers:
+                            if marker and marker not in assistant_content:
+                                assistant_content += marker
                         if assistant_content:
                             db.add(
                                 DashboardMessage(

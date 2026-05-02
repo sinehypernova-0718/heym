@@ -1,3 +1,4 @@
+import json
 import unittest
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,7 +7,11 @@ from app.api.ai_assistant import (
     DashboardChatRequest,
     FileAttachment,
     _build_user_message,
+    _build_workflow_editor_user_message,
+    _extract_generated_workflow_config,
+    create_and_run_generated_workflow_tool,
     dashboard_chat_stream,
+    edit_and_run_generated_workflow_tool,
     stream_dashboard_chat,
 )
 from app.db.models import CredentialType
@@ -47,6 +52,7 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
             _trace_context: object,
             _cancel_event: object,
             _attachment: object = None,
+            _selected_credential: object = None,
         ):
             captured["system_prompt"] = system_prompt
             captured["messages"] = messages
@@ -144,6 +150,7 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
             _trace_context: object,
             _cancel_event: object,
             _attachment: object = None,
+            _selected_credential: object = None,
         ):
             captured["trace_context"] = _trace_context
             yield 'data: {"type":"done"}\n\n'
@@ -253,6 +260,7 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
             _trace_context: object,
             _cancel_event: object,
             _attachment: object = None,
+            _selected_credential: object = None,
         ):
             captured["messages"] = messages
             yield 'data: {"type":"done"}\n\n'
@@ -326,6 +334,7 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
             _trace_context: object,
             _cancel_event: object,
             _attachment: object = None,
+            _selected_credential: object = None,
         ):
             yield 'data: {"type":"step","label":"Searching documentation..."}\n\n'
             yield 'data: {"type":"done"}\n\n'
@@ -372,6 +381,242 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
                 'data: {"type":"done"}\n\n',
             ],
         )
+
+
+class DashboardChatWorkflowBuilderTests(unittest.IsolatedAsyncioTestCase):
+    def test_extract_generated_workflow_config_from_json_block(self) -> None:
+        content = """
+Here is the workflow:
+```json
+{
+  "name": "Daily Digest",
+  "description": "Summarizes updates every morning.",
+  "nodes": [{"id": "input", "type": "textInput", "data": {"label": "request"}}],
+  "edges": [],
+}
+```
+"""
+        config = _extract_generated_workflow_config(content, "Create a daily digest")
+
+        self.assertEqual(config["name"], "Daily Digest")
+        self.assertEqual(config["description"], "Summarizes updates every morning.")
+        self.assertEqual(config["nodes"][0]["id"], "input")
+        self.assertEqual(config["edges"], [])
+
+    async def test_create_and_run_generated_workflow_saves_and_executes(self) -> None:
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        user.user_rules = None
+
+        credential = MagicMock()
+        credential.id = uuid.uuid4()
+        credential.owner_id = user.id
+        credential.type = CredentialType.openai
+
+        builder_content = """
+```json
+{
+  "name": "Echo Assistant",
+  "description": "Echoes the incoming text through an LLM.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "textInput",
+      "position": {"x": 0, "y": 0},
+      "data": {"label": "request", "inputFields": [{"key": "text"}]}
+    },
+    {
+      "id": "llm",
+      "type": "llm",
+      "position": {"x": 260, "y": 0},
+      "data": {
+        "label": "reply",
+        "credentialId": "YOUR_CREDENTIAL_ID",
+        "model": "",
+        "userMessage": "$request.text"
+      }
+    }
+  ],
+  "edges": [{"id": "e1", "source": "input", "target": "llm"}]
+}
+```
+"""
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content=builder_content))]
+        client = MagicMock()
+        client.chat.completions.create.return_value = response
+
+        db = MagicMock()
+        credential_result = MagicMock()
+        credential_result.scalars.return_value.all.return_value = [credential.id]
+        db.execute = AsyncMock(return_value=credential_result)
+        db.flush = AsyncMock()
+
+        with (
+            patch(
+                "app.api.ai_assistant.template_service.list_node_templates",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "app.api.ai_assistant.run_execute_workflow_tool",
+                AsyncMock(
+                    return_value='{"status":"success","outputs":{"text":"done"},"node_results":[]}'
+                ),
+            ) as run_tool,
+        ):
+            raw_result = await create_and_run_generated_workflow_tool(
+                db=db,
+                user=user,
+                client=client,
+                model="gpt-4o-mini",
+                selected_credential=credential,
+                selected_model="gpt-4o-mini",
+                goal="Create an echo workflow",
+                inputs={"text": "hello"},
+                available_workflows=[],
+                public_base_url="http://localhost",
+            )
+
+        saved_workflow = db.add.call_args.args[0]
+        self.assertEqual(saved_workflow.name, "Echo Assistant")
+        self.assertEqual(saved_workflow.nodes[1]["data"]["credentialId"], str(credential.id))
+        self.assertEqual(saved_workflow.nodes[1]["data"]["model"], "gpt-4o-mini")
+        run_tool.assert_awaited_once()
+        self.assertEqual(run_tool.call_args.args[2], str(saved_workflow.id))
+        self.assertEqual(run_tool.call_args.args[3], {"text": "hello"})
+
+        result = json.loads(raw_result)
+        self.assertEqual(result["status"], "created_and_ran")
+        self.assertEqual(result["workflow_name"], "Echo Assistant")
+        self.assertEqual(result["workflow_url"], f"/workflows/{saved_workflow.id}")
+        self.assertIn('Open "Echo Assistant" in a new tab', result["workflow_link_markdown"])
+        self.assertEqual(result["workflow_preview"]["id"], str(saved_workflow.id))
+        self.assertEqual(result["workflow_preview"]["nodes"][1]["id"], "llm")
+        self.assertEqual(result["execution"]["status"], "success")
+
+    async def test_edit_and_run_generated_workflow_updates_same_workflow(self) -> None:
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        user.user_rules = None
+
+        credential = MagicMock()
+        credential.id = uuid.uuid4()
+        credential.owner_id = user.id
+        credential.type = CredentialType.openai
+
+        workflow = MagicMock()
+        workflow.id = uuid.uuid4()
+        workflow.name = "Echo Assistant"
+        workflow.description = "Old description"
+        workflow.nodes = [
+            {
+                "id": "input",
+                "type": "textInput",
+                "position": {"x": 0, "y": 0},
+                "data": {"label": "request", "inputFields": [{"key": "text"}]},
+            }
+        ]
+        workflow.edges = []
+
+        builder_content = """
+```json
+{
+  "name": "Echo Assistant With Output",
+  "description": "Echoes text and formats it.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "textInput",
+      "position": {"x": 0, "y": 0},
+      "data": {"label": "request", "inputFields": [{"key": "text"}]}
+    },
+    {
+      "id": "output",
+      "type": "output",
+      "position": {"x": 260, "y": 0},
+      "data": {"label": "done", "message": "$request.text"}
+    }
+  ],
+  "edges": [{"id": "e1", "source": "input", "target": "output"}]
+}
+```
+"""
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content=builder_content))]
+        client = MagicMock()
+        client.chat.completions.create.return_value = response
+
+        db = MagicMock()
+        credential_result = MagicMock()
+        credential_result.scalars.return_value.all.return_value = [credential.id]
+        db.execute = AsyncMock(return_value=credential_result)
+        db.flush = AsyncMock()
+
+        with (
+            patch("app.api.ai_assistant.get_workflow_for_user", AsyncMock(return_value=workflow)),
+            patch(
+                "app.api.ai_assistant.template_service.list_node_templates",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "app.api.ai_assistant.run_execute_workflow_tool",
+                AsyncMock(
+                    return_value='{"status":"success","outputs":{"text":"done"},"node_results":[]}'
+                ),
+            ) as run_tool,
+        ):
+            raw_result = await edit_and_run_generated_workflow_tool(
+                db=db,
+                user=user,
+                client=client,
+                model="gpt-4o-mini",
+                selected_credential=credential,
+                selected_model="gpt-4o-mini",
+                workflow_id=str(workflow.id),
+                instructions="Add an output node",
+                inputs={"text": "hello"},
+                available_workflows=[],
+                public_base_url="http://localhost",
+            )
+
+        self.assertEqual(workflow.name, "Echo Assistant With Output")
+        self.assertEqual(workflow.description, "Echoes text and formats it.")
+        self.assertEqual(workflow.nodes[1]["id"], "output")
+        self.assertEqual(workflow.edges[0]["target"], "output")
+        run_tool.assert_awaited_once()
+        self.assertEqual(run_tool.call_args.args[2], str(workflow.id))
+
+        result = json.loads(raw_result)
+        self.assertEqual(result["status"], "edited_and_ran")
+        self.assertEqual(result["workflow_id"], str(workflow.id))
+        self.assertEqual(result["workflow_preview"]["nodes"][1]["id"], "output")
+        self.assertEqual(result["execution"]["status"], "success")
+
+    def test_workflow_editor_prompt_allows_renaming_updated_workflow(self) -> None:
+        workflow = MagicMock()
+        workflow.id = uuid.uuid4()
+        workflow.name = "Old Workflow"
+        workflow.description = "Old description"
+        workflow.nodes = [
+            {
+                "id": "input",
+                "type": "textInput",
+                "position": {"x": 0, "y": 0},
+                "data": {"label": "old input"},
+            }
+        ]
+        workflow.edges = []
+
+        prompt = _build_workflow_editor_user_message(
+            workflow,
+            "Make this workflow fetch Google results instead",
+            {},
+            None,
+        )
+
+        self.assertIn("Update the workflow name, description, and node labels", prompt)
+        self.assertIn("Preserve node ids", prompt)
+        self.assertNotIn("Preserve node ids, labels", prompt)
 
 
 class BuildUserMessageTests(unittest.TestCase):
@@ -437,6 +682,7 @@ class DashboardChatAttachmentIntegrationTests(unittest.IsolatedAsyncioTestCase):
             _trace_context: object,
             _cancel_event: object,
             _attachment: object = None,
+            _selected_credential: object = None,
         ):
             captured["system_prompt"] = system_prompt
             captured["messages"] = messages

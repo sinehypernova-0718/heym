@@ -93,6 +93,7 @@ import type {
   ConversationCreate,
   ConversationDetail,
   ConversationUpdate,
+  WorkflowPreview,
 } from "@/types/chat";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
@@ -2288,6 +2289,7 @@ export const chatApi = {
     onStep?: (label: string) => void,
     onToolOutput?: (images: string[]) => void,
     onTitle?: (title: string) => void,
+    onWorkflowCreated?: (workflow: WorkflowPreview) => void,
     signal?: AbortSignal,
   ): Promise<void> => {
     const base = import.meta.env.VITE_API_URL || "";
@@ -2337,6 +2339,25 @@ export const chatApi = {
           }
           else if (parsed.type === "title" && typeof parsed.title === "string") {
             onTitle?.(parsed.title);
+          }
+          else if (
+            parsed.type === "workflow_created" &&
+            typeof parsed.workflow_id === "string" &&
+            typeof parsed.workflow_name === "string" &&
+            typeof parsed.workflow_url === "string" &&
+            Array.isArray(parsed.nodes) &&
+            Array.isArray(parsed.edges)
+          ) {
+            onWorkflowCreated?.({
+              id: parsed.workflow_id,
+              name: parsed.workflow_name,
+              description: typeof parsed.workflow_description === "string"
+                ? parsed.workflow_description
+                : null,
+              url: parsed.workflow_url,
+              nodes: parsed.nodes,
+              edges: parsed.edges,
+            });
           }
         } catch {
           // ignore malformed lines

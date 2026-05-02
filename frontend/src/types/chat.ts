@@ -1,3 +1,14 @@
+import type { WorkflowEdge, WorkflowNode } from "@/types/workflow"
+
+export interface WorkflowPreview {
+  id: string
+  name: string
+  description: string | null
+  url: string
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+}
+
 export interface Conversation {
   id: string
   title: string
@@ -12,6 +23,7 @@ export interface Message {
   content: string
   images?: string[]
   attachmentName?: string
+  workflowPreview?: WorkflowPreview
   created_at: string
 }
 
@@ -38,6 +50,7 @@ export type SSEChunk =
   | { type: 'content'; text: string }
   | { type: 'step'; label: string }
   | { type: 'tool_output'; images: string[] }
+  | { type: 'workflow_created'; workflow: WorkflowPreview }
   | { type: 'title'; title: string }
   | { type: 'done' }
   | { type: 'error'; text: string }
