@@ -88,6 +88,12 @@ import type {
   AgentMemoryGraphResponse,
   AgentMemoryNodeDTO,
 } from "@/types/agentMemory";
+import type {
+  Conversation,
+  ConversationCreate,
+  ConversationDetail,
+  ConversationUpdate,
+} from "@/types/chat";
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
@@ -2231,6 +2237,112 @@ export const dataTablesApi = {
 
   removeTeamShare: async (id: string, teamId: string): Promise<void> => {
     await api.delete(`/data-tables/${id}/team-shares/${teamId}`);
+  },
+};
+
+export const chatApi = {
+  listConversations: async (): Promise<Conversation[]> => {
+    const response = await api.get<{ conversations: Conversation[] }>("/chats");
+    return response.data.conversations;
+  },
+
+  createConversation: async (body: ConversationCreate = {}): Promise<Conversation> => {
+    const response = await api.post<Conversation>("/chats", body);
+    return response.data;
+  },
+
+  getConversation: async (id: string): Promise<ConversationDetail> => {
+    const response = await api.get<ConversationDetail>(`/chats/${id}`);
+    return response.data;
+  },
+
+  updateConversation: async (id: string, body: ConversationUpdate): Promise<Conversation> => {
+    const response = await api.put<Conversation>(`/chats/${id}`, body);
+    return response.data;
+  },
+
+  deleteConversation: async (id: string): Promise<void> => {
+    await api.delete(`/chats/${id}`);
+  },
+
+  clearConversations: async (): Promise<void> => {
+    await api.delete("/chats");
+  },
+
+  streamMessage: (id: string, content: string, credentialId: string, model: string): EventSource => {
+    const base = import.meta.env.VITE_API_URL || "";
+    const url = `${base}/api/chats/${id}/messages`;
+    const params = new URLSearchParams({ content, credential_id: credentialId, model });
+    return new EventSource(`${url}?${params}`);
+  },
+
+  streamMessagePost: async (
+    id: string,
+    content: string,
+    credentialId: string,
+    model: string,
+    attachment: FileAttachmentPayload | null,
+    onChunk: (text: string) => void,
+    onDone: () => void,
+    onError: (msg: string) => void,
+    onStep?: (label: string) => void,
+    onToolOutput?: (images: string[]) => void,
+    onTitle?: (title: string) => void,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const base = import.meta.env.VITE_API_URL || "";
+    const url = `${base}/api/chats/${id}/messages`;
+    const response = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content,
+        credential_id: credentialId,
+        model,
+        ...(attachment ? { attachment } : {}),
+      }),
+      signal,
+    });
+    if (!response.ok || !response.body) {
+      onError(`HTTP ${response.status}`);
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let reading = true;
+    while (reading) {
+      const { done, value } = await reader.read();
+      if (done) { reading = false; break; }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const parsed = JSON.parse(line.slice(6));
+          if (parsed.type === "content") onChunk(parsed.text);
+          else if (parsed.type === "done") onDone();
+          else if (parsed.type === "error") onError(parsed.text);
+          else if (parsed.type === "step" && typeof parsed.label === "string") {
+            onStep?.(parsed.label);
+          }
+          else if (
+            parsed.type === "tool_output" &&
+            Array.isArray(parsed.images) &&
+            parsed.images.length > 0
+          ) {
+            onToolOutput?.(parsed.images);
+          }
+          else if (parsed.type === "title" && typeof parsed.title === "string") {
+            onTitle?.(parsed.title);
+          }
+        } catch {
+          // ignore malformed lines
+        }
+      }
+    }
   },
 };
 

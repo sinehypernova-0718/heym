@@ -59,6 +59,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/chats",
+      name: "chats",
+      component: () => import("@/views/ChatsView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/chats/:id",
+      name: "chat-detail",
+      component: () => import("@/views/ChatsView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/picker-callback",
       name: "picker-callback",
       component: () => import("@/views/PickerCallbackView.vue"),
