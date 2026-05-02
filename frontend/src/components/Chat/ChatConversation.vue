@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, computed, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 import {
   Send,
   Bot,
@@ -33,8 +34,12 @@ interface Props {
 
 const props = defineProps<Props>();
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const chatStore = useChatStore();
 const authStore = useAuthStore();
+const router = useRouter();
 
 const input = ref("");
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
@@ -120,7 +125,7 @@ const userInitial = computed(() => {
 
 onMounted(() => {
   setupSpeechRecognition();
-  void chatStore.loadConversation(props.conversationId);
+  void loadConversationForRoute(props.conversationId);
   void loadCredentials();
   focusInputWhenReady();
 });
@@ -128,7 +133,7 @@ onMounted(() => {
 watch(
   () => props.conversationId,
   (id) => {
-    void chatStore.loadConversation(id);
+    void loadConversationForRoute(id);
     focusInputWhenReady();
   },
 );
@@ -170,6 +175,18 @@ function focusInputWhenReady(): void {
       chatInputRef.value?.focus();
     }
   });
+}
+
+async function loadConversationForRoute(id: string): Promise<void> {
+  if (!UUID_PATTERN.test(id)) {
+    await router.replace("/chats");
+    return;
+  }
+
+  const result = await chatStore.loadConversation(id);
+  if (result === "not_found" && props.conversationId === id) {
+    await router.replace("/chats");
+  }
 }
 
 function renderMarkdown(content: string): string {

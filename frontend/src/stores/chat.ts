@@ -17,6 +17,8 @@ interface EncryptedChatCachePayload {
   data: string;
 }
 
+type ConversationLoadResult = "loaded" | "not_found" | "error";
+
 export const useChatStore = defineStore("chat", () => {
   const authStore = useAuthStore();
   const conversations = ref<Conversation[]>([]);
@@ -68,14 +70,14 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  async function loadConversation(id: string): Promise<void> {
+  async function loadConversation(id: string): Promise<ConversationLoadResult> {
     latestConversationLoadId = id;
     const existingConversation = activeConversation.value?.id === id ? activeConversation.value : null;
     isLoadingMessages.value = !existingConversation;
     try {
       if (!existingConversation) {
         const cached = await _readCachedConversation(id);
-        if (latestConversationLoadId !== id) return;
+        if (latestConversationLoadId !== id) return "error";
         if (cached) {
           activeConversation.value = cached;
           isLoadingMessages.value = false;
@@ -83,13 +85,25 @@ export const useChatStore = defineStore("chat", () => {
       }
 
       const fetched = await chatApi.getConversation(id);
-      if (latestConversationLoadId !== id) return;
+      if (latestConversationLoadId !== id) return "error";
       if (activeConversation.value?.id === id) {
         activeConversation.value = _mergeConversationDetails(activeConversation.value, fetched);
       } else {
         activeConversation.value = fetched;
       }
       void _writeCachedConversation(activeConversation.value);
+      return "loaded";
+    } catch (error) {
+      const status = _getHttpStatus(error);
+      if (status === 400 || status === 404 || status === 422) {
+        conversations.value = conversations.value.filter((conversation) => conversation.id !== id);
+        _removeCachedConversation(id);
+        if (activeConversation.value?.id === id) {
+          activeConversation.value = null;
+        }
+        return "not_found";
+      }
+      return "error";
     } finally {
       if (latestConversationLoadId === id) {
         isLoadingMessages.value = false;
@@ -389,6 +403,18 @@ export const useChatStore = defineStore("chat", () => {
 
   function _getCurrentUserId(): string | null {
     return authStore.user?.id ?? null;
+  }
+
+  function _getHttpStatus(error: unknown): number | null {
+    if (typeof error !== "object" || error === null || !("response" in error)) {
+      return null;
+    }
+    const response = (error as { response?: unknown }).response;
+    if (typeof response !== "object" || response === null || !("status" in response)) {
+      return null;
+    }
+    const status = (response as { status?: unknown }).status;
+    return typeof status === "number" ? status : null;
   }
 
   function _bytesToBase64(bytes: Uint8Array): string {
