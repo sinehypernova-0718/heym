@@ -31,6 +31,7 @@ import { createAgentSkillZipBlob, getSkillZipFileName, parseSkillZip } from "@/l
 import SelectorPickerDialog from "@/components/Dialogs/SelectorPickerDialog.vue";
 import SkillBuilderModal from "@/components/Panels/SkillBuilderModal.vue";
 import Button from "@/components/ui/Button.vue";
+import AgentFieldToggle from "@/components/ui/AgentFieldToggle.vue";
 import ExpressionInput from "@/components/ui/ExpressionInput.vue";
 import Input from "@/components/ui/Input.vue";
 import Label from "@/components/ui/Label.vue";
@@ -7747,7 +7748,6 @@ onUnmounted(() => {
                     :navigation-total="mappings.length"
                     :dialog-node-label="selectedNodeEvaluateDialogLabel"
                     :dialog-key-label="mapping.key || `mapping ${index + 1}`"
-                    :field-key="mapping.key || `mapping_${index}`"
                     @update:model-value="updateMappingField(index, 'value', $event)"
                     @navigate="handleSetMappingNavigate"
                     @register-field-index="onSetMappingRegisterFieldIndex"
@@ -7760,6 +7760,10 @@ onUnmounted(() => {
                   >
                     <X class="w-3 h-3" />
                   </button>
+                  <AgentFieldToggle
+                    :node-id="selectedNode.id"
+                    :field-key="mapping.key || `mapping_${index}`"
+                  />
                 </div>
                 <p
                   v-if="getMappingKeyError(mapping.key)"

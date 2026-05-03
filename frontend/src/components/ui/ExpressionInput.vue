@@ -2242,7 +2242,8 @@ defineExpose({
     <button
       v-if="isToolNodeField"
       type="button"
-      class="absolute -top-5 right-0 z-10 flex h-5 w-5 items-center justify-center rounded"
+      class="absolute right-0 z-10 flex h-5 w-5 items-center justify-center rounded"
+      style="top: -22px"
       :class="
         isAgentProvided
           ? 'text-violet-500 hover:text-violet-400'

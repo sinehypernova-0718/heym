@@ -1156,10 +1156,9 @@ function tidyUp(): void {
     const isSubAgent = subAgentNodeIds.has(agentId);
 
     if (isSubAgent) {
-      // Sub-agent: stack tools above-right (aligned to the right 75% handle)
-      const rightAnchorX = agentPos.x + agentWidth * 0.75;
-      let nextX = rightAnchorX;
-      const toolY = agentPos.y - STRIDE;
+      // Sub-agent: place tools to the upper-right (past right edge of agent)
+      let nextX = agentPos.x + agentWidth + HORIZONTAL_GAP;
+      const toolY = agentPos.y - STRIDE / 2;
       toolIds.forEach((toolId, i) => {
         nodePositions.set(toolId, { x: nextX, y: toolY });
         workflowStore.updateNodePosition(toolId, { x: nextX, y: toolY });
