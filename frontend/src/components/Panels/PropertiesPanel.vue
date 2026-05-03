@@ -7722,12 +7722,12 @@ onUnmounted(() => {
                 :key="index"
                 class="space-y-1"
               >
-                <div class="flex items-center gap-2">
+                <div class="grid grid-cols-[4rem_auto_minmax(0,1fr)_auto_auto] items-center gap-1.5">
                   <Input
                     :model-value="mapping.key"
                     placeholder="key"
                     :class="[
-                      'w-20 shrink-0 font-mono text-xs',
+                      'w-full font-mono text-xs',
                       getMappingKeyError(mapping.key) ? 'border-red-500 focus:ring-red-500' : ''
                     ]"
                     @update:model-value="updateMappingField(index, 'key', $event)"

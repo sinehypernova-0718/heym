@@ -2243,7 +2243,7 @@ defineExpose({
       v-if="isToolNodeField"
       type="button"
       class="absolute right-0 z-10 flex h-7 w-7 items-center justify-center rounded-md border border-input bg-background shadow-sm transition-colors hover:bg-accent"
-      style="top: -38px"
+      style="top: -34px"
       :class="
         isAgentProvided
           ? 'border-violet-500/40 text-violet-500 hover:text-violet-400'
@@ -2393,7 +2393,7 @@ defineExpose({
       <button
         v-if="expandable && !disabled && singleLine && !isAgentProvided"
         type="button"
-        class="flex h-10 w-8 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         title="Expand editor"
         @click="openExpandDialog"
       >
