@@ -49,6 +49,13 @@ _DOTDICT_BUILTIN_METHOD_NAMES: frozenset[str] = frozenset(
     {"items", "keys", "values", "entries", "map", "filter"}
 )
 
+_SLUG_RE = re.compile(r"[^a-zA-Z0-9]+")
+
+
+def _slugify_tool_name(label: str) -> str:
+    slug = _SLUG_RE.sub("_", label.strip()).strip("_").lower()
+    return slug[:64] or "node_tool"
+
 
 def _build_agent_execution_log_output(agent_result: dict) -> dict:
     """Rich agent fields for execution logs (e.g. sub-agent node_complete)."""
@@ -3454,12 +3461,6 @@ class WorkflowExecutor:
 
     def _build_node_tool_schemas(self, agent_node_id: str) -> list[dict]:
         """Build OpenAI-compatible tool schemas for canvas nodes on the tool-input handle."""
-        import re
-
-        def _slugify(label: str) -> str:
-            slug = re.sub(r"[^a-zA-Z0-9]+", "_", label.strip()).strip("_").lower()
-            return slug[:64] or "node_tool"
-
         tool_node_ids = [
             edge["source"]
             for edge in self.edges
@@ -3475,7 +3476,7 @@ class WorkflowExecutor:
                 continue
             node_data = node.get("data", {})
             label = node_data.get("label") or node_id
-            base_name = _slugify(label)
+            base_name = _slugify_tool_name(label)
 
             name = base_name
             suffix = 2
