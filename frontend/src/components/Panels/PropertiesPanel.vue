@@ -30,6 +30,7 @@ import { createAgentSkillZipBlob, getSkillZipFileName, parseSkillZip } from "@/l
 
 import SelectorPickerDialog from "@/components/Dialogs/SelectorPickerDialog.vue";
 import SkillBuilderModal from "@/components/Panels/SkillBuilderModal.vue";
+import AgentFieldToggle from "@/components/ui/AgentFieldToggle.vue";
 import Button from "@/components/ui/Button.vue";
 import ExpressionInput from "@/components/ui/ExpressionInput.vue";
 import Input from "@/components/ui/Input.vue";
@@ -1075,6 +1076,18 @@ function handleFallbackModelChange(model: string | undefined): void {
 }
 
 const selectedNode = computed(() => workflowStore.selectedNode);
+
+const selectedNodeIsToolNode = computed((): boolean => {
+  if (!selectedNode.value) return false;
+  return workflowStore.edges.some(
+    (e) => e.source === selectedNode.value!.id && e.targetHandle === "tool-input",
+  );
+});
+
+function isAgentProvided(fieldKey: string): boolean {
+  const fields: string[] = selectedNode.value?.data.agentProvidedFields ?? [];
+  return fields.includes(fieldKey);
+}
 
 const selectedNodeEvaluateDialogLabel = computed((): string => {
   const node = selectedNode.value;
@@ -7135,8 +7148,16 @@ onUnmounted(() => {
 
           <template v-if="selectedNode.type === 'http'">
             <div class="space-y-2">
-              <Label>cURL Command</Label>
+              <div class="flex items-center justify-between">
+                <Label>cURL Command</Label>
+                <AgentFieldToggle
+                  v-if="selectedNodeIsToolNode"
+                  :node-id="selectedNode.id"
+                  field-key="curl"
+                />
+              </div>
               <ExpressionInput
+                v-if="!selectedNodeIsToolNode || !isAgentProvided('curl')"
                 ref="httpCurlInputRef"
                 :model-value="selectedNode.data.curl || ''"
                 placeholder="curl -X GET https://api.example.com"
@@ -7150,7 +7171,16 @@ onUnmounted(() => {
                 dialog-title="Edit cURL Command"
                 @update:model-value="updateNodeData('curl', $event)"
               />
-              <p class="text-xs text-muted-foreground">
+              <p
+                v-else
+                class="text-xs text-violet-400 italic px-1 py-2 border border-violet-800/30 rounded-md bg-violet-950/20"
+              >
+                Agent will provide the cURL command at runtime.
+              </p>
+              <p
+                v-if="!selectedNodeIsToolNode || !isAgentProvided('curl')"
+                class="text-xs text-muted-foreground"
+              >
                 Double-click to expand. Use $ expressions like {{ exampleRef }}
               </p>
             </div>
