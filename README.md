@@ -6,7 +6,7 @@
 
 # Heym
 
-### AI-Native Workflow Automation
+### AI-Native Workflow Automation Platform
 
 <p align="center">
   <strong>Build, visualize, and run intelligent AI workflows — without writing code.</strong><br/>
@@ -68,6 +68,10 @@ Our enterprise offering is for commercial licensing, deployment help, dedicated 
 ---
 
 ## Product Demos
+
+The demos below illustrate an **agent–subagent** layout instead of a purely step-by-step, single-thread agent chain. For a request like “How do I get from Berlin to Frankfurt?” *and* “What should I eat there?”, subagents can work on those parts **in parallel**. That tends to finish faster, keeps each model turn focused (less context bloat), and avoids pressuring one model to produce two large, unrelated answers in a single reply.
+
+You can still answer with **two separate LLM calls** (one per question) or run **several calls in sequence** and merge the results in a final step—those patterns work—but for this kind of multi-part ask they are usually **slower** than parallel subagents behind an orchestrator.
 
 ### Generate Workflows from Natural Language
 
