@@ -388,17 +388,18 @@ const hasThrowErrorWarning = computed(() => {
     />
 
     <template v-if="props.type === 'agent'">
+      <!-- tool-input: center when standalone agent, right (75%) when sub-agent -->
       <Handle
         id="tool-input"
         type="target"
         :position="Position.Top"
-        :style="isSubAgentNode ? { left: '30%' } : undefined"
+        :style="isSubAgentNode ? { left: '75%' } : undefined"
         class="!w-3.5 !h-3.5 !bg-violet-600 !border-violet-800"
       />
       <div
         :class="[
           'absolute -top-5 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none -translate-x-1/2',
-          isSubAgentNode ? 'left-[30%]' : 'left-1/2',
+          isSubAgentNode ? 'left-[75%]' : 'left-1/2',
         ]"
       >
         tools
@@ -414,9 +415,10 @@ const hasThrowErrorWarning = computed(() => {
       />
     </template>
 
+    <!-- sub-agent-input: left (25%) for symmetry with tool-input on right -->
     <div
       v-if="type === 'agent' && data.isSubAgent"
-      class="absolute -top-1 left-1/2 -translate-x-1/2"
+      class="absolute -top-1 left-1/4 -translate-x-1/2"
     >
       <Handle
         id="sub-agent-input"

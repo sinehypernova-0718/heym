@@ -1151,17 +1151,33 @@ function tidyUp(): void {
   agentToolNodes.forEach((toolIds, agentId) => {
     const agentPos = nodePositions.get(agentId);
     if (!agentPos) return;
+    const agentWidth = getNodeWidth(agentId);
     const toolWidths = toolIds.map(id => getNodeWidth(id));
-    const totalWidth = toolWidths.reduce((s, w) => s + w, 0) + (toolIds.length - 1) * HORIZONTAL_GAP;
-    const agentCenterX = agentPos.x + getNodeWidth(agentId) / 2;
-    let nextX = agentCenterX - totalWidth / 2;
-    const toolY = agentPos.y - STRIDE;
-    toolIds.forEach((toolId, i) => {
-      const x = nextX;
-      nextX += (toolWidths[i] ?? NODE_WIDTH) + HORIZONTAL_GAP;
-      nodePositions.set(toolId, { x, y: toolY });
-      workflowStore.updateNodePosition(toolId, { x, y: toolY });
-    });
+    const isSubAgent = subAgentNodeIds.has(agentId);
+
+    if (isSubAgent) {
+      // Sub-agent: stack tools above-right (aligned to the right 75% handle)
+      const rightAnchorX = agentPos.x + agentWidth * 0.75;
+      let nextX = rightAnchorX;
+      const toolY = agentPos.y - STRIDE;
+      toolIds.forEach((toolId, i) => {
+        nodePositions.set(toolId, { x: nextX, y: toolY });
+        workflowStore.updateNodePosition(toolId, { x: nextX, y: toolY });
+        nextX += (toolWidths[i] ?? NODE_WIDTH) + HORIZONTAL_GAP;
+      });
+    } else {
+      // Normal agent: center tools above
+      const totalWidth = toolWidths.reduce((s, w) => s + w, 0) + (toolIds.length - 1) * HORIZONTAL_GAP;
+      const agentCenterX = agentPos.x + agentWidth / 2;
+      let nextX = agentCenterX - totalWidth / 2;
+      const toolY = agentPos.y - STRIDE;
+      toolIds.forEach((toolId, i) => {
+        const x = nextX;
+        nextX += (toolWidths[i] ?? NODE_WIDTH) + HORIZONTAL_GAP;
+        nodePositions.set(toolId, { x, y: toolY });
+        workflowStore.updateNodePosition(toolId, { x, y: toolY });
+      });
+    }
   });
 
   void nextTick(() => {
