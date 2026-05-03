@@ -138,7 +138,7 @@ const subAgentEdges = computed(() => buildSubAgentEdges(workflowStore.nodes));
 const vueFlowEdges = computed(() => [
   ...workflowStore.edges.map((edge) => ({
     id: edge.id,
-    type: "insertable",
+    type: edge.targetHandle === "tool-input" ? "default" : "insertable",
     source: edge.source,
     target: edge.target,
     sourceHandle: edge.sourceHandle,

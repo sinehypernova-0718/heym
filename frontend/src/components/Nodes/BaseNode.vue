@@ -111,6 +111,12 @@ const { getEdges } = useVueFlow();
 const isToolNode = computed(
   () => getEdges.value.some((e) => e.source === props.id && e.targetHandle === "tool-input"),
 );
+const isOrchestratorWithSubAgents = computed(
+  () =>
+    props.type === "agent" &&
+    props.data.isOrchestrator === true &&
+    ((props.data.subAgentLabels as string[] | undefined)?.length ?? 0) > 0,
+);
 
 const hasInput = computed(
   () => !isToolNode.value
@@ -392,10 +398,14 @@ const hasThrowErrorWarning = computed(() => {
         id="tool-input"
         type="target"
         :position="Position.Bottom"
+        :style="isOrchestratorWithSubAgents ? { bottom: '20px' } : undefined"
         class="!w-4 !h-4 !bg-violet-600 !border-violet-800 !rounded-sm"
       />
       <div
-        class="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none"
+        :class="[
+          'absolute left-1/2 -translate-x-1/2 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none',
+          isOrchestratorWithSubAgents ? 'bottom-2' : '-bottom-5',
+        ]"
       >
         tools
       </div>
