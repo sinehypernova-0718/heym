@@ -5,6 +5,11 @@ export function isLoopBackEdge(edge: WorkflowEdge): boolean {
   return edge.targetHandle === "loop";
 }
 
+/** Edge connecting a tool node to an agent — excluded from expression reference graph. */
+export function isToolEdge(edge: WorkflowEdge): boolean {
+  return edge.targetHandle === "tool-input";
+}
+
 export function sortNodesByCanvasOrder(nodes: WorkflowNode[], ids: string[]): WorkflowNode[] {
   const map = new Map(nodes.map((n) => [n.id, n]));
   const list: WorkflowNode[] = [];
@@ -34,7 +39,7 @@ function outgoingNonLoopBodyTargetIds(
   currentId: string,
   edges: WorkflowEdge[],
 ): string[] {
-  const forward = edges.filter((e) => e.source === currentId && !isLoopBackEdge(e));
+  const forward = edges.filter((e) => e.source === currentId && !isLoopBackEdge(e) && !isToolEdge(e));
   return dedupeIds(forward.map((e) => e.target));
 }
 
@@ -102,11 +107,11 @@ export function incomingEvaluateGraphNeighborNodes(
     return [];
   }
 
-  const nonBack = edges.filter((e) => e.target === currentId && !isLoopBackEdge(e));
+  const nonBack = edges.filter((e) => e.target === currentId && !isLoopBackEdge(e) && !isToolEdge(e));
   if (nonBack.length > 0) {
     return sortNodesByCanvasOrder(nodes, dedupeIds(nonBack.map((e) => e.source)));
   }
 
-  const backOnly = edges.filter((e) => e.target === currentId && isLoopBackEdge(e));
+  const backOnly = edges.filter((e) => e.target === currentId && isLoopBackEdge(e) && !isToolEdge(e));
   return sortNodesByCanvasOrder(nodes, dedupeIds(backOnly.map((e) => e.source)));
 }

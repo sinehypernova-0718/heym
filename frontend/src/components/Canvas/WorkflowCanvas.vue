@@ -71,6 +71,12 @@ function onMiniMapMouseLeave(): void {
   if (showMiniMap.value) scheduleMiniMapHide();
 }
 
+const BLOCKED_AS_TOOL = new Set<string>([
+  "merge", "switch", "loop", "agent", "llm", "condition",
+  "execute", "sticky", "errorHandler",
+  "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
+]);
+
 const pendingConnection = ref<{ nodeId: string; handleId: string | null } | null>(null);
 const isDraggingFile = ref(false);
 
@@ -146,7 +152,7 @@ const vueFlowEdges = computed(() => [
     animated: true,
     style:
       edge.targetHandle === "tool-input"
-        ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 2 }
+        ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 1.5 }
         : undefined,
   })),
   ...subAgentEdges.value.map((edge) => ({
@@ -180,11 +186,6 @@ onConnect((connection) => {
   }
 
   if (connection.targetHandle === "tool-input" && connection.source) {
-    const BLOCKED_AS_TOOL = new Set([
-      "merge", "switch", "loop", "agent", "llm", "condition",
-      "execute", "sticky", "errorHandler",
-      "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
-    ]);
     const sourceNode = workflowStore.nodes.find((n) => n.id === connection.source);
     if (sourceNode) {
       if (BLOCKED_AS_TOOL.has(sourceNode.type)) {
@@ -655,19 +656,32 @@ function handleDrop(event: DragEvent): void {
         );
         workflowStore.addNode(newNode);
         if (pendingSource) {
-          const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
           const nodeType = template.node_type as NodeType;
-          if (!noInputTypes.includes(nodeType)) {
+          if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
             const edge: WorkflowEdge = {
-              id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
-              source: pendingSource.nodeId,
-              target: newNode.id,
-              sourceHandle: pendingSource.handleId || undefined,
-              targetHandle: "input",
+              id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+              source: newNode.id,
+              target: pendingSource.nodeId,
+              sourceHandle: "tool-output",
+              targetHandle: "tool-input",
             };
             workflowStore.addEdge(edge);
             workflowStore.clearNodeSearchQuery();
             workflowStore.requestTidyUp();
+          } else {
+            const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
+            if (!noInputTypes.includes(nodeType)) {
+              const edge: WorkflowEdge = {
+                id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
+                source: pendingSource.nodeId,
+                target: newNode.id,
+                sourceHandle: pendingSource.handleId || undefined,
+                targetHandle: "input",
+              };
+              workflowStore.addEdge(edge);
+              workflowStore.clearNodeSearchQuery();
+              workflowStore.requestTidyUp();
+            }
           }
           workflowStore.clearPendingConnectionSource();
         }
@@ -716,18 +730,31 @@ function handleDrop(event: DragEvent): void {
   workflowStore.addNode(newNode);
 
   if (pendingSource) {
-    const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
-    if (!noInputTypes.includes(nodeType)) {
+    if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
       const edge: WorkflowEdge = {
-        id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
-        source: pendingSource.nodeId,
-        target: newNode.id,
-        sourceHandle: pendingSource.handleId || undefined,
-        targetHandle: "input",
+        id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+        source: newNode.id,
+        target: pendingSource.nodeId,
+        sourceHandle: "tool-output",
+        targetHandle: "tool-input",
       };
       workflowStore.addEdge(edge);
       workflowStore.clearNodeSearchQuery();
       workflowStore.requestTidyUp();
+    } else {
+      const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
+      if (!noInputTypes.includes(nodeType)) {
+        const edge: WorkflowEdge = {
+          id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
+          source: pendingSource.nodeId,
+          target: newNode.id,
+          sourceHandle: pendingSource.handleId || undefined,
+          targetHandle: "input",
+        };
+        workflowStore.addEdge(edge);
+        workflowStore.clearNodeSearchQuery();
+        workflowStore.requestTidyUp();
+      }
     }
     workflowStore.clearPendingConnectionSource();
   }
