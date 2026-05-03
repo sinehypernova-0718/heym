@@ -17,6 +17,12 @@ The **Set** node transforms and maps input data to custom output. Use it for upp
 | `label` | string | Node identifier (camelCase) |
 | `mappings` | array | Key-value pairs. Each: `{ key, value }` where `value` is an [expression](../reference/expression-dsl.md) |
 
+## Agent tool usage
+
+When a Set node is connected to an [Agent Node](./agent-node.md) as a canvas node tool, each mapping value can be marked as **agent-provided** with the bot icon. Marked mapping values become tool parameters that the agent fills at runtime. Unmarked mappings stay fixed in the node configuration.
+
+The bot icon appears only when the Set node is connected to an agent's tools handle. A standalone Set node does not show agent-provided controls.
+
 ## Expression Rules
 
 - Reference previous nodes: `$nodeName.text`, `$nodeName.body.field`

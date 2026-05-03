@@ -1,6 +1,6 @@
 # Agent Node
 
-The **AI Agent** node is an LLM node with tool calling. It can run Python tools, connect to MCP servers, use skills, optionally act as an orchestrator that delegates to other agent nodes, call other workflows as tools, and pause for [human review](../reference/human-in-the-loop.md).
+The **AI Agent** node is an LLM node with tool calling. It can run Python tools, call connected canvas nodes as tools, connect to MCP servers, use skills, optionally act as an orchestrator that delegates to other agent nodes, call other workflows as tools, and pause for [human review](../reference/human-in-the-loop.md).
 
 ## Overview
 
@@ -111,6 +111,31 @@ When configured, the agent receives a `call_sub_workflow` tool to execute other 
 | `subWorkflowIds` | string[] | IDs of workflows this agent can call as tools |
 
 Select workflows in the Sub-Workflows section of the agent config. The agent will call them with `workflow_id` and `inputs` (object matching the target workflow's input fields). Max depth: 5 nested sub-workflow calls.
+
+## Canvas Node Tools
+
+You can connect a supported workflow node to an agent's **tools** handle so the agent can call that node at runtime. This turns existing canvas actions and transforms into callable tools without writing Python.
+
+Use canvas node tools when you want the agent to decide when to run a configured node, while still keeping credentials, static fields, and workflow-specific settings in the node UI.
+
+### Agent-provided fields
+
+Fields on a connected tool node can be marked with the bot icon. Marked fields become required tool parameters that the agent must provide when it calls the node. Unmarked fields stay fixed and are read from the node configuration.
+
+For example:
+
+- Connect a Slack node to an agent as a tool
+- Keep the credential fixed in the Slack node
+- Mark `message` as agent-provided
+- The agent receives a Slack tool where it supplies only the message at runtime
+
+If the node is not connected to an agent as a tool, the bot icon is hidden and the node behaves like a normal workflow step.
+
+### Runtime behavior
+
+When the agent calls a canvas node tool, Heym temporarily merges the agent-provided arguments into that node's data, executes the node, returns the node output to the agent, then restores the original node configuration. Tool nodes do not run as regular workflow steps through normal scheduling; they run only when the agent calls them.
+
+Canvas node tools are useful with integration nodes such as Slack, Telegram, HTTP, Send Email, and data-shaping nodes such as [Set](./set-node.md) and [JSON output mapper](./json-output-mapper-node.md). Trigger nodes and control-flow nodes are not intended to be used as agent tools.
 
 ## Python Tools
 

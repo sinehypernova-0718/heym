@@ -17,6 +17,12 @@ The **JSON output mapper** node builds a JSON object from key/value [mappings](.
 | `label` | string | Node identifier (camelCase) |
 | `mappings` | array | `{ "key": "fieldName", "value": "expression" }` entries (same as Set) |
 
+## Agent tool usage
+
+When JSON output mapper is connected to an [Agent Node](./agent-node.md) as a canvas node tool, mapping values can be marked as **agent-provided** with the bot icon. Marked values become required tool parameters supplied by the agent at runtime. Unmarked values remain fixed.
+
+The bot icon appears only while the mapper is connected to an agent's tools handle.
+
 ## Webhook and run behavior
 
 When this node is the **only** terminal output of the workflow, execution **outputs** are the mapped object itself: keys from `mappings` appear at the **top level** of the JSON. There is **no** outer wrapper keyed by the node label and **no** `{ "result": ... }` object (unlike the [Output](./output-node.md) node).
