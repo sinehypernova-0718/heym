@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import MagicMock
 
 from app.services.workflow_executor import WorkflowExecutor
 
@@ -105,8 +106,6 @@ class TestExecuteNodeTool(unittest.TestCase):
     def _make_executor_with_execute(
         self, nodes: dict, edges: list, node_results: dict | None = None
     ) -> WorkflowExecutor:
-        from unittest.mock import MagicMock
-
         ex = _make_executor(nodes, edges)
         ex.node_results = node_results or {}
         ex.check_cancelled = MagicMock()
@@ -165,7 +164,7 @@ class TestExecuteNodeTool(unittest.TestCase):
                 node_label="Fetch",
                 node_type="http",
                 status="error",
-                output=None,
+                output={},
                 execution_time_ms=5.0,
                 error="Connection refused",
             )
@@ -197,7 +196,7 @@ class TestExecuteNodeTool(unittest.TestCase):
                 },
             }
         }
-        ex = _make_executor(nodes, [])
+        ex = self._make_executor_with_execute(nodes, [])
 
         def boom(node_id: str, inputs: dict, **kwargs):  # type: ignore[misc]
             raise RuntimeError("simulated crash")

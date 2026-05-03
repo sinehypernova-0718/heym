@@ -3510,13 +3510,12 @@ class WorkflowExecutor:
         return schemas
 
     def _execute_node_tool(self, tool_def: dict, args: dict) -> dict:
-        """Execute a canvas node as an agent tool with LLM-supplied args merged into node data."""
         node_id = tool_def.get("_node_id", "")
         node = self.nodes.get(node_id)
         if node is None:
             return {"error": f"Tool node '{node_id}' not found"}
 
-        original_data = dict(node["data"])
+        original_data = copy.deepcopy(node["data"])
         if original_data.get("active") is False:
             return {"error": f"Tool node '{original_data.get('label', node_id)}' is disabled"}
 
