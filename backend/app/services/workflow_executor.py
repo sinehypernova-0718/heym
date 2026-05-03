@@ -49,6 +49,13 @@ _DOTDICT_BUILTIN_METHOD_NAMES: frozenset[str] = frozenset(
     {"items", "keys", "values", "entries", "map", "filter"}
 )
 
+_SLUG_RE = re.compile(r"[^a-zA-Z0-9]+")
+
+
+def _slugify_tool_name(label: str) -> str:
+    slug = _SLUG_RE.sub("_", label.strip()).strip("_").lower()
+    return slug[:64] or "node_tool"
+
 
 def _build_agent_execution_log_output(agent_result: dict) -> dict:
     """Rich agent fields for execution logs (e.g. sub-agent node_complete)."""
@@ -3447,10 +3454,94 @@ class WorkflowExecutor:
                 return self._execute_sub_agent_tool(tool_def, name, args, timeout_seconds)
             if tool_source == "sub_workflow":
                 return self._execute_sub_workflow_tool(tool_def, name, args, timeout_seconds)
+            if tool_source == "node_tool":
+                return self._execute_node_tool(tool_def, args)
 
             return _unified_tool_executor(tool_def, name, args, timeout_seconds)
 
         return executor
+
+    def _build_node_tool_schemas(self, agent_node_id: str) -> list[dict]:
+        """Build OpenAI-compatible tool schemas for canvas nodes on the tool-input handle."""
+        tool_node_ids = [
+            edge["source"]
+            for edge in self.edges
+            if edge.get("target") == agent_node_id and edge.get("targetHandle") == "tool-input"
+        ]
+
+        schemas: list[dict] = []
+        seen_names: set[str] = set()
+
+        for node_id in tool_node_ids:
+            node = self.nodes.get(node_id)
+            if node is None:
+                continue
+            node_data = node.get("data", {})
+            label = node_data.get("label") or node_id
+            base_name = _slugify_tool_name(label)
+
+            name = base_name
+            suffix = 2
+            while name in seen_names:
+                name = f"{base_name}_{suffix}"
+                suffix += 1
+            seen_names.add(name)
+
+            agent_provided: list[str] = node_data.get("agentProvidedFields") or []
+            properties = {
+                field: {"type": "string", "description": f"Value for {field}"}
+                for field in agent_provided
+            }
+
+            schemas.append(
+                {
+                    "name": name,
+                    "description": f"Execute the '{label}' node",
+                    "parameters": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": list(agent_provided),
+                    },
+                    "_source": "node_tool",
+                    "_node_id": node_id,
+                }
+            )
+
+        return schemas
+
+    def _execute_node_tool(self, tool_def: dict, args: dict) -> dict:
+        node_id = tool_def.get("_node_id", "")
+        node = self.nodes.get(node_id)
+        if node is None:
+            return {"error": f"Tool node '{node_id}' not found"}
+
+        original_data = copy.deepcopy(node["data"])
+        if original_data.get("active") is False:
+            return {"error": f"Tool node '{original_data.get('label', node_id)}' is disabled"}
+
+        agent_provided: list[str] = original_data.get("agentProvidedFields") or []
+        merged_data = {**original_data}
+        for fname in agent_provided:
+            if fname in args:
+                merged_data[fname] = args[fname]
+
+        node_label = original_data.get("label", node_id)
+        _queue = getattr(self, "agent_progress_queue", None)
+        if _queue is not None:
+            _queue.put({"type": "node_start", "node_id": node_id, "node_label": node_label})
+
+        node["data"] = merged_data
+        try:
+            result = self.execute_node(node_id, {}, allow_branch_skip=False)
+        finally:
+            node["data"] = original_data
+
+        if _queue is not None:
+            _queue.put(_build_node_complete_event(result))
+
+        if result.status == "error":
+            return {"error": result.error or "Node execution failed"}
+        return result.output or {}
 
     def _execute_agent_node(
         self,
@@ -3960,8 +4051,14 @@ class WorkflowExecutor:
             }
             merged_tools.append(call_sub_workflow_tool)
 
+        node_tool_schemas = self._build_node_tool_schemas(node_id) if node_id is not None else []
+        merged_tools.extend(node_tool_schemas)
+
         needs_custom_executor = (
-            hitl_enabled or (is_orchestrator and sub_agent_labels) or bool(sub_workflow_ids)
+            hitl_enabled
+            or (is_orchestrator and sub_agent_labels)
+            or bool(sub_workflow_ids)
+            or bool(node_tool_schemas)
         )
 
         def on_tool_call(entry: dict) -> None:
@@ -8681,12 +8778,22 @@ class WorkflowExecutor:
         self.check_cancelled()
         node_results: list[NodeResult] = []
         error_flow_nodes = self.get_error_flow_nodes()
+        # Set of node IDs that are connected as tools to an agent (should not run in regular flow)
+        tool_node_ids = {
+            edge["source"] for edge in self.edges if edge.get("targetHandle") == "tool-input"
+        }
         active_edges = [
             edge
             for edge in self.get_active_edges()
-            if edge["source"] not in error_flow_nodes and edge["target"] not in error_flow_nodes
+            if edge["source"] not in error_flow_nodes
+            and edge["target"] not in error_flow_nodes
+            and edge.get("targetHandle") != "tool-input"
         ]
-        active_nodes = [node_id for node_id in self.nodes if node_id not in error_flow_nodes]
+        active_nodes = [
+            node_id
+            for node_id in self.nodes
+            if node_id not in error_flow_nodes and node_id not in tool_node_ids
+        ]
 
         for node_id in self.get_input_nodes():
             node = self.nodes[node_id]
@@ -10116,12 +10223,22 @@ def execute_workflow_streaming(
     error_result = None
     pending_result = None
     error_flow_nodes = wf_executor.get_error_flow_nodes()
+    # Set of node IDs that are connected as tools to an agent (should not run in regular flow)
+    tool_node_ids_streaming = {
+        edge["source"] for edge in wf_executor.edges if edge.get("targetHandle") == "tool-input"
+    }
     active_edges = [
         edge
         for edge in wf_executor.get_active_edges()
-        if edge["source"] not in error_flow_nodes and edge["target"] not in error_flow_nodes
+        if edge["source"] not in error_flow_nodes
+        and edge["target"] not in error_flow_nodes
+        and edge.get("targetHandle") != "tool-input"
     ]
-    active_nodes = [node_id for node_id in wf_executor.nodes if node_id not in error_flow_nodes]
+    active_nodes = [
+        node_id
+        for node_id in wf_executor.nodes
+        if node_id not in error_flow_nodes and node_id not in tool_node_ids_streaming
+    ]
 
     for node_id in wf_executor.get_input_nodes():
         node = wf_executor.nodes[node_id]

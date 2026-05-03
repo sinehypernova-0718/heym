@@ -172,7 +172,7 @@ export function useExpressionCompletion(
       visited.add(nodeId);
 
       for (const edge of options.edges) {
-        if (edge.target === nodeId && !visited.has(edge.source)) {
+        if (edge.target === nodeId && !visited.has(edge.source) && edge.targetHandle !== "tool-input") {
           upstream.add(edge.source);
           queue.push(edge.source);
         }

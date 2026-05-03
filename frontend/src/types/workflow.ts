@@ -363,6 +363,7 @@ export interface NodeData {
   /** Other agent nodes that may read (or read/write) this node's memory graph at runtime. */
   memoryShares?: AgentMemoryShareEntry[];
   isSubAgent?: boolean;
+  agentProvidedFields?: string[];
   maxToolIterations?: number;
   toolTimeoutSeconds?: number;
   variableName?: string;

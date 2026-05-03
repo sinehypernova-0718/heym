@@ -822,6 +822,19 @@ When `isOrchestrator` is true and `subAgentLabels` lists other agent node labels
 }
 ```
 
+### Node Tool Connections
+
+Any non-trigger node can be connected to an agent's bottom "tool-input" handle on the canvas to become a callable tool.
+
+- The tool name is derived from the node label (e.g., "Fetch Users" → fetch_users)
+- Fields marked with the agent-provided toggle (agentProvidedFields) become tool parameters the LLM must supply
+- All other node fields (credentials, fixed config) are filled transparently at execution time
+- The node's output dict is returned as the tool result to the LLM
+- Trigger nodes (cron, webhooks, etc.) cannot be used as node tools
+- A node used as a tool cannot also participate in the regular workflow flow
+
+Example: an HTTP node "Get Weather" with agentProvidedFields: ["curl"] gives the agent a get_weather tool with one parameter {curl: string}. The agent writes the curl command; the node's credential and any static headers are injected automatically.
+
 Output: `$charCounter.text` (same as llm node).
 
 ### Guardrails (for llm and agent nodes)

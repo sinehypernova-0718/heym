@@ -1,6 +1,6 @@
 # Agent Architecture
 
-The [Agent Node](../nodes/agent-node.md) supports sub-agents, sub-workflows, an orchestrator pattern, skills, MCP connections, tool calling, optional [persistent memory](./agent-persistent-memory.md) (per canvas node, with optional sharing to other agents), and optional [human review](./human-in-the-loop.md). This page describes the architecture.
+The [Agent Node](../nodes/agent-node.md) supports sub-agents, sub-workflows, canvas node tools, an orchestrator pattern, skills, MCP connections, tool calling, optional [persistent memory](./agent-persistent-memory.md) (per canvas node, with optional sharing to other agents), and optional [human review](./human-in-the-loop.md). This page describes the architecture.
 
 ## Sub-Agents
 
@@ -44,6 +44,26 @@ When `subWorkflowIds` is configured, the agent can call other workflows via the 
 
 Sub-workflows cannot pause for HITL in v1. If a nested sub-workflow tries to enter a pending review state, the execution fails instead of suspending inside the nested call.
 
+## Canvas Node Tools
+
+Canvas node tools are workflow nodes connected to an agent through the `tool-input` handle. During agent setup, `_build_node_tool_schemas` scans those edges and adds one OpenAI-compatible tool schema per connected node.
+
+- **Tool source**: `_source: "node_tool"`
+- **Tool name**: derived from the connected node label, with suffixes added for duplicates
+- **Tool parameters**: built from the node's `agentProvidedFields`
+- **Fixed fields**: all node fields not listed in `agentProvidedFields` stay in the node configuration
+
+### Execution Flow
+
+1. Agent decides to call a connected node tool
+2. `_execute_node_tool` copies the node data
+3. Agent-provided arguments are merged into the configured node fields
+4. `execute_node` runs that node once with branch scheduling disabled
+5. The original node data is restored
+6. The node output is returned to the agent as the tool result
+
+Tool nodes are excluded from normal workflow scheduling so they do not run twice. They execute only through the agent tool call path.
+
 ## Human-in-the-Loop
 
 When `hitlEnabled` is set on an agent, the agent receives a `request_human_review` tool that it can call at specific approval checkpoints.
@@ -69,6 +89,7 @@ The custom tool executor routes:
 
 - **Sub-agent calls** (`_source == "sub_agent"`) → `_execute_sub_agent_tool`
 - **Sub-workflow calls** (`_source == "sub_workflow"`) → `_execute_sub_workflow_tool`
+- **Canvas node tools** (`_source == "node_tool"`) → `_execute_node_tool`
 - **Human review** (`_source == "hitl"`) → creates a pending HITL checkpoint
 - **Other tools** → `_unified_tool_executor` (Python, MCP, skill tools)
 

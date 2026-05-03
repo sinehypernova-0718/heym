@@ -10,6 +10,7 @@ import { FileJson, LayoutGrid } from "lucide-vue-next";
 import ShareTemplateModal from "@/features/templates/components/ShareTemplateModal.vue";
 
 import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
+import { NODE_DEFINITIONS } from "@/types/node";
 
 import BaseNode from "@/components/Nodes/BaseNode.vue";
 import InsertableEdge from "@/components/Canvas/InsertableEdge.vue";
@@ -69,6 +70,12 @@ function onMiniMapMouseLeave(): void {
   miniMapHovered.value = false;
   if (showMiniMap.value) scheduleMiniMapHide();
 }
+
+const BLOCKED_AS_TOOL = new Set<string>([
+  "merge", "switch", "loop", "agent", "llm", "condition",
+  "execute", "sticky", "errorHandler",
+  "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
+]);
 
 const pendingConnection = ref<{ nodeId: string; handleId: string | null } | null>(null);
 const isDraggingFile = ref(false);
@@ -137,12 +144,16 @@ const subAgentEdges = computed(() => buildSubAgentEdges(workflowStore.nodes));
 const vueFlowEdges = computed(() => [
   ...workflowStore.edges.map((edge) => ({
     id: edge.id,
-    type: "insertable",
+    type: edge.targetHandle === "tool-input" ? "default" : "insertable",
     source: edge.source,
     target: edge.target,
-    sourceHandle: edge.sourceHandle,
+    sourceHandle: edge.targetHandle === "tool-input" ? "tool-output" : edge.sourceHandle,
     targetHandle: edge.targetHandle,
     animated: true,
+    style:
+      edge.targetHandle === "tool-input"
+        ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 0.75 }
+        : undefined,
   })),
   ...subAgentEdges.value.map((edge) => ({
     id: edge.id,
@@ -173,11 +184,49 @@ onConnect((connection) => {
       return;
     }
   }
+
+  if (connection.targetHandle === "tool-input" && connection.source) {
+    const sourceNode = workflowStore.nodes.find((n) => n.id === connection.source);
+    if (sourceNode) {
+      if (BLOCKED_AS_TOOL.has(sourceNode.type)) {
+        showToast("This node type cannot be used as a tool.", "error");
+        return;
+      }
+      const nodeDef = NODE_DEFINITIONS[sourceNode.type as keyof typeof NODE_DEFINITIONS];
+      if (nodeDef && nodeDef.inputs === 0) {
+        showToast("Trigger nodes cannot be used as tools.", "error");
+        return;
+      }
+    }
+  }
+
+  if (connection.targetHandle === "tool-input" && connection.source) {
+    const hasFlowEdge = workflowStore.edges.some(
+      (e) =>
+        (e.source === connection.source || e.target === connection.source) &&
+        e.targetHandle !== "tool-input",
+    );
+    if (hasFlowEdge) {
+      showToast("Nodes already connected in the workflow cannot be used as tools.", "error");
+      return;
+    }
+  }
+
+  if (connection.targetHandle !== "tool-input" && connection.source) {
+    const isSourceToolNode = workflowStore.edges.some(
+      (e) => e.source === connection.source && e.targetHandle === "tool-input",
+    );
+    if (isSourceToolNode) {
+      showToast("Tool nodes cannot participate in the regular workflow flow.", "error");
+      return;
+    }
+  }
+
   const edge: WorkflowEdge = {
     id: `edge_${connection.source}_${connection.target}_${Date.now()}`,
     source: connection.source,
     target: connection.target,
-    sourceHandle: connection.sourceHandle || undefined,
+    sourceHandle: connection.targetHandle === "tool-input" ? "tool-output" : (connection.sourceHandle || undefined),
     targetHandle: connection.targetHandle || undefined,
   };
   workflowStore.addEdge(edge);
@@ -607,19 +656,32 @@ function handleDrop(event: DragEvent): void {
         );
         workflowStore.addNode(newNode);
         if (pendingSource) {
-          const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
           const nodeType = template.node_type as NodeType;
-          if (!noInputTypes.includes(nodeType)) {
+          if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
             const edge: WorkflowEdge = {
-              id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
-              source: pendingSource.nodeId,
-              target: newNode.id,
-              sourceHandle: pendingSource.handleId || undefined,
-              targetHandle: "input",
+              id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+              source: newNode.id,
+              target: pendingSource.nodeId,
+              sourceHandle: "tool-output",
+              targetHandle: "tool-input",
             };
             workflowStore.addEdge(edge);
             workflowStore.clearNodeSearchQuery();
             workflowStore.requestTidyUp();
+          } else {
+            const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
+            if (!noInputTypes.includes(nodeType)) {
+              const edge: WorkflowEdge = {
+                id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
+                source: pendingSource.nodeId,
+                target: newNode.id,
+                sourceHandle: pendingSource.handleId || undefined,
+                targetHandle: "input",
+              };
+              workflowStore.addEdge(edge);
+              workflowStore.clearNodeSearchQuery();
+              workflowStore.requestTidyUp();
+            }
           }
           workflowStore.clearPendingConnectionSource();
         }
@@ -668,18 +730,31 @@ function handleDrop(event: DragEvent): void {
   workflowStore.addNode(newNode);
 
   if (pendingSource) {
-    const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
-    if (!noInputTypes.includes(nodeType)) {
+    if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
       const edge: WorkflowEdge = {
-        id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
-        source: pendingSource.nodeId,
-        target: newNode.id,
-        sourceHandle: pendingSource.handleId || undefined,
-        targetHandle: "input",
+        id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+        source: newNode.id,
+        target: pendingSource.nodeId,
+        sourceHandle: "tool-output",
+        targetHandle: "tool-input",
       };
       workflowStore.addEdge(edge);
       workflowStore.clearNodeSearchQuery();
       workflowStore.requestTidyUp();
+    } else {
+      const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
+      if (!noInputTypes.includes(nodeType)) {
+        const edge: WorkflowEdge = {
+          id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
+          source: pendingSource.nodeId,
+          target: newNode.id,
+          sourceHandle: pendingSource.handleId || undefined,
+          targetHandle: "input",
+        };
+        workflowStore.addEdge(edge);
+        workflowStore.clearNodeSearchQuery();
+        workflowStore.requestTidyUp();
+      }
     }
     workflowStore.clearPendingConnectionSource();
   }
@@ -1056,8 +1131,53 @@ function tidyUp(): void {
     subIds.forEach((subId, index) => {
       const x = nextX;
       nextX += (subWidths[index] ?? NODE_WIDTH) + HORIZONTAL_GAP;
+      nodePositions.set(subId, { x, y: subY });
       workflowStore.updateNodePosition(subId, { x, y: subY });
     });
+  });
+
+  // Position tool nodes above their agent
+  const toolNodeAgentMap = new Map<string, string>(); // toolNodeId → agentId
+  workflowStore.edges
+    .filter(e => e.targetHandle === "tool-input")
+    .forEach(e => toolNodeAgentMap.set(e.source, e.target));
+
+  const agentToolNodes = new Map<string, string[]>(); // agentId → [toolNodeIds]
+  toolNodeAgentMap.forEach((agentId, toolNodeId) => {
+    const list = agentToolNodes.get(agentId) ?? [];
+    list.push(toolNodeId);
+    agentToolNodes.set(agentId, list);
+  });
+
+  agentToolNodes.forEach((toolIds, agentId) => {
+    const agentPos = nodePositions.get(agentId);
+    if (!agentPos) return;
+    const agentWidth = getNodeWidth(agentId);
+    const toolWidths = toolIds.map(id => getNodeWidth(id));
+    const isSubAgent = subAgentNodeIds.has(agentId);
+
+    if (isSubAgent) {
+      // Sub-agent: place tools to the upper-right (past right edge of agent)
+      let nextX = agentPos.x + agentWidth + HORIZONTAL_GAP;
+      const toolY = agentPos.y - STRIDE;
+      toolIds.forEach((toolId, i) => {
+        nodePositions.set(toolId, { x: nextX, y: toolY });
+        workflowStore.updateNodePosition(toolId, { x: nextX, y: toolY });
+        nextX += (toolWidths[i] ?? NODE_WIDTH) + HORIZONTAL_GAP;
+      });
+    } else {
+      // Normal agent: center tools above
+      const totalWidth = toolWidths.reduce((s, w) => s + w, 0) + (toolIds.length - 1) * HORIZONTAL_GAP;
+      const agentCenterX = agentPos.x + agentWidth / 2;
+      let nextX = agentCenterX - totalWidth / 2;
+      const toolY = agentPos.y - STRIDE;
+      toolIds.forEach((toolId, i) => {
+        const x = nextX;
+        nextX += (toolWidths[i] ?? NODE_WIDTH) + HORIZONTAL_GAP;
+        nodePositions.set(toolId, { x, y: toolY });
+        workflowStore.updateNodePosition(toolId, { x, y: toolY });
+      });
+    }
   });
 
   void nextTick(() => {

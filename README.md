@@ -151,7 +151,7 @@ Turn a workflow into a chat experience so users can invoke the orchestration wit
 - **AI Assistant** — Describe what you want in natural language (or voice) and the assistant generates and wires nodes on the canvas automatically
 - **Chat with Docs** — Ask context-aware questions directly from the documentation header while the current article path is prioritized in the prompt
 - **AI Skill Builder** — Create new Agent skills or revise existing ones from a modal chat with live `SKILL.md` and Python file previews
-- **LLM & Agent Nodes** — First-class LLM node and a full Agent node with tool calling, Python tools, MCP connections, skills, optional persistent memory (per-node knowledge graph with background extraction), and LLM Batch API mode with live status branches for supported providers
+- **LLM & Agent Nodes** — First-class LLM node and a full Agent node with tool calling, canvas node tools, Python tools, MCP connections, skills, optional persistent memory (per-node knowledge graph with background extraction), and LLM Batch API mode with live status branches for supported providers
 - **Multi-Agent Orchestration** — One agent orchestrates named sub-agents and sub-workflows, all wired visually
 - **Human-in-the-Loop (HITL)** — Pause agent execution to request user approval or input before proceeding
 - **Guardrails** — Content filtering, NSFW protection, and multilingual safety checks on LLM and Agent nodes

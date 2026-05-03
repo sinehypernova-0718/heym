@@ -11,6 +11,7 @@ import {
 import { AxiosError } from "axios";
 import {
   AlertCircle,
+  Bot,
   Braces,
   Check,
   ChevronLeft,
@@ -75,6 +76,8 @@ interface Props {
   dialogKeyLabel?: string;
   /** Shown in the expand dialog title between dialogTitle and dialogKeyLabel (e.g. node display name). */
   dialogNodeLabel?: string;
+  /** When set and currentNodeId is a tool node, shows the agent-provided toggle. Must match the actual node data field key. */
+  fieldKey?: string;
 }
 
 interface ExpressionMatch {
@@ -116,6 +119,7 @@ const props = withDefaults(defineProps<Props>(), {
   navigationTotal: 0,
   dialogKeyLabel: "",
   dialogNodeLabel: "",
+  fieldKey: undefined,
 });
 
 const emit = defineEmits<{
@@ -126,6 +130,31 @@ const emit = defineEmits<{
 }>();
 
 const workflowStore = useWorkflowStore();
+
+const isToolNodeField = computed((): boolean => {
+  if (!props.currentNodeId || !props.fieldKey) return false;
+  return workflowStore.edges.some(
+    (e) => e.source === props.currentNodeId && e.targetHandle === "tool-input",
+  );
+});
+
+const isAgentProvided = computed((): boolean => {
+  if (!isToolNodeField.value || !props.fieldKey) return false;
+  const node = workflowStore.nodes.find((n) => n.id === props.currentNodeId);
+  const fields: string[] = node?.data.agentProvidedFields ?? [];
+  return fields.includes(props.fieldKey);
+});
+
+function toggleAgentProvided(): void {
+  if (!props.currentNodeId || !props.fieldKey) return;
+  const node = workflowStore.nodes.find((n) => n.id === props.currentNodeId);
+  if (!node) return;
+  const current: string[] = node.data.agentProvidedFields ?? [];
+  const updated = isAgentProvided.value
+    ? current.filter((f) => f !== props.fieldKey)
+    : [...current, props.fieldKey];
+  workflowStore.updateNode(props.currentNodeId, { agentProvidedFields: updated });
+}
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
@@ -2209,139 +2238,168 @@ defineExpose({
 </script>
 
 <template>
-  <div class="relative flex items-center gap-1">
-    <div class="relative flex-1">
-      <input
-        v-if="singleLine"
-        ref="inputRef"
-        type="text"
-        :value="modelValue"
-        :placeholder="placeholder"
-        :disabled="disabled"
-        :class="inputClasses"
-        @input="handleInput"
-        @keydown="handleKeyDown"
-        @blur="handleBlur"
+  <div class="relative">
+    <button
+      v-if="isToolNodeField"
+      type="button"
+      class="absolute right-0 z-10 flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-accent/70"
+      style="top: -34px"
+      :class="
+        isAgentProvided
+          ? 'text-violet-500 hover:text-violet-400'
+          : 'text-muted-foreground hover:text-foreground'
+      "
+      :title="
+        isAgentProvided
+          ? 'Agent fills this — click to use fixed value'
+          : 'Click to let agent fill this at runtime'
+      "
+      @click="toggleAgentProvided"
+    >
+      <Bot class="h-3.5 w-3.5" />
+    </button>
+    <div class="relative flex items-center gap-1">
+      <div
+        v-if="isAgentProvided"
+        class="flex-1 rounded-md border border-violet-800/30 bg-violet-950/20 px-3 py-2 text-xs italic text-violet-400"
       >
-      <textarea
+        Agent will provide this at runtime.
+      </div>
+      <div
         v-else
-        ref="textareaRef"
-        :value="modelValue"
-        :placeholder="placeholder"
-        :disabled="disabled"
-        :rows="rows"
-        :class="cn(textareaClasses, expandable && 'pr-10')"
-        @input="handleInput"
-        @keydown="handleKeyDown"
-        @blur="handleBlur"
-      />
+        class="relative flex-1"
+      >
+        <input
+          v-if="singleLine"
+          ref="inputRef"
+          type="text"
+          :value="modelValue"
+          :placeholder="placeholder"
+          :disabled="disabled"
+          :class="inputClasses"
+          @input="handleInput"
+          @keydown="handleKeyDown"
+          @blur="handleBlur"
+        >
+        <textarea
+          v-else
+          ref="textareaRef"
+          :value="modelValue"
+          :placeholder="placeholder"
+          :disabled="disabled"
+          :rows="rows"
+          :class="cn(textareaClasses, expandable && 'pr-10')"
+          @input="handleInput"
+          @keydown="handleKeyDown"
+          @blur="handleBlur"
+        />
+
+        <button
+          v-if="expandable && !disabled && !singleLine"
+          type="button"
+          class="absolute right-2 top-2 rounded p-1 text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
+          title="Expand editor"
+          @click="openExpandDialog"
+        >
+          <Maximize2 class="h-4 w-4" />
+        </button>
+
+        <div
+          v-if="showDropdown && suggestions.length > 0"
+          ref="dropdownRef"
+          class="absolute z-50 max-h-48 w-full overflow-auto rounded-md border bg-popover shadow-lg"
+          :style="{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }"
+          @mousedown="handleDropdownMouseDown"
+        >
+          <div class="py-1">
+            <template
+              v-for="(suggestion, index) in suggestions"
+              :key="suggestion.label"
+            >
+              <div
+                v-if="suggestion.type === 'hint'"
+                class="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground"
+              >
+                <component
+                  :is="getTypeIcon(suggestion)"
+                  :class="cn('h-4 w-4 shrink-0', getTypeColor(suggestion))"
+                />
+                <span class="min-w-0 flex-1 text-amber-600 dark:text-amber-400">{{ suggestion.label }}</span>
+                <button
+                  v-if="suggestion.hintAction === 'run-workflow'"
+                  type="button"
+                  class="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="hintWorkflowRunLoading || !canRun || workflowStore.isExecuting"
+                  @click.stop="runWorkflowForCompletionHint()"
+                >
+                  <Loader2
+                    v-if="hintWorkflowRunLoading"
+                    class="h-3 w-3 animate-spin"
+                  />
+                  <Play
+                    v-else
+                    class="h-3 w-3 fill-current"
+                  />
+                  Run
+                </button>
+              </div>
+              <button
+                v-else
+                :data-index="index"
+                type="button"
+                :class="cn(
+                  'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent',
+                  index === selectedIndex && 'bg-accent',
+                )"
+                @click="selectSuggestion(suggestion)"
+                @mouseenter="selectedIndex = index"
+              >
+                <component
+                  :is="getTypeIcon(suggestion)"
+                  :class="cn('h-4 w-4 shrink-0', getTypeColor(suggestion))"
+                />
+                <span class="flex-1 truncate font-mono">{{ suggestion.label }}</span>
+                <span
+                  v-if="suggestion.detail"
+                  class="shrink-0 text-xs text-muted-foreground"
+                >
+                  {{ suggestion.detail }}
+                </span>
+              </button>
+            </template>
+          </div>
+
+          <div
+            v-if="
+              suggestions.length > 0 &&
+                (!suggestions.every((suggestion) => suggestion.type === 'hint') ||
+                  suggestions.some((s) => s.hintAction === 'run-workflow'))
+            "
+            class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 text-xs text-muted-foreground"
+          >
+            <span v-if="suggestions.some((s) => s.type !== 'hint')">
+              <kbd class="rounded bg-muted px-1 py-0.5 text-[10px]">Tab</kbd> to insert
+            </span>
+            <span v-if="suggestions.some((s) => s.hintAction === 'run-workflow')">
+              <kbd class="rounded bg-muted px-1 py-0.5 text-[10px]">Enter</kbd> to run workflow
+            </span>
+            <span v-if="suggestions.some((s) => s.type !== 'hint')">
+              <kbd class="rounded bg-muted px-1 py-0.5 text-[10px]">↑↓</kbd> to navigate
+            </span>
+          </div>
+        </div>
+      </div>
 
       <button
-        v-if="expandable && !disabled && !singleLine"
+        v-if="expandable && !disabled && singleLine && !isAgentProvided"
         type="button"
-        class="absolute right-2 top-2 rounded p-1 text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
+        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         title="Expand editor"
         @click="openExpandDialog"
       >
-        <Maximize2 class="h-4 w-4" />
+        <Maximize2 class="h-3.5 w-3.5" />
       </button>
-
-      <div
-        v-if="showDropdown && suggestions.length > 0"
-        ref="dropdownRef"
-        class="absolute z-50 max-h-48 w-full overflow-auto rounded-md border bg-popover shadow-lg"
-        :style="{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }"
-        @mousedown="handleDropdownMouseDown"
-      >
-        <div class="py-1">
-          <template
-            v-for="(suggestion, index) in suggestions"
-            :key="suggestion.label"
-          >
-            <div
-              v-if="suggestion.type === 'hint'"
-              class="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground"
-            >
-              <component
-                :is="getTypeIcon(suggestion)"
-                :class="cn('h-4 w-4 shrink-0', getTypeColor(suggestion))"
-              />
-              <span class="min-w-0 flex-1 text-amber-600 dark:text-amber-400">{{ suggestion.label }}</span>
-              <button
-                v-if="suggestion.hintAction === 'run-workflow'"
-                type="button"
-                class="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                :disabled="hintWorkflowRunLoading || !canRun || workflowStore.isExecuting"
-                @click.stop="runWorkflowForCompletionHint()"
-              >
-                <Loader2
-                  v-if="hintWorkflowRunLoading"
-                  class="h-3 w-3 animate-spin"
-                />
-                <Play
-                  v-else
-                  class="h-3 w-3 fill-current"
-                />
-                Run
-              </button>
-            </div>
-            <button
-              v-else
-              :data-index="index"
-              type="button"
-              :class="cn(
-                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent',
-                index === selectedIndex && 'bg-accent',
-              )"
-              @click="selectSuggestion(suggestion)"
-              @mouseenter="selectedIndex = index"
-            >
-              <component
-                :is="getTypeIcon(suggestion)"
-                :class="cn('h-4 w-4 shrink-0', getTypeColor(suggestion))"
-              />
-              <span class="flex-1 truncate font-mono">{{ suggestion.label }}</span>
-              <span
-                v-if="suggestion.detail"
-                class="shrink-0 text-xs text-muted-foreground"
-              >
-                {{ suggestion.detail }}
-              </span>
-            </button>
-          </template>
-        </div>
-
-        <div
-          v-if="
-            suggestions.length > 0 &&
-              (!suggestions.every((suggestion) => suggestion.type === 'hint') ||
-                suggestions.some((s) => s.hintAction === 'run-workflow'))
-          "
-          class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-1.5 text-xs text-muted-foreground"
-        >
-          <span v-if="suggestions.some((s) => s.type !== 'hint')">
-            <kbd class="rounded bg-muted px-1 py-0.5 text-[10px]">Tab</kbd> to insert
-          </span>
-          <span v-if="suggestions.some((s) => s.hintAction === 'run-workflow')">
-            <kbd class="rounded bg-muted px-1 py-0.5 text-[10px]">Enter</kbd> to run workflow
-          </span>
-          <span v-if="suggestions.some((s) => s.type !== 'hint')">
-            <kbd class="rounded bg-muted px-1 py-0.5 text-[10px]">↑↓</kbd> to navigate
-          </span>
-        </div>
-      </div>
     </div>
-
-    <button
-      v-if="expandable && !disabled && singleLine"
-      type="button"
-      class="flex h-10 w-8 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      title="Expand editor"
-      @click="openExpandDialog"
-    >
-      <Maximize2 class="h-3.5 w-3.5" />
-    </button>
-
     <Teleport to="body">
       <div
         v-if="showExpandDialog"

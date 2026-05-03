@@ -94,7 +94,9 @@ Common notification targets are [Slack](../nodes/slack-node.md), [Telegram](../n
 
 #### [Agent Node](../nodes/agent-node.md)
 
-The AI Agent node is an [LLM](../nodes/llm-node.md) node with tool calling. It can run Python tools, connect to [MCP](../tabs/mcp-tab.md) servers, use skills (instruction files and optional Python scripts), act as an orchestrator that delegates to other agent nodes, and call other workflows as tools. Output is available as `$nodeLabel.text`.
+The AI Agent node is an [LLM](../nodes/llm-node.md) node with tool calling. It can run Python tools, call connected canvas nodes as tools, connect to [MCP](../tabs/mcp-tab.md) servers, use skills (instruction files and optional Python scripts), act as an orchestrator that delegates to other agent nodes, and call other workflows as tools. Output is available as `$nodeLabel.text`.
+
+Canvas node tools let an agent call configured workflow nodes directly from the canvas. Connect a supported node to the agent's tools handle, then mark specific fields as agent-provided with the bot icon. Those fields become tool parameters at runtime, while credentials and unmarked fields stay fixed in the node configuration.
 
 The Skills section now includes **AI Build** for creating new skills, an inline AI edit action for existing skills, and per-skill ZIP download. The Skill Builder modal streams a chat conversation on the left, shows a live read-only preview of generated `SKILL.md` and `.py` files on the right, can download that preview as a ZIP, and saves the result back through the same ZIP ingestion flow used by manual skill uploads.
 
@@ -148,7 +150,7 @@ Pairs with [Variable](../nodes/variable-node.md), [Merge](../nodes/merge-node.md
 
 #### [Set](../nodes/set-node.md)
 
-The Set node transforms and maps input data to custom output. Define key-value mappings where each value is an [Expression DSL](./expression-dsl.md) expression. Use it for uppercase, substring, concatenation, random numbers, and similar transformations. Access output by key (e.g. `$setNode.keyName`). For calling other workflows use the [Execute](../nodes/execute-node.md) node instead.
+The Set node transforms and maps input data to custom output. Define key-value mappings where each value is an [Expression DSL](./expression-dsl.md) expression. Use it for uppercase, substring, concatenation, random numbers, and similar transformations. Access output by key (e.g. `$setNode.keyName`). When connected to an agent as a canvas node tool, mapping values can be marked as agent-provided so the agent fills them at runtime. For calling other workflows use the [Execute](../nodes/execute-node.md) node instead.
 
 See also [Variable](../nodes/variable-node.md), [Execute](../nodes/execute-node.md), and [Expression DSL](./expression-dsl.md).
 

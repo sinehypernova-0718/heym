@@ -18,6 +18,10 @@ The **Output** node is the workflow endpoint that returns the response to the ca
 | `message` | expression | Output value. **Must** reference previous node: `$previousNodeLabel.field` |
 | `allowDownstream` | boolean | If true, nodes after output run asynchronously after response is sent |
 
+## Agent tool usage
+
+When an Output node is connected to an [Agent Node](./agent-node.md) as a canvas node tool, the `message` field can be marked as **agent-provided** with the bot icon. The agent then supplies the message when it calls the tool. If the Output node is not connected as an agent tool, the bot icon is hidden.
+
 ## Critical Rule
 
 **Never use `$input` in the output node.** Always use the previous node's label:

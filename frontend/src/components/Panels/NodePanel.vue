@@ -3,7 +3,7 @@ import { computed, onMounted, watch, nextTick, ref } from "vue";
 import { AlertTriangle, Ban, Bot, Brain, Braces, Bug, CalendarClock, Clock, Database, FileJson, GitBranch, GitMerge, Globe, HardDrive, Inbox, LayoutTemplate, Mail, MessageSquare, MonitorPlay, Play, Rabbit, Radio, Repeat, Search, Send, Settings2, Sheet, Shuffle, StickyNote, Table2, Terminal, Type, Variable, X, XCircle } from "lucide-vue-next";
 
 import type { NodeTemplate } from "@/features/templates/types/template.types";
-import type { NodeType, WorkflowNode } from "@/types/workflow";
+import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
 
 import { buildWorkflowNodeFromNodeTemplate } from "@/lib/nodeFromTemplate";
 import { nodeIcons } from "@/lib/nodeIcons";
@@ -168,6 +168,12 @@ const icons = {
   drive: HardDrive,
 };
 
+const BLOCKED_AS_TOOL = new Set<string>([
+  "merge", "switch", "loop", "agent", "llm", "condition",
+  "execute", "sticky", "errorHandler",
+  "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
+]);
+
 const allNodeTypes = Object.values(NODE_DEFINITIONS);
 
 const nodeTypes = computed(() => {
@@ -320,8 +326,21 @@ function addNodeFromTemplate(template: NodeTemplate): void {
   workflowStore.addNode(newNode);
 
   if (pendingSource) {
-    if (!noInputTypes.includes(template.node_type as NodeType)) {
-      const edge = {
+    const nodeType = template.node_type as NodeType;
+    if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
+      const edge: WorkflowEdge = {
+        id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+        source: newNode.id,
+        target: pendingSource.nodeId,
+        sourceHandle: "tool-output",
+        targetHandle: "tool-input",
+      };
+      workflowStore.addEdge(edge);
+      workflowStore.clearNodeSearchQuery();
+      searchInputRef.value?.blur();
+      workflowStore.requestTidyUp();
+    } else if (!noInputTypes.includes(nodeType)) {
+      const edge: WorkflowEdge = {
         id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
         source: pendingSource.nodeId,
         target: newNode.id,
@@ -399,8 +418,20 @@ function handleDoubleClick(type: NodeType): void {
   workflowStore.addNode(newNode);
 
   if (pendingSource) {
-    if (!noInputTypes.includes(type)) {
-      const edge = {
+    if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(type)) {
+      const edge: WorkflowEdge = {
+        id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+        source: newNode.id,
+        target: pendingSource.nodeId,
+        sourceHandle: "tool-output",
+        targetHandle: "tool-input",
+      };
+      workflowStore.addEdge(edge);
+      workflowStore.clearNodeSearchQuery();
+      searchInputRef.value?.blur();
+      workflowStore.requestTidyUp();
+    } else if (!noInputTypes.includes(type)) {
+      const edge: WorkflowEdge = {
         id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
         source: pendingSource.nodeId,
         target: newNode.id,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Handle, Position } from "@vue-flow/core";
+import { Handle, Position, useVueFlow } from "@vue-flow/core";
 import { AlertTriangle, Ban, Bot, Brain, Braces, Bug, CalendarClock, Clock, Database, FileJson, GitBranch, GitMerge, Globe, HardDrive, Inbox, Loader2, Mail, MessageSquare, MonitorPlay, Pin, Play, Rabbit, Radio, RefreshCw, Repeat, Search, Send, Settings2, Sheet, Shuffle, StickyNote, Table2, Terminal, Type, Variable, XCircle } from "lucide-vue-next";
 
 import type { NodeData, NodeType } from "@/types/workflow";
@@ -107,8 +107,14 @@ const isSubAgentNode = computed(
   () => props.type === "agent" && !!props.data.isSubAgent
 );
 
+const { getEdges } = useVueFlow();
+const isToolNode = computed(
+  () => getEdges.value.some((e) => e.source === props.id && e.targetHandle === "tool-input"),
+);
+
 const hasInput = computed(
-  () => !isSubAgentNode.value
+  () => !isToolNode.value
+    && !isSubAgentNode.value
     && props.type !== "textInput"
     && props.type !== "cron"
     && props.type !== "sticky"
@@ -121,6 +127,7 @@ const hasInput = computed(
     && !(props.type === "rabbitmq" && props.data.rabbitmqOperation === "receive")
 );
 const hasOutput = computed(() => {
+  if (isToolNode.value) return false;
   if (isSubAgentNode.value) return false;
   if (props.type === "output") {
     return props.data.allowDownstream === true;
@@ -138,12 +145,13 @@ const hasSecondOutput = computed(() => props.type === "condition");
 const hasLoopOutput = computed(() => props.type === "loop");
 const hasMultiOutput = computed(() => props.type === "switch");
 const hasHitlOutput = computed(
-  () => !isSubAgentNode.value && props.type === "agent" && props.data.hitlEnabled === true
+  () => !isToolNode.value && !isSubAgentNode.value && props.type === "agent" && props.data.hitlEnabled === true
 );
 const hasBatchStatusOutput = computed(
-  () => !isSubAgentNode.value && props.type === "llm" && props.data.batchModeEnabled === true,
+  () => !isToolNode.value && !isSubAgentNode.value && props.type === "llm" && props.data.batchModeEnabled === true,
 );
 const hasErrorOutput = computed(() => {
+  if (isToolNode.value) return false;
   if (isSubAgentNode.value) return false;
   const excludedTypes = [
     "textInput",
@@ -379,9 +387,38 @@ const hasThrowErrorWarning = computed(() => {
       class="!w-3.5 !h-3.5"
     />
 
+    <template v-if="props.type === 'agent'">
+      <!-- tool-input: center when standalone agent, right (75%) when sub-agent -->
+      <Handle
+        id="tool-input"
+        type="target"
+        :position="Position.Top"
+        :style="isSubAgentNode ? { left: '75%' } : undefined"
+        class="!w-3.5 !h-3.5 !bg-violet-600 !border-violet-800"
+      />
+      <div
+        :class="[
+          'absolute -top-5 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none -translate-x-1/2',
+          isSubAgentNode ? 'left-[75%]' : 'left-1/2',
+        ]"
+      >
+        tools
+      </div>
+    </template>
+
+    <template v-if="isToolNode">
+      <Handle
+        id="tool-output"
+        type="source"
+        :position="Position.Bottom"
+        class="!w-3.5 !h-3.5 !bg-violet-600 !border-violet-800"
+      />
+    </template>
+
+    <!-- sub-agent-input: left (25%) for symmetry with tool-input on right -->
     <div
       v-if="type === 'agent' && data.isSubAgent"
-      class="absolute -top-1 left-1/2 -translate-x-1/2"
+      class="absolute -top-1 left-1/4 -translate-x-1/2"
     >
       <Handle
         id="sub-agent-input"
@@ -413,7 +450,7 @@ const hasThrowErrorWarning = computed(() => {
       </div>
     </div>
 
-    <div class="flex items-center gap-3.5">
+    <div :class="cn('flex items-center gap-3.5', props.type === 'agent' && '-mt-0.5')">
       <div
         :class="cn(
           'flex items-center justify-center w-9 h-9 rounded-lg shrink-0 transition-all',
