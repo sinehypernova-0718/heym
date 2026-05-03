@@ -11,6 +11,7 @@ import {
 import { AxiosError } from "axios";
 import {
   AlertCircle,
+  Bot,
   Braces,
   Check,
   ChevronLeft,
@@ -75,6 +76,8 @@ interface Props {
   dialogKeyLabel?: string;
   /** Shown in the expand dialog title between dialogTitle and dialogKeyLabel (e.g. node display name). */
   dialogNodeLabel?: string;
+  /** When set and currentNodeId is a tool node, shows the agent-provided toggle. Must match the actual node data field key. */
+  fieldKey?: string;
 }
 
 interface ExpressionMatch {
@@ -126,6 +129,31 @@ const emit = defineEmits<{
 }>();
 
 const workflowStore = useWorkflowStore();
+
+const isToolNodeField = computed((): boolean => {
+  if (!props.currentNodeId || !props.fieldKey) return false;
+  return workflowStore.edges.some(
+    (e) => e.source === props.currentNodeId && e.targetHandle === "tool-input",
+  );
+});
+
+const isAgentProvided = computed((): boolean => {
+  if (!isToolNodeField.value || !props.fieldKey) return false;
+  const node = workflowStore.nodes.find((n) => n.id === props.currentNodeId);
+  const fields: string[] = node?.data.agentProvidedFields ?? [];
+  return fields.includes(props.fieldKey);
+});
+
+function toggleAgentProvided(): void {
+  if (!props.currentNodeId || !props.fieldKey) return;
+  const node = workflowStore.nodes.find((n) => n.id === props.currentNodeId);
+  if (!node) return;
+  const current: string[] = node.data.agentProvidedFields ?? [];
+  const updated = isAgentProvided.value
+    ? current.filter((f) => f !== props.fieldKey)
+    : [...current, props.fieldKey];
+  workflowStore.updateNode(props.currentNodeId, { agentProvidedFields: updated });
+}
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
@@ -2210,7 +2238,16 @@ defineExpose({
 
 <template>
   <div class="relative flex items-center gap-1">
-    <div class="relative flex-1">
+    <div
+      v-if="isAgentProvided"
+      class="flex-1 rounded-md border border-violet-800/30 bg-violet-950/20 px-3 py-2 text-xs italic text-violet-400"
+    >
+      Agent will provide this at runtime.
+    </div>
+    <div
+      v-else
+      class="relative flex-1"
+    >
       <input
         v-if="singleLine"
         ref="inputRef"
@@ -2333,13 +2370,32 @@ defineExpose({
     </div>
 
     <button
-      v-if="expandable && !disabled && singleLine"
+      v-if="expandable && !disabled && singleLine && !isAgentProvided"
       type="button"
       class="flex h-10 w-8 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       title="Expand editor"
       @click="openExpandDialog"
     >
       <Maximize2 class="h-3.5 w-3.5" />
+    </button>
+
+    <button
+      v-if="isToolNodeField"
+      type="button"
+      class="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+      :class="
+        isAgentProvided
+          ? 'text-violet-500 hover:text-violet-400'
+          : 'text-muted-foreground hover:text-foreground'
+      "
+      :title="
+        isAgentProvided
+          ? 'Agent fills this — click to use fixed value'
+          : 'Click to let agent fill this at runtime'
+      "
+      @click="toggleAgentProvided"
+    >
+      <Bot class="h-3.5 w-3.5" />
     </button>
 
     <Teleport to="body">

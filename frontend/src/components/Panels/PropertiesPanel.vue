@@ -30,7 +30,6 @@ import { createAgentSkillZipBlob, getSkillZipFileName, parseSkillZip } from "@/l
 
 import SelectorPickerDialog from "@/components/Dialogs/SelectorPickerDialog.vue";
 import SkillBuilderModal from "@/components/Panels/SkillBuilderModal.vue";
-import AgentFieldToggle from "@/components/ui/AgentFieldToggle.vue";
 import Button from "@/components/ui/Button.vue";
 import ExpressionInput from "@/components/ui/ExpressionInput.vue";
 import Input from "@/components/ui/Input.vue";
@@ -1077,17 +1076,6 @@ function handleFallbackModelChange(model: string | undefined): void {
 
 const selectedNode = computed(() => workflowStore.selectedNode);
 
-const selectedNodeIsToolNode = computed((): boolean => {
-  if (!selectedNode.value) return false;
-  return workflowStore.edges.some(
-    (e) => e.source === selectedNode.value!.id && e.targetHandle === "tool-input",
-  );
-});
-
-function isAgentProvided(fieldKey: string): boolean {
-  const fields: string[] = selectedNode.value?.data.agentProvidedFields ?? [];
-  return fields.includes(fieldKey);
-}
 
 const selectedNodeEvaluateDialogLabel = computed((): string => {
   const node = selectedNode.value;
@@ -5632,6 +5620,7 @@ onUnmounted(() => {
                   :navigation-total="llmExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Prompt"
+                  field-key="userMessage"
                   @update:model-value="updateNodeData('userMessage', $event)"
                   @navigate="handleLlmExpressionFieldNavigate"
                   @register-field-index="onLlmRegisterExpressionFieldIndex"
@@ -5675,6 +5664,7 @@ onUnmounted(() => {
                   :navigation-total="llmExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Image input"
+                  field-key="imageInput"
                   @update:model-value="updateNodeData('imageInput', $event)"
                   @navigate="handleLlmExpressionFieldNavigate"
                   @register-field-index="onLlmRegisterExpressionFieldIndex"
@@ -5703,6 +5693,7 @@ onUnmounted(() => {
                   :navigation-total="llmExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="System instruction"
+                  field-key="systemInstruction"
                   @update:model-value="updateNodeData('systemInstruction', $event)"
                   @navigate="handleLlmExpressionFieldNavigate"
                   @register-field-index="onLlmRegisterExpressionFieldIndex"
@@ -5726,6 +5717,7 @@ onUnmounted(() => {
                   :navigation-total="llmExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="User message"
+                  field-key="userMessage"
                   @update:model-value="updateNodeData('userMessage', $event)"
                   @navigate="handleLlmExpressionFieldNavigate"
                   @register-field-index="onLlmRegisterExpressionFieldIndex"
@@ -5815,6 +5807,7 @@ onUnmounted(() => {
                   :navigation-total="llmExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Image input"
+                  field-key="imageInput"
                   @update:model-value="updateNodeData('imageInput', $event)"
                   @navigate="handleLlmExpressionFieldNavigate"
                   @register-field-index="onLlmRegisterExpressionFieldIndex"
@@ -6092,6 +6085,7 @@ onUnmounted(() => {
                 :navigation-total="agentExpressionFieldCount"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="System instruction"
+                field-key="systemInstruction"
                 @update:model-value="updateNodeData('systemInstruction', $event)"
                 @navigate="handleAgentExpressionFieldNavigate"
                 @register-field-index="onAgentRegisterExpressionFieldIndex"
@@ -6114,6 +6108,7 @@ onUnmounted(() => {
                 :navigation-total="agentExpressionFieldCount"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="User message"
+                field-key="userMessage"
                 @update:model-value="updateNodeData('userMessage', $event)"
                 @navigate="handleAgentExpressionFieldNavigate"
                 @register-field-index="onAgentRegisterExpressionFieldIndex"
@@ -6152,6 +6147,7 @@ onUnmounted(() => {
                 :navigation-total="agentExpressionFieldCount"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Image input"
+                field-key="imageInput"
                 @update:model-value="updateNodeData('imageInput', $event)"
                 @navigate="handleAgentExpressionFieldNavigate"
                 @register-field-index="onAgentRegisterExpressionFieldIndex"
@@ -6790,6 +6786,7 @@ onUnmounted(() => {
                 expandable
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Approval guidelines"
+                field-key="hitlSummary"
                 @update:model-value="updateNodeData('hitlSummary', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -6966,6 +6963,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Condition"
+                field-key="condition"
                 @update:model-value="updateNodeData('condition', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -6988,6 +6986,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Expression"
+                field-key="expression"
                 @update:model-value="updateNodeData('expression', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7123,6 +7122,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Input template"
+                field-key="executeInput"
                 @update:model-value="updateNodeData('executeInput', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7148,16 +7148,8 @@ onUnmounted(() => {
 
           <template v-if="selectedNode.type === 'http'">
             <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <Label>cURL Command</Label>
-                <AgentFieldToggle
-                  v-if="selectedNodeIsToolNode"
-                  :node-id="selectedNode.id"
-                  field-key="curl"
-                />
-              </div>
+              <Label>cURL Command</Label>
               <ExpressionInput
-                v-if="!selectedNodeIsToolNode || !isAgentProvided('curl')"
                 ref="httpCurlInputRef"
                 :model-value="selectedNode.data.curl || ''"
                 placeholder="curl -X GET https://api.example.com"
@@ -7169,18 +7161,10 @@ onUnmounted(() => {
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="cURL command"
                 dialog-title="Edit cURL Command"
+                field-key="curl"
                 @update:model-value="updateNodeData('curl', $event)"
               />
-              <p
-                v-else
-                class="text-xs text-violet-400 italic px-1 py-2 border border-violet-800/30 rounded-md bg-violet-950/20"
-              >
-                Agent will provide the cURL command at runtime.
-              </p>
-              <p
-                v-if="!selectedNodeIsToolNode || !isAgentProvided('curl')"
-                class="text-xs text-muted-foreground"
-              >
+              <p class="text-xs text-muted-foreground">
                 Double-click to expand. Use $ expressions like {{ exampleRef }}
               </p>
             </div>
@@ -7249,6 +7233,7 @@ onUnmounted(() => {
                   :current-node-id="selectedNode.id"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="WebSocket URL"
+                  field-key="websocketUrl"
                   @update:model-value="updateNodeData('websocketUrl', $event)"
                 />
                 <p
@@ -7279,6 +7264,7 @@ onUnmounted(() => {
                   :current-node-id="selectedNode.id"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="WebSocket headers"
+                  field-key="websocketHeaders"
                   @update:model-value="updateNodeData('websocketHeaders', $event)"
                 />
                 <p class="text-xs text-muted-foreground">
@@ -7311,6 +7297,7 @@ onUnmounted(() => {
                   :current-node-id="selectedNode.id"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="WebSocket message"
+                  field-key="websocketMessage"
                   @update:model-value="updateNodeData('websocketMessage', $event)"
                 />
                 <p class="text-xs text-muted-foreground">
@@ -7373,6 +7360,7 @@ onUnmounted(() => {
                 :navigation-enabled="outputExpressionFieldCount > 1"
                 :navigation-index="0"
                 :navigation-total="outputExpressionFieldCount"
+                field-key="message"
                 @navigate="handleOutputExpressionFieldNavigate"
                 @register-field-index="onOutputRegisterExpressionFieldIndex"
                 @update:model-value="updateNodeData('message', $event)"
@@ -7465,6 +7453,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Log message"
+                field-key="logMessage"
                 @update:model-value="updateNodeData('logMessage', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7506,6 +7495,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Message"
+                field-key="message"
                 @update:model-value="updateNodeData('message', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7547,6 +7537,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Chat ID"
+                field-key="chatId"
                 @update:model-value="updateNodeData('chatId', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7567,6 +7558,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Message"
+                field-key="message"
                 @update:model-value="updateNodeData('message', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7607,6 +7599,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="To"
+                field-key="to"
                 @update:model-value="updateNodeData('to', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7626,6 +7619,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Subject"
+                field-key="subject"
                 @update:model-value="updateNodeData('subject', $event)"
               />
             </div>
@@ -7645,6 +7639,7 @@ onUnmounted(() => {
                 dialog-title="Edit Email Body"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Body"
+                field-key="emailBody"
                 @update:model-value="updateNodeData('emailBody', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7666,6 +7661,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Message"
+                field-key="message"
                 @update:model-value="updateNodeData('message', $event)"
               />
               <p class="text-xs text-muted-foreground">
@@ -7850,6 +7846,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Value"
+                field-key="variableValue"
                 @update:model-value="updateNodeData('variableValue', $event)"
               />
               <p
@@ -7905,6 +7902,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Array expression"
+                field-key="arrayExpression"
                 @update:model-value="updateNodeData('arrayExpression', $event)"
               />
               <p
@@ -8017,6 +8015,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Key"
+                field-key="redisKey"
                 @update:model-value="updateNodeData('redisKey', $event)"
               />
               <p
@@ -8047,6 +8046,7 @@ onUnmounted(() => {
                   :current-node-id="selectedNode.id"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Value"
+                  field-key="redisValue"
                   @update:model-value="updateNodeData('redisValue', $event)"
                 />
                 <p class="text-xs text-muted-foreground">
@@ -8150,6 +8150,7 @@ onUnmounted(() => {
                   :current-node-id="selectedNode.id"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Document content"
+                  field-key="documentContent"
                   @update:model-value="updateNodeData('documentContent', $event)"
                 />
                 <p class="text-xs text-muted-foreground">
@@ -8185,6 +8186,7 @@ onUnmounted(() => {
                   :current-node-id="selectedNode.id"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Query text"
+                  field-key="queryText"
                   @update:model-value="updateNodeData('queryText', $event)"
                 />
                 <p class="text-xs text-muted-foreground">
@@ -8740,6 +8742,7 @@ onUnmounted(() => {
                   :navigation-total="googleSheetsExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Spreadsheet ID or URL"
+                  field-key="gsSpreadsheetId"
                   @navigate="handleGoogleSheetsExpressionFieldNavigate"
                   @register-field-index="onGoogleSheetsRegisterExpressionFieldIndex"
                   @update:model-value="updateNodeData('gsSpreadsheetId', $event)"
@@ -8767,6 +8770,7 @@ onUnmounted(() => {
                   :navigation-total="googleSheetsExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Sheet name"
+                  field-key="gsSheetName"
                   @navigate="handleGoogleSheetsExpressionFieldNavigate"
                   @register-field-index="onGoogleSheetsRegisterExpressionFieldIndex"
                   @update:model-value="updateNodeData('gsSheetName', $event)"
@@ -8999,6 +9003,7 @@ onUnmounted(() => {
                     :navigation-total="bigQueryExpressionFieldCount"
                     :dialog-node-label="selectedNodeEvaluateDialogLabel"
                     dialog-key-label="SQL Query"
+                    field-key="bqQuery"
                     @update:model-value="updateNodeData('bqQuery', $event)"
                     @navigate="handleBigQueryExpressionFieldNavigate"
                     @register-field-index="onBigQueryRegisterExpressionFieldIndex"
@@ -9107,6 +9112,7 @@ onUnmounted(() => {
                     :navigation-total="bigQueryExpressionFieldCount"
                     :dialog-node-label="selectedNodeEvaluateDialogLabel"
                     dialog-key-label="Rows"
+                    field-key="bqRows"
                     @update:model-value="updateNodeData('bqRows', $event)"
                     @navigate="handleBigQueryExpressionFieldNavigate"
                     @register-field-index="onBigQueryRegisterExpressionFieldIndex"
@@ -9762,6 +9768,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="Error message"
+                field-key="errorMessage"
                 @update:model-value="updateNodeData('errorMessage', $event)"
               />
               <p
@@ -9851,6 +9858,7 @@ onUnmounted(() => {
                   :navigation-total="rabbitmqSendExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Exchange name"
+                  field-key="rabbitmqExchange"
                   @navigate="handleRabbitmqSendExpressionFieldNavigate"
                   @register-field-index="onRabbitmqSendRegisterExpressionFieldIndex"
                   @update:model-value="updateNodeData('rabbitmqExchange', $event)"
@@ -9876,6 +9884,7 @@ onUnmounted(() => {
                   :navigation-total="rabbitmqSendExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Routing key"
+                  field-key="rabbitmqRoutingKey"
                   @navigate="handleRabbitmqSendExpressionFieldNavigate"
                   @register-field-index="onRabbitmqSendRegisterExpressionFieldIndex"
                   @update:model-value="updateNodeData('rabbitmqRoutingKey', $event)"
@@ -9901,6 +9910,7 @@ onUnmounted(() => {
                   :navigation-total="rabbitmqSendExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Queue name"
+                  field-key="rabbitmqQueueName"
                   @navigate="handleRabbitmqSendExpressionFieldNavigate"
                   @register-field-index="onRabbitmqSendRegisterExpressionFieldIndex"
                   @update:model-value="updateNodeData('rabbitmqQueueName', $event)"
@@ -9936,6 +9946,7 @@ onUnmounted(() => {
                   :navigation-total="rabbitmqSendExpressionFieldCount"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Message body"
+                  field-key="rabbitmqMessageBody"
                   @navigate="handleRabbitmqSendExpressionFieldNavigate"
                   @register-field-index="onRabbitmqSendRegisterExpressionFieldIndex"
                   @update:model-value="updateNodeData('rabbitmqMessageBody', $event)"
@@ -9985,6 +9996,7 @@ onUnmounted(() => {
                   :current-node-id="selectedNode.id"
                   :dialog-node-label="selectedNodeEvaluateDialogLabel"
                   dialog-key-label="Queue name"
+                  field-key="rabbitmqQueueName"
                   @update:model-value="updateNodeData('rabbitmqQueueName', $event)"
                 />
                 <p
@@ -10053,6 +10065,7 @@ onUnmounted(() => {
                 :current-node-id="selectedNode.id"
                 :dialog-node-label="selectedNodeEvaluateDialogLabel"
                 dialog-key-label="URL to crawl"
+                field-key="crawlerUrl"
                 @update:model-value="updateNodeData('crawlerUrl', $event)"
               />
               <p class="text-xs text-muted-foreground">
