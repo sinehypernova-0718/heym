@@ -111,12 +111,6 @@ const { getEdges } = useVueFlow();
 const isToolNode = computed(
   () => getEdges.value.some((e) => e.source === props.id && e.targetHandle === "tool-input"),
 );
-const isOrchestratorWithSubAgents = computed(
-  () =>
-    props.type === "agent" &&
-    props.data.isOrchestrator === true &&
-    ((props.data.subAgentLabels as string[] | undefined)?.length ?? 0) > 0,
-);
 
 const hasInput = computed(
   () => !isToolNode.value
@@ -397,18 +391,23 @@ const hasThrowErrorWarning = computed(() => {
       <Handle
         id="tool-input"
         type="target"
-        :position="Position.Bottom"
-        :style="isOrchestratorWithSubAgents ? { bottom: '20px' } : undefined"
-        class="!w-4 !h-4 !bg-violet-600 !border-violet-800 !rounded-sm"
+        :position="Position.Top"
+        class="!w-3.5 !h-3.5 !bg-violet-600 !border-violet-800"
       />
       <div
-        :class="[
-          'absolute left-1/2 -translate-x-1/2 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none',
-          isOrchestratorWithSubAgents ? 'bottom-2' : '-bottom-5',
-        ]"
+        class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none"
       >
         tools
       </div>
+    </template>
+
+    <template v-if="isToolNode">
+      <Handle
+        id="tool-output"
+        type="source"
+        :position="Position.Bottom"
+        class="!w-3.5 !h-3.5 !bg-violet-600 !border-violet-800"
+      />
     </template>
 
     <div

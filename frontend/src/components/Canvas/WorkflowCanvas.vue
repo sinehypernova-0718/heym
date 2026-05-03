@@ -141,9 +141,9 @@ const vueFlowEdges = computed(() => [
     type: edge.targetHandle === "tool-input" ? "default" : "insertable",
     source: edge.source,
     target: edge.target,
-    sourceHandle: edge.sourceHandle,
+    sourceHandle: edge.targetHandle === "tool-input" ? "tool-output" : edge.sourceHandle,
     targetHandle: edge.targetHandle,
-    animated: edge.targetHandle !== "tool-input",
+    animated: true,
     style:
       edge.targetHandle === "tool-input"
         ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 2 }
@@ -216,7 +216,7 @@ onConnect((connection) => {
     id: `edge_${connection.source}_${connection.target}_${Date.now()}`,
     source: connection.source,
     target: connection.target,
-    sourceHandle: connection.sourceHandle || undefined,
+    sourceHandle: connection.targetHandle === "tool-input" ? "tool-output" : (connection.sourceHandle || undefined),
     targetHandle: connection.targetHandle || undefined,
   };
   workflowStore.addEdge(edge);
@@ -1096,6 +1096,35 @@ function tidyUp(): void {
       const x = nextX;
       nextX += (subWidths[index] ?? NODE_WIDTH) + HORIZONTAL_GAP;
       workflowStore.updateNodePosition(subId, { x, y: subY });
+    });
+  });
+
+  // Position tool nodes above their agent
+  const toolNodeAgentMap = new Map<string, string>(); // toolNodeId → agentId
+  workflowStore.edges
+    .filter(e => e.targetHandle === "tool-input")
+    .forEach(e => toolNodeAgentMap.set(e.source, e.target));
+
+  const agentToolNodes = new Map<string, string[]>(); // agentId → [toolNodeIds]
+  toolNodeAgentMap.forEach((agentId, toolNodeId) => {
+    const list = agentToolNodes.get(agentId) ?? [];
+    list.push(toolNodeId);
+    agentToolNodes.set(agentId, list);
+  });
+
+  agentToolNodes.forEach((toolIds, agentId) => {
+    const agentPos = nodePositions.get(agentId);
+    if (!agentPos) return;
+    const toolWidths = toolIds.map(id => getNodeWidth(id));
+    const totalWidth = toolWidths.reduce((s, w) => s + w, 0) + (toolIds.length - 1) * HORIZONTAL_GAP;
+    const agentCenterX = agentPos.x + getNodeWidth(agentId) / 2;
+    let nextX = agentCenterX - totalWidth / 2;
+    const toolY = agentPos.y - STRIDE;
+    toolIds.forEach((toolId, i) => {
+      const x = nextX;
+      nextX += (toolWidths[i] ?? NODE_WIDTH) + HORIZONTAL_GAP;
+      nodePositions.set(toolId, { x, y: toolY });
+      workflowStore.updateNodePosition(toolId, { x, y: toolY });
     });
   });
 

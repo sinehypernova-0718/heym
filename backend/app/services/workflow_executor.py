@@ -8770,12 +8770,22 @@ class WorkflowExecutor:
         self.check_cancelled()
         node_results: list[NodeResult] = []
         error_flow_nodes = self.get_error_flow_nodes()
+        # Set of node IDs that are connected as tools to an agent (should not run in regular flow)
+        tool_node_ids = {
+            edge["source"] for edge in self.edges if edge.get("targetHandle") == "tool-input"
+        }
         active_edges = [
             edge
             for edge in self.get_active_edges()
-            if edge["source"] not in error_flow_nodes and edge["target"] not in error_flow_nodes
+            if edge["source"] not in error_flow_nodes
+            and edge["target"] not in error_flow_nodes
+            and edge.get("targetHandle") != "tool-input"
         ]
-        active_nodes = [node_id for node_id in self.nodes if node_id not in error_flow_nodes]
+        active_nodes = [
+            node_id
+            for node_id in self.nodes
+            if node_id not in error_flow_nodes and node_id not in tool_node_ids
+        ]
 
         for node_id in self.get_input_nodes():
             node = self.nodes[node_id]
@@ -10205,12 +10215,22 @@ def execute_workflow_streaming(
     error_result = None
     pending_result = None
     error_flow_nodes = wf_executor.get_error_flow_nodes()
+    # Set of node IDs that are connected as tools to an agent (should not run in regular flow)
+    tool_node_ids_streaming = {
+        edge["source"] for edge in wf_executor.edges if edge.get("targetHandle") == "tool-input"
+    }
     active_edges = [
         edge
         for edge in wf_executor.get_active_edges()
-        if edge["source"] not in error_flow_nodes and edge["target"] not in error_flow_nodes
+        if edge["source"] not in error_flow_nodes
+        and edge["target"] not in error_flow_nodes
+        and edge.get("targetHandle") != "tool-input"
     ]
-    active_nodes = [node_id for node_id in wf_executor.nodes if node_id not in error_flow_nodes]
+    active_nodes = [
+        node_id
+        for node_id in wf_executor.nodes
+        if node_id not in error_flow_nodes and node_id not in tool_node_ids_streaming
+    ]
 
     for node_id in wf_executor.get_input_nodes():
         node = wf_executor.nodes[node_id]
