@@ -13,6 +13,7 @@ import { hasShowcaseChatDraftPending } from "@/features/showcase/showcaseChatDra
 import { useChatStore } from "@/stores/chat";
 
 const chatsShowcaseContext: ShowcaseContext = "dashboard:chat";
+const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 767px)";
 
 const route = useRoute();
 const router = useRouter();
@@ -20,7 +21,9 @@ const chatStore = useChatStore();
 
 const conversationId = computed(() => route.params.id as string | undefined);
 const isCreateNewCoolingDown = ref(false);
+const isMobileViewport = ref(false);
 let createNewCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
+let mobileSidebarMediaQuery: MediaQueryList | null = null;
 
 async function createNew(): Promise<void> {
   if (isCreateNewCoolingDown.value) return;
@@ -39,13 +42,26 @@ async function createNew(): Promise<void> {
   }
 }
 
+function syncMobileSidebarState(): void {
+  isMobileViewport.value = mobileSidebarMediaQuery?.matches ?? false;
+  if (isMobileViewport.value) {
+    chatStore.closeSidebar();
+  }
+}
+
 onMounted(() => {
+  if (typeof window !== "undefined") {
+    mobileSidebarMediaQuery = window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY);
+    syncMobileSidebarState();
+    mobileSidebarMediaQuery.addEventListener("change", syncMobileSidebarState);
+  }
   if (!conversationId.value && hasShowcaseChatDraftPending()) {
     void createNew();
   }
 });
 
 onUnmounted(() => {
+  mobileSidebarMediaQuery?.removeEventListener("change", syncMobileSidebarState);
   if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
 });
 </script>
@@ -77,7 +93,7 @@ onUnmounted(() => {
 
           <div class="relative flex flex-1 min-h-0 rounded-2xl border border-border/50 bg-card/60 overflow-hidden shadow-sm">
             <div
-              v-if="!chatStore.isSidebarOpen"
+              v-if="!chatStore.isSidebarOpen && !isMobileViewport"
               class="absolute left-0 top-0 z-20 h-full w-6"
               aria-hidden="true"
               @mouseenter="chatStore.openSidebar"

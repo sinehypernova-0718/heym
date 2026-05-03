@@ -7,6 +7,7 @@ import { chatApi } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 
 const SIDEBAR_OPEN_KEY = "heym-chat-sidebar-open";
+const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 767px)";
 const CREATE_CONVERSATION_COOLDOWN_MS = 2000;
 const CHAT_CACHE_KEY_PREFIX = "heym-chat-cache";
 const CHAT_CACHE_CRYPTO_CONTEXT = "heym-chat-cache-v1";
@@ -19,15 +20,17 @@ interface EncryptedChatCachePayload {
 
 type ConversationLoadResult = "loaded" | "not_found" | "error";
 
+function getInitialSidebarOpen(): boolean {
+  if (typeof window === "undefined") return true;
+  if (window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY).matches) return false;
+  return window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false";
+}
+
 export const useChatStore = defineStore("chat", () => {
   const authStore = useAuthStore();
   const conversations = ref<Conversation[]>([]);
   const activeConversation = ref<ConversationDetail | null>(null);
-  const isSidebarOpen = ref(
-    typeof window !== "undefined"
-      ? window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false"
-      : true,
-  );
+  const isSidebarOpen = ref(getInitialSidebarOpen());
   const isLoadingConversations = ref(false);
   const isLoadingMessages = ref(false);
   const isStreaming = ref(false);
@@ -53,6 +56,10 @@ export const useChatStore = defineStore("chat", () => {
 
   function openSidebar(): void {
     setSidebarOpen(true);
+  }
+
+  function closeSidebar(): void {
+    setSidebarOpen(false);
   }
 
   function setSidebarOpen(open: boolean): void {
@@ -477,6 +484,7 @@ export const useChatStore = defineStore("chat", () => {
     streamingWorkflowPreview,
     toggleSidebar,
     openSidebar,
+    closeSidebar,
     loadConversations,
     loadConversation,
     createConversation,

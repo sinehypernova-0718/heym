@@ -522,6 +522,7 @@ async def call_mcp_tool(
             test_run=False,
             credentials_context=credentials_context,
             global_variables_context=global_variables_context,
+            trace_user_id=mcp_user.id,
             cancel_event=cancel_event,
         )
 
@@ -689,6 +690,7 @@ async def handle_mcp_message(
                 workflow_cache=workflow_cache,
                 test_run=False,
                 credentials_context=credentials_context,
+                trace_user_id=mcp_user.id,
                 cancel_event=cancel_event,
             )
 
@@ -856,6 +858,7 @@ async def mcp_sse_post_endpoint(
                 workflow_cache=workflow_cache,
                 test_run=False,
                 credentials_context=credentials_context,
+                trace_user_id=mcp_user.id,
                 cancel_event=cancel_event,
             )
 

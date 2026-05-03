@@ -177,10 +177,26 @@ function focusInputWhenReady(): void {
   });
 }
 
+function resizeChatInput(): void {
+  const textarea = chatInputRef.value;
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function resetChatInputHeight(): void {
+  nextTick(() => {
+    const textarea = chatInputRef.value;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+  });
+}
+
 function applyShowcaseDraft(): void {
   const draft = consumeShowcaseChatDraft();
   if (!draft) return;
   input.value = draft;
+  nextTick(resizeChatInput);
   focusInputWhenReady();
 }
 
@@ -272,6 +288,7 @@ function setupSpeechRecognition(): void {
     const transcript = transcripts.join("").trim();
     if (transcript) {
       input.value = transcript;
+      nextTick(resizeChatInput);
     }
   };
   recognition.onerror = () => {
@@ -299,6 +316,7 @@ async function fixTranscriptionIfNeeded(): Promise<void> {
       text,
     });
     input.value = response.fixed_text;
+    nextTick(resizeChatInput);
   } catch {
     // keep original text
   } finally {
@@ -369,6 +387,7 @@ async function send(): Promise<void> {
     return;
   }
   input.value = "";
+  resetChatInputHeight();
   const payloadAttachment: AttachedFile | null = attachedFile.value;
   clearAttachment();
   await chatStore.sendMessage(
@@ -807,7 +826,7 @@ onUnmounted(() => {
           class="chat-input flex-1 min-h-[44px] max-h-40 resize-none bg-transparent border-0 px-1 py-3 text-sm text-left focus:outline-none focus:ring-0 disabled:opacity-50 touch-manipulation placeholder:text-muted-foreground leading-5"
           :disabled="chatStore.isStreaming || !canSendMessage || !selectedCredentialId || !selectedModel || modelsLoadFailed"
           @keydown="onKeydown"
-          @input="($event.target as HTMLTextAreaElement).style.height = 'auto'; ($event.target as HTMLTextAreaElement).style.height = ($event.target as HTMLTextAreaElement).scrollHeight + 'px'"
+          @input="resizeChatInput"
         />
         <button
           v-if="isSpeechSupported"
