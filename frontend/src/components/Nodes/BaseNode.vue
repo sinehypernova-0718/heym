@@ -392,10 +392,14 @@ const hasThrowErrorWarning = computed(() => {
         id="tool-input"
         type="target"
         :position="Position.Top"
+        :style="isSubAgentNode ? { left: '30%' } : undefined"
         class="!w-3.5 !h-3.5 !bg-violet-600 !border-violet-800"
       />
       <div
-        class="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none"
+        :class="[
+          'absolute -top-5 text-[9px] text-violet-400 whitespace-nowrap pointer-events-none select-none -translate-x-1/2',
+          isSubAgentNode ? 'left-[30%]' : 'left-1/2',
+        ]"
       >
         tools
       </div>
@@ -444,7 +448,7 @@ const hasThrowErrorWarning = computed(() => {
       </div>
     </div>
 
-    <div class="flex items-center gap-3.5">
+    <div :class="cn('flex items-center gap-3.5', props.type === 'agent' && '-mt-0.5')">
       <div
         :class="cn(
           'flex items-center justify-center w-9 h-9 rounded-lg shrink-0 transition-all',

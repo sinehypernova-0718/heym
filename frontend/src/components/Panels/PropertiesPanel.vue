@@ -7752,14 +7752,14 @@ onUnmounted(() => {
                     @navigate="handleSetMappingNavigate"
                     @register-field-index="onSetMappingRegisterFieldIndex"
                   />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="h-10 w-7 text-destructive shrink-0"
+                  <button
+                    type="button"
+                    class="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive shrink-0 transition-colors"
+                    title="Remove"
                     @click="removeMappingField(index)"
                   >
-                    <Minus class="w-3 h-3" />
-                  </Button>
+                    <X class="w-3 h-3" />
+                  </button>
                 </div>
                 <p
                   v-if="getMappingKeyError(mapping.key)"
