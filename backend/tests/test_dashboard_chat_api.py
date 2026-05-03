@@ -1,11 +1,13 @@
 import json
 import unittest
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.api.ai_assistant import (
     DashboardChatRequest,
     FileAttachment,
+    _append_date_to_user_messages,
     _build_user_message,
     _build_workflow_editor_user_message,
     _extract_generated_workflow_config,
@@ -26,6 +28,71 @@ def _normalize_chunks(chunks: list[str | bytes]) -> list[str]:
 
 
 class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
+    def test_append_date_to_user_messages_only_changes_llm_copy(self) -> None:
+        messages = [
+            {"role": "assistant", "content": "Earlier answer"},
+            {"role": "user", "content": "What happened today?"},
+        ]
+        now = datetime(2026, 5, 3, 12, 30, tzinfo=timezone.utc)
+
+        result = _append_date_to_user_messages(messages, now)
+
+        self.assertEqual(messages[-1]["content"], "What happened today?")
+        self.assertEqual(result[0], messages[0])
+        self.assertEqual(
+            result[1],
+            {
+                "role": "user",
+                "content": "What happened today?\n\nDate: 2026-05-03T12:30:00+00:00",
+            },
+        )
+
+    async def test_stream_dashboard_chat_sends_date_with_user_message_to_llm(self) -> None:
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="Done", tool_calls=None))]
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.return_value = response
+
+        with (
+            patch("app.api.ai_assistant.record_run_history"),
+            patch(
+                "app.api.ai_assistant.get_configured_timezone",
+                return_value=timezone.utc,
+            ),
+        ):
+            chunks = _normalize_chunks(
+                [
+                    chunk
+                    async for chunk in stream_dashboard_chat(
+                        fake_client,
+                        "gpt-4o-mini",
+                        "system prompt",
+                        [{"role": "user", "content": "What is the latest? "}],
+                        AsyncMock(),
+                        user,
+                        "OpenAI",
+                        "http://localhost",
+                    )
+                ]
+            )
+
+        self.assertEqual(
+            chunks,
+            [
+                'data: {"type": "content", "text": "Done"}\n\n',
+                'data: {"type": "done"}\n\n',
+            ],
+        )
+        sent_messages = fake_client.chat.completions.create.call_args.kwargs["messages"]
+        self.assertEqual(sent_messages[0], {"role": "system", "content": "system prompt"})
+        self.assertIn("What is the latest?", sent_messages[1]["content"])
+        self.assertRegex(
+            sent_messages[1]["content"],
+            r"\n\nDate: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$",
+        )
+
     async def test_dashboard_chat_appends_doc_context_rules_and_datetime(self) -> None:
         credential = MagicMock()
         credential.id = uuid.uuid4()
@@ -114,6 +181,10 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
             "Current user local date and time: 4/10/2026, 10:15:00 AM",
             captured["system_prompt"],
         )
+        self.assertIn("search the internet, load websites", captured["system_prompt"])
+        self.assertIn("Heym-only creation behavior", captured["system_prompt"])
+        self.assertIn("Do not recommend alternative platforms", captured["system_prompt"])
+        self.assertIn("AI Builder DSL generator", captured["system_prompt"])
         self.assertEqual(captured["trace_context"].node_label, "Documentation Chat")
         self.assertEqual(captured["trace_context"].source, "dashboard_chat")
         self.assertEqual(

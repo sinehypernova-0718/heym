@@ -16,12 +16,10 @@ const SKIP_FIELDS = new Set([
   "mcpConnections",
   "skills",
   "subAgentLabels",
-  "inputFields",
   "isOrchestrator",
   "isSubAgent",
   "playwrightSteps",
   "playwrightAuthFallbackSteps",
-  "mappings",
   "cases",
   "executeTargets",
   "outputSchema",
@@ -47,6 +45,8 @@ const TEXTAREA_FIELDS = new Set([
   "playwrightCode",
   "rabbitmqMessageBody",
   "arrayExpression",
+  "mappings",
+  "inputFields",
 ]);
 
 const SELECT_FIELDS = new Set([
@@ -111,7 +111,19 @@ const FIELD_LABELS: Record<string, string> = {
   value: "Value",
   bqOperation: "BigQuery Operation",
   gsOperation: "Google Sheets Operation",
+  mappings: "Mappings",
+  inputFields: "Input Fields",
 };
+
+interface MappingPreviewRow {
+  key?: unknown;
+  value?: unknown;
+}
+
+interface InputFieldPreviewRow {
+  key?: unknown;
+  defaultValue?: unknown;
+}
 
 export function getReadonlyPreviewFields(
   data: Record<string, unknown>,
@@ -125,7 +137,7 @@ export function getReadonlyPreviewFields(
       return true;
     })
     .map(([key, value]) => {
-      const textValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
+      const textValue = formatPreviewValue(key, value);
       const label = FIELD_LABELS[key] ?? formatKey(key);
       if (typeof value === "boolean") {
         return { key, label, value: textValue, kind: "boolean", isTrue: value };
@@ -138,6 +150,32 @@ export function getReadonlyPreviewFields(
       }
       return { key, label, value: textValue, kind: "input" };
     });
+}
+
+function formatPreviewValue(key: string, value: unknown): string {
+  if (key === "mappings" && Array.isArray(value)) {
+    return value
+      .map((entry, index) => {
+        const mapping = entry as MappingPreviewRow;
+        const mappingKey = String(mapping.key || `field_${index + 1}`);
+        const mappingValue = mapping.value === undefined ? "" : String(mapping.value);
+        return `${mappingKey}: ${mappingValue}`;
+      })
+      .join("\n");
+  }
+  if (key === "inputFields" && Array.isArray(value)) {
+    return value
+      .map((entry, index) => {
+        const inputField = entry as InputFieldPreviewRow;
+        const fieldKey = String(inputField.key || `field_${index + 1}`);
+        if (inputField.defaultValue === undefined || inputField.defaultValue === "") {
+          return fieldKey;
+        }
+        return `${fieldKey}: ${String(inputField.defaultValue)}`;
+      })
+      .join("\n");
+  }
+  return Array.isArray(value) ? JSON.stringify(value) : String(value);
 }
 
 function formatKey(key: string): string {

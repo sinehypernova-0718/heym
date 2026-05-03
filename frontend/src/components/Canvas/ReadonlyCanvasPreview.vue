@@ -16,6 +16,10 @@ interface Props {
   flowKey?: number | string;
   emptyMessage?: string;
   showMiniMap?: boolean;
+  showControls?: boolean;
+  maxZoom?: number;
+  backgroundGap?: number;
+  framed?: boolean;
 }
 
 interface PreviewNodeData extends Record<string, unknown> {
@@ -30,6 +34,10 @@ const props = withDefaults(defineProps<Props>(), {
   flowKey: 0,
   emptyMessage: "No nodes to preview",
   showMiniMap: true,
+  showControls: true,
+  maxZoom: 1.5,
+  backgroundGap: 20,
+  framed: true,
 });
 
 const emit = defineEmits<{
@@ -66,7 +74,7 @@ function clearSelection(): void {
 </script>
 
 <template>
-  <div class="flex h-full flex-col gap-3 lg:flex-row">
+  <div class="flex h-full flex-col lg:flex-row">
     <ReadonlyCanvasSurface
       :flow-key="flowKey"
       :nodes="nodes"
@@ -75,6 +83,10 @@ function clearSelection(): void {
       :fit-padding="fitPadding"
       :empty-message="emptyMessage"
       :show-mini-map="showMiniMap"
+      :show-controls="showControls"
+      :max-zoom="maxZoom"
+      :background-gap="backgroundGap"
+      :framed="framed"
       @node-click="handleNodeClick"
       @pane-click="clearSelection"
     />
@@ -82,7 +94,7 @@ function clearSelection(): void {
     <Transition name="panel">
       <div
         v-if="activeNode"
-        class="flex h-64 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm lg:h-auto lg:w-72"
+        class="flex h-64 w-full shrink-0 flex-col overflow-hidden border-t border-border/50 bg-card shadow-sm lg:h-auto lg:w-72 lg:border-l lg:border-t-0"
       >
         <div class="shrink-0 border-b border-border/40 px-4 py-3">
           <div class="flex items-start justify-between gap-2">

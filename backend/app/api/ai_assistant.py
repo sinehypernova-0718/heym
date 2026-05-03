@@ -175,6 +175,34 @@ def _build_user_message(message: str, attachment: FileAttachment | None) -> dict
     return {"role": "user", "content": embedded}
 
 
+def _format_user_message_date(now: datetime | None = None) -> str:
+    """Return the current date value attached to user messages sent to the LLM."""
+    current = now or datetime.now(get_configured_timezone())
+    return current.replace(microsecond=0).isoformat()
+
+
+def _append_date_to_user_messages(
+    messages: list[dict],
+    now: datetime | None = None,
+) -> list[dict]:
+    """Add a Date line to user messages without mutating persisted chat history."""
+    date_line = f"Date: {_format_user_message_date(now)}"
+    dated_messages: list[dict] = []
+    for message in messages:
+        if message.get("role") != "user":
+            dated_messages.append(message)
+            continue
+
+        dated_message = dict(message)
+        content = dated_message.get("content")
+        if isinstance(content, str):
+            dated_message["content"] = f"{content}\n\n{date_line}"
+        elif isinstance(content, list):
+            dated_message["content"] = [*content, {"type": "text", "text": date_line}]
+        dated_messages.append(dated_message)
+    return dated_messages
+
+
 def _load_agents_md_content() -> str:
     """Load AGENTS.md content for Heym platform context in dashboard chat."""
     paths = [
@@ -205,6 +233,10 @@ DASHBOARD_CHAT_SYSTEM_PROMPT = """You are an assistant that helps the user with 
 
 CRITICAL - Workflow-first behavior: You receive a list of available workflows at the start. When the user asks for ANY information (sports, weather, news, match schedules, birthdays, etc.), FIRST check if a workflow can answer. Match user intent to workflow names and descriptions (e.g. "when is the next match" / "Fenerbahce match" -> workflow named "Fenerbahce next match" or similar; "weather" -> weather workflow). If a workflow matches, call execute_workflow immediately with appropriate inputs (often empty {} for workflows with no required inputs). NEVER say "I don't have access" without first checking workflows—many questions can be answered by running a workflow.
 
+When you do not know the answer, or the answer may require current/external web information, you may call internal workflows that can search the internet, load websites, browse pages, crawl sites, fetch URLs, or read online content. Look for matching workflow names, descriptions, and input fields, then run the most relevant workflow with the user's query or URL instead of saying you cannot access the internet.
+
+Heym-only creation behavior: Do not recommend alternative platforms, external automation products, separate app/server setups, custom scripts outside Heym, or platform-external workarounds. When the user wants something built, configured, automated, or generated, stay inside Heym: use existing workflows, Heym DSL, and the AI Builder DSL generator via create_and_run_workflow or edit_and_run_workflow. If the request cannot be completed with available Heym capabilities, say that clearly and explain the closest Heym-native option.
+
 Respond in the same language the user uses. Be concise and helpful. When you run a workflow, summarize the result for the user. When a workflow is pending human review, your reply must include the review link and the direct chat options to approve, edit, or reject.
 
 If a tool returns an error or no relevant data, do not invent an answer. Say clearly that you do not have that information (e.g. "I don't have this information"). Base your answers only on data from the tools (workflows, analytics, execution results); when you do not know something, say so.
@@ -213,7 +245,7 @@ When the user asks for something you cannot do with your tools (e.g. console log
 
 11. When the user asks about teams (e.g. "my teams", "which teams am I in?", "who is in team X?"), use get_teams. Optionally pass team_name to filter by name.
 12. When the user asks about Heym features, nodes, expressions, workflows, or how to use the platform, use search_documentation. Call search_documentation at most 2 times per user message. Use one comprehensive query first (e.g. "canvas features", "portal"). Only call again with a different query if the first returns no relevant docs. In your response, cite the documentation with markdown links: [Document Title](/docs/category/slug). Example: [LLM Node](/docs/nodes/llm-node). When the documentation contains a video tag (e.g. `<video src="/features/showcase/..."`), include it in your response so the user can watch a demo directly in chat. Respond in the user's language.
-13. When the user asks you to create, build, generate, or set up a new workflow/automation and then do the requested job, call create_and_run_workflow. This tool uses the Workflow AI Builder engine to generate the workflow, saves it, and runs it immediately. After it succeeds, do not include a separate workflow link in your prose; the chat UI shows a workflow preview card with its own Open workflow link. Do not answer with only instructions or raw workflow JSON for these requests.
+13. When the user asks you to create, build, generate, or set up a new workflow/automation and then do the requested job, call create_and_run_workflow. This tool uses the Workflow AI Builder engine to generate Heym DSL, saves it, and runs it immediately. After it succeeds, do not include a separate workflow link in your prose; the chat UI shows a workflow preview card with its own Open workflow link. Do not answer with only instructions, platform alternatives, or raw workflow JSON for these requests.
 14. When the user gives feedback in the same chat about a workflow you just created (for example "make it do X", "change it like this", "add a step", "remove that", "şöyle yap", "böyle değiştir"), call edit_and_run_workflow with the workflow_id from the previous workflow link, hidden workflow context marker, or tool result. Do not create a second workflow for feedback on the existing generated workflow unless the user explicitly asks for a new separate workflow."""
 
 DASHBOARD_CHAT_TOOLS = [
@@ -250,7 +282,7 @@ DASHBOARD_CHAT_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_and_run_workflow",
-            "description": "Create a brand-new workflow using the Workflow AI Builder engine, save it to the user's workflows, and run it immediately. Use this when the user asks to create/build/generate/set up a workflow or automation and wants the multi-step job done. Do not use it for questions about existing workflows.",
+            "description": "Create a brand-new workflow using the Workflow AI Builder Heym DSL generator, save it to the user's workflows, and run it immediately. Use this when the user asks to create/build/generate/set up a workflow or automation and wants the multi-step job done. Do not suggest alternative platforms or external setups for these requests. Do not use it for questions about existing workflows.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -822,6 +854,7 @@ def _build_workflow_builder_user_message(
 ) -> str:
     parts = [
         "Create a complete Heym workflow for this dashboard chat request.",
+        "Use only Heym DSL capabilities and the AI Builder DSL generator; do not propose alternative platforms, external app/server setups, or custom scripts outside Heym.",
         "Return exactly one fenced ```json code block with an object containing name, description, nodes, and edges.",
         "Generate a concise English workflow name and description.",
         "The workflow will be saved and run immediately after your response.",
@@ -855,6 +888,7 @@ def _build_workflow_editor_user_message(
     }
     parts = [
         "Edit the existing Heym workflow below according to the user's feedback.",
+        "Use only Heym DSL capabilities and the AI Builder DSL generator; do not propose alternative platforms, external app/server setups, or custom scripts outside Heym.",
         "Return exactly one fenced ```json code block with the complete updated workflow object containing name, description, nodes, and edges.",
         "Update the workflow name, description, and node labels so they match the revised workflow behavior.",
         "Preserve node ids, credentials, models, skills, and settings unless the user explicitly asks to change them.",
@@ -1925,7 +1959,7 @@ async def stream_dashboard_chat(
     if not is_reasoning:
         base_kwargs["temperature"] = 0.3
 
-    messages_to_use = list(messages)
+    messages_to_use = _append_date_to_user_messages(messages)
     rounds = 0
     start_time = time.time()
     response_parts: list[str] = []

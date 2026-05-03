@@ -46,6 +46,8 @@ function syncMobileSidebarState(): void {
   isMobileViewport.value = mobileSidebarMediaQuery?.matches ?? false;
   if (isMobileViewport.value) {
     chatStore.closeSidebar();
+  } else {
+    chatStore.openSidebar();
   }
 }
 
