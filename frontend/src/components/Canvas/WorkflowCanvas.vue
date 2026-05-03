@@ -180,8 +180,17 @@ onConnect((connection) => {
   }
 
   if (connection.targetHandle === "tool-input" && connection.source) {
+    const BLOCKED_AS_TOOL = new Set([
+      "merge", "switch", "loop", "agent", "llm", "condition",
+      "execute", "sticky", "errorHandler",
+      "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
+    ]);
     const sourceNode = workflowStore.nodes.find((n) => n.id === connection.source);
     if (sourceNode) {
+      if (BLOCKED_AS_TOOL.has(sourceNode.type)) {
+        showToast("This node type cannot be used as a tool.", "error");
+        return;
+      }
       const nodeDef = NODE_DEFINITIONS[sourceNode.type as keyof typeof NODE_DEFINITIONS];
       if (nodeDef && nodeDef.inputs === 0) {
         showToast("Trigger nodes cannot be used as tools.", "error");

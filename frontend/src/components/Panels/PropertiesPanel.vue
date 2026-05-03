@@ -7747,6 +7747,7 @@ onUnmounted(() => {
                     :navigation-total="mappings.length"
                     :dialog-node-label="selectedNodeEvaluateDialogLabel"
                     :dialog-key-label="mapping.key || `mapping ${index + 1}`"
+                    :field-key="mapping.key || `mapping_${index}`"
                     @update:model-value="updateMappingField(index, 'value', $event)"
                     @navigate="handleSetMappingNavigate"
                     @register-field-index="onSetMappingRegisterFieldIndex"

@@ -3525,11 +3525,19 @@ class WorkflowExecutor:
             if fname in args:
                 merged_data[fname] = args[fname]
 
+        node_label = original_data.get("label", node_id)
+        _queue = getattr(self, "agent_progress_queue", None)
+        if _queue is not None:
+            _queue.put({"type": "node_start", "node_id": node_id, "node_label": node_label})
+
         node["data"] = merged_data
         try:
             result = self.execute_node(node_id, {}, allow_branch_skip=False)
         finally:
             node["data"] = original_data
+
+        if _queue is not None:
+            _queue.put(_build_node_complete_event(result))
 
         if result.status == "error":
             return {"error": result.error or "Node execution failed"}
