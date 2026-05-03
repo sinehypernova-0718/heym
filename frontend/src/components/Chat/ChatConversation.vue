@@ -19,9 +19,9 @@ import {
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
-import type { Message } from "@/types/chat";
+import type { Message, WorkflowPreview } from "@/types/chat";
 import type { CredentialListItem, LLMModel } from "@/types/credential";
-import ReadonlyCanvasSurface from "@/components/Canvas/ReadonlyCanvasSurface.vue";
+import ReadonlyCanvasPreview from "@/components/Canvas/ReadonlyCanvasPreview.vue";
 import Button from "@/components/ui/Button.vue";
 import ImageLightbox from "@/components/ui/ImageLightbox.vue";
 import { aiApi, credentialsApi } from "@/services/api";
@@ -48,6 +48,7 @@ const authStore = useAuthStore();
 const router = useRouter();
 
 const input = ref("");
+const chatRootRef = ref<HTMLDivElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
 const messagesEndRef = ref<HTMLElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -64,6 +65,7 @@ const isSpeechSupported = ref(false);
 const isListening = ref(false);
 const isFixingTranscription = ref(false);
 const imageLightboxSrc = ref<string | null>(null);
+const selectedWorkflowPreviewNodes = ref<Record<string, Record<string, unknown> | null>>({});
 let copiedMessageIdTimeout: ReturnType<typeof setTimeout> | null = null;
 
 interface SpeechRecognitionResultAlternative {
@@ -242,6 +244,41 @@ function handleMarkdownImageClick(event: MouseEvent): void {
   if (target.tagName === "IMG") {
     imageLightboxSrc.value = (target as HTMLImageElement).src;
   }
+}
+
+function setWorkflowPreviewSelection(
+  workflowId: string,
+  node: Record<string, unknown> | null,
+): void {
+  selectedWorkflowPreviewNodes.value = {
+    ...selectedWorkflowPreviewNodes.value,
+    [workflowId]: node,
+  };
+  if (node) {
+    nextTick(() => {
+      chatRootRef.value?.focus({ preventScroll: true });
+    });
+  }
+}
+
+function hasWorkflowPreviewSelection(workflow: WorkflowPreview): boolean {
+  return !!selectedWorkflowPreviewNodes.value[workflow.id];
+}
+
+function hasOpenWorkflowPreviewPanel(): boolean {
+  return Object.values(selectedWorkflowPreviewNodes.value).some(Boolean);
+}
+
+function closeWorkflowPreviewPanels(): void {
+  selectedWorkflowPreviewNodes.value = {};
+}
+
+function handleChatKeydown(event: KeyboardEvent): void {
+  if (!["Escape", "Esc"].includes(event.key)) return;
+  if (!hasOpenWorkflowPreviewPanel()) return;
+  event.preventDefault();
+  event.stopPropagation();
+  closeWorkflowPreviewPanels();
 }
 
 async function copyMessage(msg: Message): Promise<void> {
@@ -428,7 +465,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div
+    ref="chatRootRef"
+    class="flex flex-col h-full outline-none"
+    tabindex="-1"
+    @keydown.capture="handleChatKeydown"
+    @keyup.capture="handleChatKeydown"
+  >
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 p-3 sm:p-4 border-b border-border/50 shrink-0">
       <div class="flex items-center gap-2 min-w-0 shrink-0">
         <button
@@ -617,17 +660,24 @@ onUnmounted(() => {
                 Open workflow
               </a>
             </div>
-            <div class="h-64 min-h-0 w-full">
-              <ReadonlyCanvasSurface
+            <div
+              :class="[
+                'min-h-0 w-full transition-[height] duration-200',
+                hasWorkflowPreviewSelection(msg.workflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
+              ]"
+            >
+              <ReadonlyCanvasPreview
                 :nodes="msg.workflowPreview.nodes"
                 :edges="msg.workflowPreview.edges"
                 :flow-key="msg.workflowPreview.id"
+                :selected-node="selectedWorkflowPreviewNodes[msg.workflowPreview.id] ?? null"
                 empty-message="No workflow preview"
                 :show-mini-map="false"
-                :fit-padding="0.24"
+                :show-controls="false"
                 :max-zoom="1.1"
                 :background-gap="28"
                 :framed="false"
+                @update:selected-node="(node) => setWorkflowPreviewSelection(msg.workflowPreview!.id, node)"
               />
             </div>
           </div>
@@ -736,17 +786,24 @@ onUnmounted(() => {
                 Open workflow
               </a>
             </div>
-            <div class="h-64 min-h-0 w-full">
-              <ReadonlyCanvasSurface
+            <div
+              :class="[
+                'min-h-0 w-full transition-[height] duration-200',
+                hasWorkflowPreviewSelection(chatStore.streamingWorkflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
+              ]"
+            >
+              <ReadonlyCanvasPreview
                 :nodes="chatStore.streamingWorkflowPreview.nodes"
                 :edges="chatStore.streamingWorkflowPreview.edges"
                 :flow-key="chatStore.streamingWorkflowPreview.id"
+                :selected-node="selectedWorkflowPreviewNodes[chatStore.streamingWorkflowPreview.id] ?? null"
                 empty-message="No workflow preview"
                 :show-mini-map="false"
-                :fit-padding="0.24"
+                :show-controls="false"
                 :max-zoom="1.1"
                 :background-gap="28"
                 :framed="false"
+                @update:selected-node="(node) => setWorkflowPreviewSelection(chatStore.streamingWorkflowPreview!.id, node)"
               />
             </div>
           </div>
