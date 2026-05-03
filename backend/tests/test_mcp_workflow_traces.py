@@ -69,7 +69,7 @@ class McpWorkflowTraceTests(unittest.IsolatedAsyncioTestCase):
             patch("app.api.mcp.collect_referenced_workflows", AsyncMock(return_value={})),
             patch("app.api.mcp.get_credentials_context_for_user", AsyncMock(return_value={})),
             patch("app.api.mcp.get_global_variables_context", AsyncMock(return_value={})),
-            patch("app.api.mcp.execute_workflow", return_value=execution_result),
+            patch("app.api.mcp.execute_workflow", return_value=execution_result) as execute_mock,
             patch("app.api.mcp.upsert_workflow_analytics_snapshot", AsyncMock()),
             patch("app.api.mcp._persist_global_variables_from_execution", AsyncMock()),
         ):
@@ -80,6 +80,7 @@ class McpWorkflowTraceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertFalse(response.isError)
+        self.assertEqual(execute_mock.call_args.kwargs["trace_user_id"], user.id)
         traces = [
             call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], LLMTrace)
         ]
