@@ -4043,8 +4043,14 @@ class WorkflowExecutor:
             }
             merged_tools.append(call_sub_workflow_tool)
 
+        node_tool_schemas = self._build_node_tool_schemas(node_id) if node_id is not None else []
+        merged_tools.extend(node_tool_schemas)
+
         needs_custom_executor = (
-            hitl_enabled or (is_orchestrator and sub_agent_labels) or bool(sub_workflow_ids)
+            hitl_enabled
+            or (is_orchestrator and sub_agent_labels)
+            or bool(sub_workflow_ids)
+            or bool(node_tool_schemas)
         )
 
         def on_tool_call(entry: dict) -> None:

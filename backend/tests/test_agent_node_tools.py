@@ -208,3 +208,112 @@ class TestExecuteNodeTool(unittest.TestCase):
             ex._execute_node_tool(tool_def, {"curl": "curl https://other.com"})
 
         self.assertEqual(ex.nodes[http_id]["data"]["curl"], original_curl)
+
+
+class TestAgentNodeToolIntegration(unittest.TestCase):
+    def _make_full_executor(self, nodes: dict, edges: list) -> WorkflowExecutor:
+        """WorkflowExecutor stub with all attributes needed by _execute_agent_node."""
+        import uuid
+
+        ex = WorkflowExecutor.__new__(WorkflowExecutor)
+        ex.nodes = nodes
+        ex.edges = edges
+        ex.node_results = {}
+        ex.agent_progress_queue = None
+        ex._sub_agent_call_depth = 0
+        ex.check_cancelled = MagicMock()
+        ex.hitl_resume_context = {}
+        ex.conversation_history = None
+        ex.workflow_cache = {}
+        ex.trace_user_id = None
+        ex.workflow_id = uuid.uuid4()
+        ex.cancel_event = None
+        ex._resolve_template = MagicMock(side_effect=lambda tmpl, *a, **kw: tmpl)
+        ex.resolve_expression = MagicMock(return_value="")
+        ex._list_mcp_tools = MagicMock(return_value=[])
+        ex._build_hitl_mcp_policy = MagicMock(return_value={})
+        ex._build_agent_tool_executor = MagicMock(return_value=None)
+        return ex
+
+    def test_node_tools_added_to_merged_tools(self) -> None:
+        """Node tool schemas appear in the agent's tool list sent to LLM."""
+        from unittest.mock import patch
+
+        agent_id = "agent-1"
+        http_id = "http-1"
+        nodes = {
+            agent_id: {
+                "type": "agent",
+                "data": {
+                    "label": "Agent",
+                    "model": "claude-3-5-sonnet-20241022",
+                    "credentialId": "cred-1",
+                    "tools": [],
+                    "mcpConnections": [],
+                    "skills": [],
+                    "toolTimeoutSeconds": 30,
+                    "maxToolIterations": 5,
+                    "systemInstruction": "You are helpful.",
+                    "userMessage": "hello",
+                    "active": True,
+                },
+            },
+            http_id: {
+                "type": "http",
+                "data": {
+                    "label": "Fetch Users",
+                    "curl": "curl https://api.example.com/users",
+                    "agentProvidedFields": ["curl"],
+                    "active": True,
+                },
+            },
+        }
+        edges = [{"source": http_id, "target": agent_id, "targetHandle": "tool-input"}]
+
+        ex = self._make_full_executor(nodes, edges)
+
+        captured_tools: list[list[dict]] = []
+
+        def fake_execute_llm_with_tools(**kwargs):  # type: ignore[misc]
+            captured_tools.append(kwargs.get("tools", []))
+
+            async def _coro() -> dict:
+                return {
+                    "text": "done",
+                    "model": "claude-3-5-sonnet-20241022",
+                    "tool_calls": [],
+                    "usage": {},
+                    "elapsed_ms": 10.0,
+                }
+
+            return _coro()
+
+        mock_cred = MagicMock()
+        mock_cred.type = MagicMock()
+        mock_cred.type.value = "anthropic"
+        mock_cred.encrypted_config = b"enc"
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = mock_cred
+        mock_db.__enter__ = MagicMock(return_value=mock_db)
+        mock_db.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("app.services.llm_service.execute_llm_with_tools", fake_execute_llm_with_tools),
+            patch("app.db.session.SessionLocal", return_value=mock_db),
+            patch(
+                "app.services.encryption.decrypt_config",
+                return_value={"api_key": "test-key"},
+            ),
+            patch(
+                "app.services.agent_memory_service.augment_system_instruction_with_memory",
+                side_effect=lambda si, *a, **kw: si,
+            ),
+        ):
+            ex._execute_agent_node(agent_id, {}, nodes[agent_id]["data"])
+
+        tool_names = [t["name"] for t in captured_tools[0]] if captured_tools else []
+        self.assertIn("fetch_users", tool_names)
+        node_tool = next(t for t in captured_tools[0] if t["name"] == "fetch_users")
+        self.assertEqual(node_tool["_source"], "node_tool")
+        self.assertIn("curl", node_tool["parameters"]["properties"])
