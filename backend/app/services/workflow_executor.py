@@ -3452,6 +3452,60 @@ class WorkflowExecutor:
 
         return executor
 
+    def _build_node_tool_schemas(self, agent_node_id: str) -> list[dict]:
+        """Build OpenAI-compatible tool schemas for canvas nodes on the tool-input handle."""
+        import re
+
+        def _slugify(label: str) -> str:
+            slug = re.sub(r"[^a-zA-Z0-9]+", "_", label.strip()).strip("_").lower()
+            return slug[:64] or "node_tool"
+
+        tool_node_ids = [
+            edge["source"]
+            for edge in self.edges
+            if edge.get("target") == agent_node_id and edge.get("targetHandle") == "tool-input"
+        ]
+
+        schemas: list[dict] = []
+        seen_names: set[str] = set()
+
+        for node_id in tool_node_ids:
+            node = self.nodes.get(node_id)
+            if node is None:
+                continue
+            node_data = node.get("data", {})
+            label = node_data.get("label") or node_id
+            base_name = _slugify(label)
+
+            name = base_name
+            suffix = 2
+            while name in seen_names:
+                name = f"{base_name}_{suffix}"
+                suffix += 1
+            seen_names.add(name)
+
+            agent_provided: list[str] = node_data.get("agentProvidedFields") or []
+            properties = {
+                field: {"type": "string", "description": f"Value for {field}"}
+                for field in agent_provided
+            }
+
+            schemas.append(
+                {
+                    "name": name,
+                    "description": f"Execute the '{label}' node",
+                    "parameters": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": list(agent_provided),
+                    },
+                    "_source": "node_tool",
+                    "_node_id": node_id,
+                }
+            )
+
+        return schemas
+
     def _execute_agent_node(
         self,
         node_id: str | None,
