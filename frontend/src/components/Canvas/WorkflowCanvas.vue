@@ -152,7 +152,7 @@ const vueFlowEdges = computed(() => [
     animated: true,
     style:
       edge.targetHandle === "tool-input"
-        ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 1.5 }
+        ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 0.75 }
         : undefined,
   })),
   ...subAgentEdges.value.map((edge) => ({
