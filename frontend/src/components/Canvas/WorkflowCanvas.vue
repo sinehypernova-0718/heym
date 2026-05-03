@@ -10,6 +10,7 @@ import { FileJson, LayoutGrid } from "lucide-vue-next";
 import ShareTemplateModal from "@/features/templates/components/ShareTemplateModal.vue";
 
 import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
+import { NODE_DEFINITIONS } from "@/types/node";
 
 import BaseNode from "@/components/Nodes/BaseNode.vue";
 import InsertableEdge from "@/components/Canvas/InsertableEdge.vue";
@@ -142,7 +143,11 @@ const vueFlowEdges = computed(() => [
     target: edge.target,
     sourceHandle: edge.sourceHandle,
     targetHandle: edge.targetHandle,
-    animated: true,
+    animated: edge.targetHandle !== "tool-input",
+    style:
+      edge.targetHandle === "tool-input"
+        ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 2 }
+        : undefined,
   })),
   ...subAgentEdges.value.map((edge) => ({
     id: edge.id,
@@ -173,6 +178,40 @@ onConnect((connection) => {
       return;
     }
   }
+
+  if (connection.targetHandle === "tool-input" && connection.source) {
+    const sourceNode = workflowStore.nodes.find((n) => n.id === connection.source);
+    if (sourceNode) {
+      const nodeDef = NODE_DEFINITIONS[sourceNode.type as keyof typeof NODE_DEFINITIONS];
+      if (nodeDef && nodeDef.inputs === 0) {
+        showToast("Trigger nodes cannot be used as tools.", "error");
+        return;
+      }
+    }
+  }
+
+  if (connection.targetHandle === "tool-input" && connection.source) {
+    const hasFlowEdge = workflowStore.edges.some(
+      (e) =>
+        (e.source === connection.source || e.target === connection.source) &&
+        e.targetHandle !== "tool-input",
+    );
+    if (hasFlowEdge) {
+      showToast("Nodes already connected in the workflow cannot be used as tools.", "error");
+      return;
+    }
+  }
+
+  if (connection.targetHandle !== "tool-input" && connection.source) {
+    const isSourceToolNode = workflowStore.edges.some(
+      (e) => e.source === connection.source && e.targetHandle === "tool-input",
+    );
+    if (isSourceToolNode) {
+      showToast("Tool nodes cannot participate in the regular workflow flow.", "error");
+      return;
+    }
+  }
+
   const edge: WorkflowEdge = {
     id: `edge_${connection.source}_${connection.target}_${Date.now()}`,
     source: connection.source,
