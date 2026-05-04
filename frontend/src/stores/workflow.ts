@@ -56,6 +56,7 @@ export const useWorkflowStore = defineStore("workflow", () => {
   );
   const executionHistoryTotal = ref(0);
   const isHistoryLoading = ref(false);
+  const isHistoryLoadingMore = ref(false);
   const isHistoryDetailLoading = ref(false);
   const currentExecutionId = ref<string | null>(null);
   const isExecuting = ref(false);
@@ -409,6 +410,31 @@ export const useWorkflowStore = defineStore("workflow", () => {
       executionHistoryTotal.value = 0;
     } finally {
       isHistoryLoading.value = false;
+    }
+  }
+
+  async function fetchMoreExecutionHistory(
+    triggerSource?: string,
+    { search }: { search?: string } = {},
+  ): Promise<void> {
+    if (!currentWorkflow.value) return;
+    if (isHistoryLoadingMore.value) return;
+    if (executionHistoryList.value.length >= executionHistoryTotal.value) return;
+    isHistoryLoadingMore.value = true;
+    try {
+      const { total, items } = await workflowApi.getHistory(
+        currentWorkflow.value.id,
+        50,
+        executionHistoryList.value.length,
+        search,
+        triggerSource,
+      );
+      executionHistoryList.value = [...executionHistoryList.value, ...items];
+      executionHistoryTotal.value = total;
+    } catch {
+      // silently ignore — next scroll will retry
+    } finally {
+      isHistoryLoadingMore.value = false;
     }
   }
 
@@ -2170,6 +2196,7 @@ export const useWorkflowStore = defineStore("workflow", () => {
     executionHistoryDetails,
     executionHistoryTotal,
     isHistoryLoading,
+    isHistoryLoadingMore,
     isHistoryDetailLoading,
     fetchExecutionHistoryEntry,
     upsertExecutionHistoryEntry,
@@ -2224,6 +2251,7 @@ export const useWorkflowStore = defineStore("workflow", () => {
     clearCanvas,
     clearExecutionHistory,
     fetchExecutionHistory,
+    fetchMoreExecutionHistory,
     propertiesPanelOpen,
     agentMemoryGraphDialogOpen,
     setAgentMemoryGraphDialogOpen,

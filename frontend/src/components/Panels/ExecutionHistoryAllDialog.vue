@@ -68,6 +68,8 @@ const searchInputRef = ref<HTMLInputElement | null>(null);
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const activeExecutions = ref<ActiveExecutionItem[]>([]);
 const isCancellingId = ref<string | null>(null);
+const loadingMore = ref(false);
+const listRef = ref<HTMLDivElement | null>(null);
 
 const selectedEntry = computed<AllExecutionHistoryEntry | null>(() => {
   if (!selectedId.value) return null;
@@ -405,6 +407,35 @@ function clearSearch(): void {
   searchQuery.value = "";
   loadHistory();
   searchInputRef.value?.focus();
+}
+
+async function loadMore(): Promise<void> {
+  if (loadingMore.value || loading.value) return;
+  if (executionHistory.value.length >= totalCount.value) return;
+  loadingMore.value = true;
+  try {
+    const result = await workflowApi.getAllHistory(
+      50,
+      executionHistory.value.length,
+      searchQuery.value || undefined,
+      props.initialStatus || undefined,
+      selectedTriggerSource.value,
+      props.workflowId,
+    );
+    executionHistory.value = [...executionHistory.value, ...result.items];
+    totalCount.value = result.total;
+  } finally {
+    loadingMore.value = false;
+  }
+}
+
+function onListScroll(event: Event): void {
+  const el = event.currentTarget as HTMLElement;
+  if (loadingMore.value || loading.value) return;
+  if (executionHistory.value.length >= totalCount.value) return;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
+    void loadMore();
+  }
 }
 
 function handleDialogEscape(event: KeyboardEvent): void {
@@ -853,7 +884,9 @@ function bringToCanvas(): void {
         </div>
         <div
           v-else-if="totalCount > 0"
+          ref="listRef"
           class="space-y-2 max-h-48 overflow-auto pr-2"
+          @scroll.passive="onListScroll"
         >
           <button
             v-for="entry in filteredExecutionHistory"
@@ -888,6 +921,12 @@ function bringToCanvas(): void {
               </template>
             </div>
           </button>
+          <div
+            v-if="loadingMore"
+            class="flex justify-center py-2"
+          >
+            <Loader2 class="w-4 h-4 animate-spin text-muted-foreground" />
+          </div>
         </div>
 
         <div
