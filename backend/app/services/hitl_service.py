@@ -28,9 +28,21 @@ def build_public_base_url(request: Request) -> str:
     if forwarded_host:
         forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
         return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
-    if settings.frontend_url:
-        return settings.frontend_url.rstrip("/")
+    default_public_base_url = build_default_public_base_url()
+    if default_public_base_url:
+        return default_public_base_url
     return str(request.base_url).rstrip("/")
+
+
+def build_default_public_base_url() -> str:
+    """Return the configured public frontend URL for background executions."""
+    if settings.frontend_url.strip():
+        return settings.frontend_url.rstrip("/")
+    for origin in settings.cors_origins_list:
+        cleaned_origin = origin.strip()
+        if cleaned_origin:
+            return cleaned_origin.rstrip("/")
+    return "http://localhost:4017"
 
 
 def build_review_url(base_url: str, token: str) -> str:

@@ -574,7 +574,7 @@ This project is licensed under the **[Commons Clause](https://commonsclause.com/
 
 Join our Discord to connect with the community, ask questions, share workflows, and stay up to date:
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/aAw8E3rje)
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/T2wXvuVdMX )
 
 ---
 
