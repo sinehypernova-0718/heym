@@ -23,6 +23,7 @@ import {
   Loader2,
   Maximize2,
   Play,
+  Sparkles,
   Type,
   Variable,
   X,
@@ -36,6 +37,7 @@ import type {
   WorkflowNode,
 } from "@/types/workflow";
 import ExpressionOutputPathPicker from "@/components/ui/ExpressionOutputPathPicker.vue";
+import AIExpressionBuilderModal from "@/components/ui/AIExpressionBuilderModal.vue";
 import { useExpressionCompletion } from "@/composables/useExpressionCompletion";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import {
@@ -166,6 +168,7 @@ const evaluateDialogBodyRef = ref<HTMLDivElement | null>(null);
 const showDropdown = ref(false);
 const showDialogDropdown = ref(false);
 const showExpandDialog = ref(false);
+const showAiBuilder = ref(false);
 const dialogValue = ref("");
 const suggestions = ref<CompletionSuggestion[]>([]);
 const dialogSuggestions = ref<CompletionSuggestion[]>([]);
@@ -1569,6 +1572,10 @@ function applyDialogChanges(options?: { closeDialog?: boolean }): void {
   }
 }
 
+function handleAiApply(expr: string): void {
+  dialogValue.value = expr;
+}
+
 function handleNavigateToNode(targetNodeId: string): void {
   emit("update:modelValue", dialogValue.value);
   const desiredIterationIndex = selectedLoopIterationIndex.value;
@@ -2546,6 +2553,19 @@ defineExpose({
             class="relative z-0 flex min-h-0 flex-1 flex-col overflow-hidden"
           >
             <div
+              v-if="workflowStore.currentWorkflow?.id"
+              class="flex shrink-0 items-center justify-end px-4 pt-2"
+            >
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-md bg-indigo-600/10 px-2.5 py-1 text-[11px] font-semibold text-indigo-400 transition-colors hover:bg-indigo-600/20 hover:text-indigo-300"
+                @click.stop="showAiBuilder = true"
+              >
+                <Sparkles class="h-3.5 w-3.5" />
+                Build with AI
+              </button>
+            </div>
+            <div
               class="flex max-h-[min(34dvh,260px)] shrink-0 flex-col overflow-y-auto overscroll-y-contain px-4 pt-3 pb-0 [scrollbar-gutter:stable]"
             >
               <textarea
@@ -2907,6 +2927,13 @@ defineExpose({
           </div>
         </div>
       </div>
+      <AIExpressionBuilderModal
+        v-model:open="showAiBuilder"
+        :workflow-id="workflowStore.currentWorkflow?.id ?? ''"
+        :current-node-id="props.currentNodeId ?? null"
+        :canvas-node-results="lastRunRequestNodeResults ?? []"
+        @apply="handleAiApply"
+      />
     </Teleport>
   </div>
 </template>
