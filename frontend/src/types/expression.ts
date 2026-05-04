@@ -938,3 +938,16 @@ export const OBJECT_METHODS: CompletionSuggestion[] = [
     propertyType: "string",
   },
 ];
+
+export interface ExpressionGenerateRequest {
+  description: string;
+  workflow_id: string;
+  credential_id: string;
+  model: string;
+  current_node_id: string | null;
+  node_results: Array<{ node_id: string; label: string; output: unknown }>;
+}
+
+export interface ExpressionGenerateResponse {
+  expression: string;
+}
