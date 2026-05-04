@@ -99,6 +99,9 @@ async def _generate_expression(
     if not credential:
         raise ValueError("Credential not found")
 
+    if credential.type not in (CredentialType.openai, CredentialType.google, CredentialType.custom):
+        raise ValueError("Credential must be OpenAI, Google, or Custom type")
+
     config = decrypt_config(credential.encrypted_config)
     api_key = config.get("api_key", "")
     base_url = config.get("base_url") if credential.type == CredentialType.custom else None
@@ -119,6 +122,7 @@ async def _generate_expression(
     trace_ctx = LLMTraceContext(
         user_id=current_user.id,
         credential_id=request.credential_id,
+        workflow_id=request.workflow_id,
         source="expression_generate",
         node_label="expression_generate",
     )

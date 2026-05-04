@@ -8,6 +8,7 @@ from app.api.expressions import (
     _build_node_context_string,
     _generate_expression,
 )
+from app.db.models import CredentialType
 
 
 class BuildNodeContextStringTests(unittest.TestCase):
@@ -27,10 +28,9 @@ class BuildNodeContextStringTests(unittest.TestCase):
 
 
 class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
-    def _make_credential(self, cred_type: str = "openai") -> MagicMock:
+    def _make_credential(self, cred_type: CredentialType = CredentialType.openai) -> MagicMock:
         cred = MagicMock()
-        cred.type = MagicMock()
-        cred.type.value = cred_type
+        cred.type = cred_type
         cred.encrypted_config = b"encrypted"
         return cred
 
@@ -61,7 +61,9 @@ class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
             credential_id=uuid.uuid4(),
             model="gpt-4o",
             node_results=[
-                NodeResultItem(node_id="n1", label="API Call", output={"customer": {"name": "John"}}),
+                NodeResultItem(
+                    node_id="n1", label="API Call", output={"customer": {"name": "John"}}
+                ),
             ],
         )
         cred = self._make_credential()
@@ -81,6 +83,26 @@ class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await _generate_expression(db=db, request=request, current_user=user)
         self.assertEqual(result, '$node["API Call"].output.customer.name')
+
+    async def test_invalid_credential_type_raises(self) -> None:
+        db = AsyncMock()
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        request = ExpressionGenerateRequest(
+            description="get name",
+            workflow_id=uuid.uuid4(),
+            credential_id=uuid.uuid4(),
+            model="gpt-4o",
+        )
+        cred = self._make_credential(cred_type=CredentialType.bearer)
+        with patch(
+            "app.api.expressions.get_accessible_credential",
+            AsyncMock(return_value=cred),
+        ):
+            with self.assertRaises(
+                ValueError, msg="Credential must be OpenAI, Google, or Custom type"
+            ):
+                await _generate_expression(db=db, request=request, current_user=user)
 
     async def test_empty_node_results_still_generates(self) -> None:
         db = AsyncMock()
