@@ -193,6 +193,13 @@ function close(): void {
                   {{ c.name }}
                 </option>
               </select>
+              <div
+                v-if="loadingCredentials"
+                class="flex items-center gap-2 text-xs text-muted-foreground"
+              >
+                <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                <span>Loading credentials…</span>
+              </div>
             </div>
             <div class="flex flex-1 flex-col gap-1">
               <div class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
