@@ -572,14 +572,61 @@ function getHitlDecisionLabel(decision: HITLResolvedPayload["decision"]): string
   }
 }
 
+function trimDuplicatedPrefix(value: string, prefix: string): string {
+  let text = value.trimStart();
+  const duplicatePrefix = prefix.trim();
+  if (!text || !duplicatePrefix) return text;
+
+  while (text.startsWith(duplicatePrefix)) {
+    text = text.slice(duplicatePrefix.length).replace(/^[\s:.-]+/, "").trimStart();
+  }
+
+  return text;
+}
+
+function normalizeDuplicateLineKey(value: string): string {
+  return value
+    .trim()
+    .replace(/[.!?。！？]+$/g, "")
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
+function removeConsecutiveDuplicateLines(value: string): string {
+  const lines = value.split(/\r?\n/);
+  const dedupedLines: string[] = [];
+  let previousNonEmptyKey = "";
+
+  for (const line of lines) {
+    const key = normalizeDuplicateLineKey(line);
+    if (key && key === previousNonEmptyKey) {
+      continue;
+    }
+    dedupedLines.push(line);
+    if (key) {
+      previousNonEmptyKey = key;
+    }
+  }
+
+  return dedupedLines.join("\n").trim();
+}
+
+function getDedupedReviewText(value: string, summary?: string): string {
+  return removeConsecutiveDuplicateLines(trimDuplicatedPrefix(value, summary || ""));
+}
+
 function getHitlDecisionText(payload: HITLResolvedPayload): string | null {
+  let text: string | null = null;
   if (payload.decision === "edited") {
-    return payload.editedText || payload.reviewText || payload.approvedMarkdown || null;
+    text = payload.editedText || payload.reviewText || payload.approvedMarkdown || null;
+  } else if (payload.decision === "accepted") {
+    text = payload.reviewText || payload.approvedMarkdown || payload.originalDraft || null;
+  } else {
+    text = payload.refusalReason || payload.reviewText || null;
   }
-  if (payload.decision === "accepted") {
-    return payload.reviewText || payload.approvedMarkdown || payload.originalDraft || null;
-  }
-  return payload.refusalReason || payload.reviewText || null;
+
+  const dedupedText = getDedupedReviewText(text || "", payload.summary);
+  return dedupedText || null;
 }
 
 function expandAll(): void {

@@ -17,6 +17,7 @@ from app.db.models import ExecutionHistory, PortalSession, Workflow, WorkflowVer
 from app.db.session import async_session_maker
 from app.services.distributed_lock import lock_service
 from app.services.global_variables_service import get_global_variables_context
+from app.services.hitl_service import build_default_public_base_url, persist_pending_hitl_execution
 from app.services.timezone_utils import get_configured_timezone
 from app.services.workflow_executor import _to_json_compatible, execute_workflow
 
@@ -148,23 +149,53 @@ class CronScheduler:
             workflow_cache = await collect_referenced_workflows(db, workflow.nodes)
             credentials_context = await get_credentials_context(db, workflow.owner_id)
             global_variables_context = await get_global_variables_context(db, workflow.owner_id)
+            enriched_inputs = {"triggered_by": "cron"}
+            public_base_url = build_default_public_base_url()
 
             result = execute_workflow(
                 workflow_id=workflow.id,
                 nodes=workflow.nodes,
                 edges=workflow.edges,
-                inputs={"triggered_by": "cron"},
+                inputs=enriched_inputs,
                 workflow_cache=workflow_cache,
                 credentials_context=credentials_context,
                 global_variables_context=global_variables_context,
                 trace_user_id=workflow.owner_id,
+                public_base_url=public_base_url,
             )
             if result.allow_downstream_pending:
                 result.join_allow_downstream()
 
+            if result.status == "pending":
+                history_entry, _ = await persist_pending_hitl_execution(
+                    db=db,
+                    workflow=workflow,
+                    enriched_inputs=enriched_inputs,
+                    execution_result=result,
+                    trigger_source="cron",
+                    credentials_owner_id=workflow.owner_id,
+                    trace_user_id=workflow.owner_id,
+                    public_base_url=public_base_url,
+                )
+                await upsert_workflow_analytics_snapshot(
+                    db,
+                    workflow_id=workflow.id,
+                    owner_id=workflow.owner_id,
+                    workflow_name_snapshot=workflow.name,
+                    status=result.status,
+                    execution_time_ms=result.execution_time_ms,
+                )
+                await db.commit()
+                logger.info(
+                    "Workflow %s paused for human review via cron, history: %s",
+                    workflow.id,
+                    history_entry.id,
+                )
+                return
+
             history_entry = ExecutionHistory(
                 workflow_id=workflow.id,
-                inputs={"triggered_by": "cron"},
+                inputs=enriched_inputs,
                 outputs=_to_json_compatible(result.outputs),
                 node_results=_to_json_compatible(result.node_results),
                 status=result.status,

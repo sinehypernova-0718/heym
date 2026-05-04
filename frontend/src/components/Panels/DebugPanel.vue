@@ -1774,6 +1774,8 @@ function tidyUpNodes(): void {
   const START_X = 50;
   const START_Y = 200;
   const STRIDE = NODE_HEIGHT + VERTICAL_GAP;
+  const SUB_AGENT_TOOL_HANDLE_RATIO = 0.75;
+  const SUB_AGENT_WITH_TOOLS_STRIDES = 3;
   const measuredNodeSizes = buildMeasuredNodeSizeMap(getNodes.value);
   const layoutNodeById = new Map(layoutNodes.map((node) => [node.id, node]));
   const getNodeWidth = (nodeId: string): number => {
@@ -1828,6 +1830,17 @@ function tidyUpNodes(): void {
   });
 
   const nodePositions = new Map<string, { x: number; y: number }>();
+  const toolNodeAgentMap = new Map<string, string>();
+  layoutEdges
+    .filter((edge) => edge.targetHandle === "tool-input")
+    .forEach((edge) => toolNodeAgentMap.set(edge.source, edge.target));
+
+  const agentToolNodes = new Map<string, string[]>();
+  toolNodeAgentMap.forEach((agentId, toolNodeId) => {
+    const list = agentToolNodes.get(agentId) ?? [];
+    list.push(toolNodeId);
+    agentToolNodes.set(agentId, list);
+  });
 
   const columnX: number[] = [START_X];
   for (let k = 1; k < levels.length; k++) {
@@ -1898,7 +1911,10 @@ function tidyUpNodes(): void {
   orchestratorToSubAgents.forEach((subIds, orchId) => {
     const pos = nodePositions.get(orchId);
     if (!pos) return;
-    const subY = pos.y + STRIDE;
+    const hasSubAgentTools = subIds.some(
+      (subId) => (agentToolNodes.get(subId)?.length ?? 0) > 0,
+    );
+    const subY = pos.y + STRIDE * (hasSubAgentTools ? SUB_AGENT_WITH_TOOLS_STRIDES : 1);
     const orchCenterX = pos.x + getNodeWidth(orchId) / 2;
     const subWidths = subIds.map((subId) => getNodeWidth(subId));
     const totalSubWidth = subWidths.reduce((sum, width) => sum + width, 0)
@@ -1913,18 +1929,6 @@ function tidyUpNodes(): void {
     });
   });
 
-  const toolNodeAgentMap = new Map<string, string>();
-  workflowStore.edges
-    .filter((edge) => edge.targetHandle === "tool-input")
-    .forEach((edge) => toolNodeAgentMap.set(edge.source, edge.target));
-
-  const agentToolNodes = new Map<string, string[]>();
-  toolNodeAgentMap.forEach((agentId, toolNodeId) => {
-    const list = agentToolNodes.get(agentId) ?? [];
-    list.push(toolNodeId);
-    agentToolNodes.set(agentId, list);
-  });
-
   agentToolNodes.forEach((toolIds, agentId) => {
     const agentPos = nodePositions.get(agentId);
     if (!agentPos) return;
@@ -1933,12 +1937,16 @@ function tidyUpNodes(): void {
     const isSubAgent = subAgentNodeIds.has(agentId);
 
     if (isSubAgent) {
-      let nextX = agentPos.x + agentWidth + HORIZONTAL_GAP;
+      const totalWidth = toolWidths.reduce((sum, width) => sum + width, 0)
+        + (toolIds.length - 1) * HORIZONTAL_GAP;
+      const toolInputX = agentPos.x + agentWidth * SUB_AGENT_TOOL_HANDLE_RATIO;
+      let nextX = toolInputX - totalWidth / 2;
       const toolY = agentPos.y - STRIDE;
       toolIds.forEach((toolId, index) => {
-        nodePositions.set(toolId, { x: nextX, y: toolY });
-        workflowStore.updateNodePosition(toolId, { x: nextX, y: toolY });
+        const x = nextX;
         nextX += (toolWidths[index] ?? NODE_WIDTH) + HORIZONTAL_GAP;
+        nodePositions.set(toolId, { x, y: toolY });
+        workflowStore.updateNodePosition(toolId, { x, y: toolY });
       });
       return;
     }
