@@ -46,6 +46,7 @@ const selectedTriggerSource = ref<string | undefined>(undefined);
 const searchActive = ref(false);
 const searchQuery = ref("");
 const searchInputRef = ref<HTMLInputElement | null>(null);
+const listRef = ref<HTMLDivElement | null>(null);
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const executionHistoryList = computed(
@@ -55,6 +56,7 @@ const executionHistoryTotal = computed(
   () => workflowStore.executionHistoryTotal,
 );
 const isHistoryLoading = computed(() => workflowStore.isHistoryLoading);
+const isHistoryLoadingMore = computed(() => workflowStore.isHistoryLoadingMore);
 const isHistoryDetailLoading = computed(
   () => workflowStore.isHistoryDetailLoading,
 );
@@ -293,6 +295,17 @@ function clearSearch(): void {
   }
   void reloadHistoryWithFilters();
   searchInputRef.value?.focus();
+}
+
+function onListScroll(event: Event): void {
+  const el = event.currentTarget as HTMLElement;
+  if (isHistoryLoadingMore.value || isHistoryLoading.value) return;
+  if (executionHistoryList.value.length >= executionHistoryTotal.value) return;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
+    void workflowStore.fetchMoreExecutionHistory(selectedTriggerSource.value, {
+      search: getSearchValue(),
+    });
+  }
 }
 
 function handleDialogEscape(event: KeyboardEvent): void {
@@ -710,7 +723,9 @@ function bringToCanvas(): void {
         <!-- Run list -->
         <div
           v-else
+          ref="listRef"
           class="overflow-y-auto flex-1 space-y-1 pr-1"
+          @scroll.passive="onListScroll"
         >
           <button
             v-for="entry in filteredExecutionHistoryList"
@@ -740,6 +755,12 @@ function bringToCanvas(): void {
               </span>
             </div>
           </button>
+          <div
+            v-if="isHistoryLoadingMore"
+            class="flex justify-center py-2"
+          >
+            <Loader2 class="w-4 h-4 animate-spin text-muted-foreground" />
+          </div>
         </div>
       </div>
 

@@ -362,10 +362,14 @@ class ExecutionHistory(Base):
     inputs: Mapped[dict] = mapped_column(JSON, default=dict)
     outputs: Mapped[dict] = mapped_column(JSON, default=dict)
     node_results: Mapped[list] = mapped_column(JSON, default=list)
-    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     execution_time_ms: Mapped[float] = mapped_column(nullable=False, default=0.0)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    trigger_source: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    trigger_source: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None, index=True
+    )
 
     workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="executions")
     hitl_requests: Mapped[list["HITLRequest"]] = relationship(
