@@ -17,6 +17,9 @@ class _ExecuteResult:
     def scalar(self) -> object | None:
         return self._scalar_value
 
+    def scalar_one(self) -> object:
+        return self._scalar_value if self._scalar_value is not None else 0
+
     def scalars(self) -> "_ExecuteResult":
         return self
 
@@ -105,10 +108,11 @@ class ExecutionHistoryApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ilike", history_sql)
 
     async def test_all_history_combines_search_and_trigger_source_filter(self) -> None:
+        # Now uses UNION ALL: 2 calls total (COUNT + items), both contain both tables.
         self.db.execute = AsyncMock(
             side_effect=[
-                _ExecuteResult(rows=[]),
-                _ExecuteResult(rows=[]),
+                _ExecuteResult(scalar_value=0),  # COUNT query
+                _ExecuteResult(rows=[]),  # items query
             ]
         )
 
@@ -122,19 +126,23 @@ class ExecutionHistoryApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(response.total, 0)
+        self.assertEqual(self.db.execute.call_count, 2)
 
-        workflow_sql = _compile_sql(self.db.execute.call_args_list[0].args[0])
-        run_sql = _compile_sql(self.db.execute.call_args_list[1].args[0])
-
-        self.assertIn("execution_history.trigger_source = 'quick drawer'", workflow_sql)
-        self.assertIn("run_history.trigger_source = 'quick drawer'", run_sql)
-        self.assertIn("ilike", workflow_sql)
-        self.assertIn("ilike", run_sql)
+        # UNION ALL SQL contains filters for both exec and run tables in one statement.
+        union_sql = _compile_sql(self.db.execute.call_args_list[0].args[0])
+        self.assertIn("execution_history.trigger_source = 'quick drawer'", union_sql)
+        self.assertIn("run_history.trigger_source = 'quick drawer'", union_sql)
+        self.assertIn("ilike", union_sql)
 
     async def test_all_history_workflow_id_filter_applied_to_exec_query(self) -> None:
         """workflow_id param narrows execution_history rows to that workflow."""
         target_id = uuid.uuid4()
-        self.db.execute = AsyncMock(return_value=_ExecuteResult(rows=[]))
+        self.db.execute = AsyncMock(
+            side_effect=[
+                _ExecuteResult(scalar_value=0),  # COUNT
+                _ExecuteResult(rows=[]),  # items
+            ]
+        )
 
         response = await list_all_execution_history(
             current_user=self.user,
@@ -145,16 +153,22 @@ class ExecutionHistoryApiTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(response.total, 0)
-        # Only one db.execute call – RunHistory is skipped when filtering by workflow_id.
-        self.assertEqual(self.db.execute.call_count, 1)
+        # Two calls: COUNT + items (RunHistory is skipped when filtering by workflow_id).
+        self.assertEqual(self.db.execute.call_count, 2)
 
-        exec_sql = _compile_sql(self.db.execute.call_args_list[0].args[0])
-        self.assertIn(str(target_id), exec_sql)
-        self.assertNotIn("run_history", exec_sql)
+        for call in self.db.execute.call_args_list:
+            sql = _compile_sql(call.args[0])
+            self.assertIn(str(target_id), sql)
+            self.assertNotIn("run_history", sql)
 
     async def test_all_history_workflow_id_skips_run_history_query(self) -> None:
         """When workflow_id is given the chat/assistant RunHistory table is not queried."""
-        self.db.execute = AsyncMock(return_value=_ExecuteResult(rows=[]))
+        self.db.execute = AsyncMock(
+            side_effect=[
+                _ExecuteResult(scalar_value=0),
+                _ExecuteResult(rows=[]),
+            ]
+        )
 
         await list_all_execution_history(
             current_user=self.user,
@@ -164,15 +178,20 @@ class ExecutionHistoryApiTests(unittest.IsolatedAsyncioTestCase):
             workflow_id=str(uuid.uuid4()),
         )
 
-        # Exactly one query must have been issued (only ExecutionHistory).
-        self.assertEqual(self.db.execute.call_count, 1)
-        exec_sql = _compile_sql(self.db.execute.call_args_list[0].args[0])
-        self.assertNotIn("run_history", exec_sql)
+        self.assertEqual(self.db.execute.call_count, 2)
+        for call in self.db.execute.call_args_list:
+            sql = _compile_sql(call.args[0])
+            self.assertNotIn("run_history", sql)
 
     async def test_all_history_workflow_id_and_status_combined(self) -> None:
         """workflow_id and execution_status filters are both applied to the same query."""
         target_id = uuid.uuid4()
-        self.db.execute = AsyncMock(return_value=_ExecuteResult(rows=[]))
+        self.db.execute = AsyncMock(
+            side_effect=[
+                _ExecuteResult(scalar_value=0),
+                _ExecuteResult(rows=[]),
+            ]
+        )
 
         await list_all_execution_history(
             current_user=self.user,
@@ -182,17 +201,18 @@ class ExecutionHistoryApiTests(unittest.IsolatedAsyncioTestCase):
             workflow_id=str(target_id),
         )
 
-        self.assertEqual(self.db.execute.call_count, 1)
-        exec_sql = _compile_sql(self.db.execute.call_args_list[0].args[0])
-        self.assertIn(str(target_id), exec_sql)
-        self.assertIn("'error'", exec_sql)
+        self.assertEqual(self.db.execute.call_count, 2)
+        for call in self.db.execute.call_args_list:
+            sql = _compile_sql(call.args[0])
+            self.assertIn(str(target_id), sql)
+            self.assertIn("'error'", sql)
 
     async def test_all_history_without_workflow_id_queries_both_tables(self) -> None:
-        """Without a workflow_id filter both ExecutionHistory and RunHistory are queried."""
+        """Without a workflow_id filter the UNION ALL covers both ExecutionHistory and RunHistory."""
         self.db.execute = AsyncMock(
             side_effect=[
-                _ExecuteResult(rows=[]),
-                _ExecuteResult(rows=[]),
+                _ExecuteResult(scalar_value=0),  # COUNT
+                _ExecuteResult(rows=[]),  # items
             ]
         )
 
@@ -204,15 +224,19 @@ class ExecutionHistoryApiTests(unittest.IsolatedAsyncioTestCase):
             workflow_id=None,
         )
 
-        # Two queries: one for ExecutionHistory, one for RunHistory.
         self.assertEqual(self.db.execute.call_count, 2)
-        run_sql = _compile_sql(self.db.execute.call_args_list[1].args[0])
-        self.assertIn("run_history", run_sql)
+        union_sql = _compile_sql(self.db.execute.call_args_list[0].args[0])
+        self.assertIn("run_history", union_sql)
 
     async def test_all_history_workflow_id_without_status_no_status_clause(self) -> None:
         """When only workflow_id is given, the query must not contain a status filter."""
         target_id = uuid.uuid4()
-        self.db.execute = AsyncMock(return_value=_ExecuteResult(rows=[]))
+        self.db.execute = AsyncMock(
+            side_effect=[
+                _ExecuteResult(scalar_value=0),
+                _ExecuteResult(rows=[]),
+            ]
+        )
 
         await list_all_execution_history(
             current_user=self.user,
@@ -222,8 +246,8 @@ class ExecutionHistoryApiTests(unittest.IsolatedAsyncioTestCase):
             workflow_id=str(target_id),
         )
 
-        exec_sql = _compile_sql(self.db.execute.call_args_list[0].args[0])
-        self.assertIn(str(target_id), exec_sql)
-        # No status literal should appear when execution_status was not provided.
-        self.assertNotIn("'error'", exec_sql)
-        self.assertNotIn("'success'", exec_sql)
+        for call in self.db.execute.call_args_list:
+            sql = _compile_sql(call.args[0])
+            self.assertIn(str(target_id), sql)
+            self.assertNotIn("'error'", sql)
+            self.assertNotIn("'success'", sql)

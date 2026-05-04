@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import String, cast, func, or_, select, text
+from sqlalchemy import String, case, cast, func, literal, or_, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -827,9 +827,17 @@ async def list_all_execution_history(
     workflow_id: str | None = Query(default=None),
 ) -> HistoryListResponse:
     """List execution history (lightweight, paginated)."""
-    # Workflow execution history (light)
-    exec_query = (
-        select(ExecutionHistory, Workflow)
+    exec_subq = (
+        select(
+            ExecutionHistory.id,
+            ExecutionHistory.workflow_id,
+            Workflow.name.label("workflow_name"),
+            literal("workflow").label("run_type"),
+            ExecutionHistory.started_at,
+            ExecutionHistory.status,
+            ExecutionHistory.execution_time_ms,
+            ExecutionHistory.trigger_source,
+        )
         .join(Workflow, ExecutionHistory.workflow_id == Workflow.id)
         .where(
             or_(
@@ -843,14 +851,14 @@ async def list_all_execution_history(
         )
     )
     if workflow_id:
-        exec_query = exec_query.where(ExecutionHistory.workflow_id == workflow_id)
+        exec_subq = exec_subq.where(ExecutionHistory.workflow_id == workflow_id)
     if trigger_source:
-        exec_query = exec_query.where(ExecutionHistory.trigger_source == trigger_source)
+        exec_subq = exec_subq.where(ExecutionHistory.trigger_source == trigger_source)
     if execution_status:
-        exec_query = exec_query.where(ExecutionHistory.status == execution_status)
+        exec_subq = exec_subq.where(ExecutionHistory.status == execution_status)
     if search:
         pattern = f"%{search}%"
-        exec_query = exec_query.where(
+        exec_subq = exec_subq.where(
             or_(
                 Workflow.name.ilike(pattern),
                 ExecutionHistory.status.ilike(pattern),
@@ -860,33 +868,32 @@ async def list_all_execution_history(
                 cast(ExecutionHistory.node_results, String).ilike(pattern),
             )
         )
-    exec_query = exec_query.order_by(ExecutionHistory.started_at.desc())
-    exec_result = await db.execute(exec_query)
-    exec_rows = exec_result.all()
-    workflow_items = [
-        ExecutionHistoryListResponse(
-            id=history.id,
-            workflow_id=history.workflow_id,
-            workflow_name=workflow.name,
-            run_type="workflow",
-            started_at=history.started_at,
-            status=history.status,
-            execution_time_ms=history.execution_time_ms,
-            trigger_source=history.trigger_source,
+
+    if workflow_id:
+        combined = exec_subq.subquery()
+    else:
+        run_display_name = case(
+            (RunHistory.run_type == "dashboard_chat", "Dashboard Chat"),
+            (RunHistory.run_type == "workflow_assistant", "Workflow Assistant"),
+            else_=RunHistory.run_type,
         )
-        for history, workflow in exec_rows
-    ]
-    # Chat/assistant run history (light) – skipped when filtering by workflow_id
-    run_items: list[ExecutionHistoryListResponse] = []
-    if not workflow_id:
-        run_query = select(RunHistory).where(RunHistory.user_id == current_user.id)
+        run_subq = select(
+            RunHistory.id,
+            RunHistory.workflow_id,
+            run_display_name.label("workflow_name"),
+            RunHistory.run_type.label("run_type"),
+            RunHistory.started_at,
+            RunHistory.status,
+            RunHistory.execution_time_ms,
+            RunHistory.trigger_source,
+        ).where(RunHistory.user_id == current_user.id)
         if trigger_source:
-            run_query = run_query.where(RunHistory.trigger_source == trigger_source)
+            run_subq = run_subq.where(RunHistory.trigger_source == trigger_source)
         if execution_status:
-            run_query = run_query.where(RunHistory.status == execution_status)
+            run_subq = run_subq.where(RunHistory.status == execution_status)
         if search:
             pattern = f"%{search}%"
-            run_query = run_query.where(
+            run_subq = run_subq.where(
                 or_(
                     RunHistory.status.ilike(pattern),
                     RunHistory.trigger_source.ilike(pattern),
@@ -895,26 +902,27 @@ async def list_all_execution_history(
                     cast(RunHistory.outputs, String).ilike(pattern),
                 )
             )
-        run_query = run_query.order_by(RunHistory.started_at.desc())
-        run_result = await db.execute(run_query)
-        run_rows = run_result.scalars().all()
-        run_items = [
-            ExecutionHistoryListResponse(
-                id=run.id,
-                workflow_id=run.workflow_id,
-                workflow_name=_run_history_display_name(run.run_type),
-                run_type=run.run_type,
-                started_at=run.started_at,
-                status=run.status,
-                execution_time_ms=run.execution_time_ms,
-                trigger_source=run.trigger_source,
-            )
-            for run in run_rows
-        ]
-    merged = workflow_items + run_items
-    merged.sort(key=lambda x: x.started_at, reverse=True)
-    total = len(merged)
-    items = merged[offset : offset + limit]
+        combined = union_all(exec_subq, run_subq).subquery()
+
+    count_result = await db.execute(select(func.count()).select_from(combined))
+    total: int = count_result.scalar_one()
+
+    items_result = await db.execute(
+        select(combined).order_by(combined.c.started_at.desc()).limit(limit).offset(offset)
+    )
+    items = [
+        ExecutionHistoryListResponse(
+            id=row.id,
+            workflow_id=row.workflow_id,
+            workflow_name=row.workflow_name,
+            run_type=row.run_type,
+            started_at=row.started_at,
+            status=row.status,
+            execution_time_ms=row.execution_time_ms,
+            trigger_source=row.trigger_source,
+        )
+        for row in items_result.all()
+    ]
     return HistoryListResponse(total=total, items=items)
 
 
