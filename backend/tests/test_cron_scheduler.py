@@ -176,3 +176,105 @@ class CronSchedulerExecutionHistoryTests(unittest.IsolatedAsyncioTestCase):
             ["output", "execute"],
         )
         self.assertEqual(parent.node_results[1]["output"], {"items": ["done"]})
+
+    async def test_execute_workflow_persists_pending_hitl_with_review_url_context(self) -> None:
+        scheduler = CronScheduler()
+        owner_id = uuid.uuid4()
+        workflow_id = uuid.uuid4()
+        workflow = SimpleNamespace(
+            id=workflow_id,
+            owner_id=owner_id,
+            name="Cron HITL workflow",
+            nodes=[],
+            edges=[],
+        )
+
+        added_rows: list[object] = []
+
+        def add_row(row: object) -> None:
+            added_rows.append(row)
+
+        db = SimpleNamespace(
+            add=add_row,
+            commit=AsyncMock(),
+        )
+        execution_result = ExecutionResult(
+            workflow_id=workflow_id,
+            status="pending",
+            outputs={
+                "Reviewer": {
+                    "decision": None,
+                    "reviewUrl": None,
+                    "requestId": None,
+                }
+            },
+            execution_time_ms=5.0,
+            node_results=[
+                {
+                    "node_id": "agent",
+                    "node_label": "Reviewer",
+                    "node_type": "agent",
+                    "status": "pending",
+                    "output": {
+                        "decision": None,
+                        "reviewUrl": None,
+                        "requestId": None,
+                    },
+                    "execution_time_ms": 5.0,
+                    "error": None,
+                }
+            ],
+            pending_review={"summary": "Review required", "draft_text": "Draft"},
+            resume_snapshot={"paused_node_id": "agent", "paused_node_label": "Reviewer"},
+        )
+
+        persisted_history = SimpleNamespace(id=uuid.uuid4())
+        persisted_request = SimpleNamespace(id=uuid.uuid4())
+        persist_pending_hitl_execution = AsyncMock(
+            return_value=(persisted_history, persisted_request)
+        )
+
+        with (
+            patch(
+                "app.services.cron_scheduler.collect_referenced_workflows",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.services.cron_scheduler.get_credentials_context",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.services.cron_scheduler.get_global_variables_context",
+                AsyncMock(return_value={}),
+            ),
+            patch("app.services.cron_scheduler.execute_workflow", return_value=execution_result),
+            patch(
+                "app.services.cron_scheduler.persist_pending_hitl_execution",
+                persist_pending_hitl_execution,
+            ),
+            patch(
+                "app.services.cron_scheduler.build_default_public_base_url",
+                return_value="https://app.example.com",
+            ),
+            patch(
+                "app.services.cron_scheduler.upsert_workflow_analytics_snapshot",
+                AsyncMock(),
+            ),
+            patch(
+                "app.services.cron_scheduler._persist_global_variables_from_execution",
+                AsyncMock(),
+            ),
+        ):
+            await scheduler._execute_workflow(db, workflow)
+
+        persist_pending_hitl_execution.assert_awaited_once()
+        persist_kwargs = persist_pending_hitl_execution.await_args.kwargs
+        self.assertIs(persist_kwargs["execution_result"], execution_result)
+        self.assertEqual(persist_kwargs["workflow"], workflow)
+        self.assertEqual(persist_kwargs["enriched_inputs"], {"triggered_by": "cron"})
+        self.assertEqual(persist_kwargs["trigger_source"], "cron")
+        self.assertEqual(persist_kwargs["credentials_owner_id"], owner_id)
+        self.assertEqual(persist_kwargs["trace_user_id"], owner_id)
+        self.assertEqual(persist_kwargs["public_base_url"], "https://app.example.com")
+        self.assertEqual(added_rows, [])
+        db.commit.assert_awaited_once()
