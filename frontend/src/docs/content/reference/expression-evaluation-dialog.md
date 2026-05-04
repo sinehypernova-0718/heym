@@ -61,6 +61,28 @@ When the backend result is an object or array, the Output area can show an inter
 - Press `Tab` or `Enter` to insert the selected suggestion.
 - Use `↑` / `↓` to move through the suggestion list.
 
+## Build with AI
+
+The **Build with AI** button appears in the top-right corner of the evaluate dialog when a workflow is loaded. It opens a nested modal where you can describe the expression you want in plain text and have an LLM generate it for you.
+
+### How it works
+
+1. Click **Build with AI** in the evaluate dialog toolbar.
+2. Select an LLM credential and model from the dropdowns.
+3. Type a plain-text description of what you want — for example, *"Get the customer name from the API response"*.
+4. Click **Generate**. The modal calls the backend, which uses the [Expression DSL](./expression-dsl.md) system prompt plus your last workflow run outputs as context, and returns a single expression string.
+5. The generated expression is immediately evaluated against the same canvas data so you can see the result before applying.
+6. Click **Apply** to replace the editor content with the generated expression, or **Regenerate** to try again.
+
+### Context used
+
+The generator receives the node outputs from the last test run on the canvas. If the workflow has not been run yet, the LLM generates a best-effort expression based on node labels and DSL conventions.
+
+### Requirements
+
+- An LLM credential (OpenAI, Google, or Custom) must be configured in the [Credentials](./credentials.md) tab.
+- The workflow must be open in the editor.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -81,6 +103,7 @@ Set and Execute mapping editors can show **Prev** / **Next** buttons so you can 
 
 - [Expression DSL](./expression-dsl.md)
 - [Node Types](./node-types.md)
+- [Credentials](./credentials.md) — required for the Build with AI feature
 - [LLM Node](../nodes/llm-node.md)
 - [Output Node](../nodes/output-node.md)
 - [Condition Node](../nodes/condition-node.md)

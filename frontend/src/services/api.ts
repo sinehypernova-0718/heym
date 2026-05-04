@@ -88,6 +88,7 @@ import type {
   AgentMemoryGraphResponse,
   AgentMemoryNodeDTO,
 } from "@/types/agentMemory";
+import type { ExpressionGenerateRequest, ExpressionGenerateResponse } from "@/types/expression";
 import type {
   Conversation,
   ConversationCreate,
@@ -2373,6 +2374,16 @@ export const expressionApi = {
   ): Promise<ExpressionEvaluateResponse> => {
     const response = await api.post<ExpressionEvaluateResponse>(
       "/expressions/evaluate",
+      request,
+    );
+    return response.data;
+  },
+
+  generate: async (
+    request: ExpressionGenerateRequest,
+  ): Promise<ExpressionGenerateResponse> => {
+    const response = await api.post<ExpressionGenerateResponse>(
+      "/expressions/generate",
       request,
     );
     return response.data;
