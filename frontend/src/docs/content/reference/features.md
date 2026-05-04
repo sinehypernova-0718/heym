@@ -320,6 +320,8 @@ Pairs with [Variable](../nodes/variable-node.md), [Teams](./teams.md), and [Cred
 
 The Expression Evaluation Dialog is an expandable editor that appears when you click the expand button next to expression fields. It opens as a large centered modal, keeps autocomplete active, and refreshes backend preview output automatically after you pause typing. Object and array results can be browsed with the output path picker. The dialog accepts a full-line bare dot path (for example `myNode.output.field`) as if it were `$myNode.output.field`; see [Expression DSL](./expression-dsl.md) placement rules.
 
+The **Build with AI** button in the toolbar lets you describe the expression you want in plain text. Select an LLM [credential](./credentials.md) and model, type a description such as *"Get the customer name from the API response"*, and click Generate. The backend sends the [Expression DSL](./expression-dsl.md) context and last-run node outputs to the model and returns a single expression string. The result is evaluated immediately so you can verify it before clicking Apply.
+
 Pairs naturally with [Expression DSL](./expression-dsl.md), [Output](../nodes/output-node.md), and [JSON output mapper](../nodes/json-output-mapper-node.md).
 
 ### [Workflow Structure](./workflow-structure.md)
