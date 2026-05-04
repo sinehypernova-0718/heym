@@ -1,12 +1,16 @@
 import unittest
 import uuid
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.api.expressions import (
+    ExpressionGeneratePriorAttempt,
     ExpressionGenerateRequest,
     NodeResultItem,
     _build_node_context_string,
+    _finalize_generated_expression,
     _generate_expression,
+    _normalize_generated_expression,
 )
 from app.db.models import CredentialType
 
@@ -27,7 +31,43 @@ class BuildNodeContextStringTests(unittest.TestCase):
         self.assertIn('"name"', result)
 
 
+class NormalizeGeneratedExpressionTests(unittest.TestCase):
+    def test_extracts_expression_from_code_fence(self) -> None:
+        result = _normalize_generated_expression("```expression\n$api.customer.name\n```")
+        self.assertEqual(result, "$api.customer.name")
+
+    def test_extracts_expression_when_fence_not_closed(self) -> None:
+        result = _normalize_generated_expression("```expression\n$api.customer.name\n")
+        self.assertEqual(result, "$api.customer.name")
+
+    def test_extracts_expression_from_json_response(self) -> None:
+        result = _normalize_generated_expression('{"expression": "$api.customer.name"}')
+        self.assertEqual(result, "$api.customer.name")
+
+    def test_extracts_expression_after_prose_line(self) -> None:
+        text = 'Here is the expression:\n$node["HTTP"].output.body.items[0].id'
+        result = _normalize_generated_expression(text)
+        self.assertEqual(result, '$node["HTTP"].output.body.items[0].id')
+
+    def test_finalize_strips_trailing_backticks(self) -> None:
+        self.assertEqual(_finalize_generated_expression('$node["A"].out.x`'), '$node["A"].out.x')
+        self.assertEqual(_finalize_generated_expression("$vars.foo``"), "$vars.foo")
+
+    def test_rejects_non_expression_text(self) -> None:
+        with self.assertRaises(ValueError):
+            _normalize_generated_expression("Use the customer name from the API response.")
+
+
 class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
+    def _workflow_and_globals(self) -> tuple[Any, Any]:
+        workflow = MagicMock()
+        workflow.nodes = []
+        workflow.edges = []
+        return (
+            patch("app.api.expressions.get_workflow_by_id", AsyncMock(return_value=workflow)),
+            patch("app.api.expressions.get_global_variables_context", AsyncMock(return_value={})),
+        )
+
     def _make_credential(self, cred_type: CredentialType = CredentialType.openai) -> MagicMock:
         cred = MagicMock()
         cred.type = cred_type
@@ -57,6 +97,7 @@ class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
         user.id = uuid.uuid4()
         request = ExpressionGenerateRequest(
             description="get customer name from API response",
+            input_value="customer name from the API response",
             workflow_id=uuid.uuid4(),
             credential_id=uuid.uuid4(),
             model="gpt-4o",
@@ -67,6 +108,10 @@ class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         cred = self._make_credential()
+        execute_mock = AsyncMock(
+            return_value={"text": '```expression\n$node["API Call"].output.customer.name\n```'}
+        )
+        wf_patch, gv_patch = self._workflow_and_globals()
         with (
             patch(
                 "app.api.expressions.get_accessible_credential",
@@ -76,13 +121,62 @@ class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
                 "app.api.expressions.decrypt_config",
                 return_value={"api_key": "sk-test"},
             ),
+            wf_patch,
+            gv_patch,
             patch(
                 "app.api.expressions.execute_llm",
-                AsyncMock(return_value={"text": '  $node["API Call"].output.customer.name  \n'}),
+                execute_mock,
             ),
         ):
             result = await _generate_expression(db=db, request=request, current_user=user)
         self.assertEqual(result, '$node["API Call"].output.customer.name')
+        user_message = execute_mock.await_args.kwargs["user_message"]
+        self.assertIn("Evaluator input value: customer name from the API response", user_message)
+        self.assertIn("### Workflow `$vars` namespace", user_message)
+        self.assertIn("### Global variables", user_message)
+
+    async def test_regenerate_prior_attempt_and_temperature(self) -> None:
+        db = AsyncMock()
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        request = ExpressionGenerateRequest(
+            description="fix it",
+            workflow_id=uuid.uuid4(),
+            credential_id=uuid.uuid4(),
+            model="gpt-4o",
+            node_results=[],
+            prior_attempt=ExpressionGeneratePriorAttempt(
+                expression="$bad.old.path",
+                evaluation_error="Path not found",
+                evaluated_result=None,
+            ),
+        )
+        cred = self._make_credential()
+        execute_mock = AsyncMock(return_value={"text": "$good.new.path"})
+        wf_patch, gv_patch = self._workflow_and_globals()
+        with (
+            patch(
+                "app.api.expressions.get_accessible_credential",
+                AsyncMock(return_value=cred),
+            ),
+            patch(
+                "app.api.expressions.decrypt_config",
+                return_value={"api_key": "sk-test"},
+            ),
+            wf_patch,
+            gv_patch,
+            patch(
+                "app.api.expressions.execute_llm",
+                execute_mock,
+            ),
+        ):
+            result = await _generate_expression(db=db, request=request, current_user=user)
+        self.assertEqual(result, "$good.new.path")
+        kwargs = execute_mock.await_args.kwargs
+        self.assertEqual(kwargs["temperature"], 0.42)
+        self.assertIn("Previous expression:", kwargs["user_message"])
+        self.assertIn("$bad.old.path", kwargs["user_message"])
+        self.assertIn("Path not found", kwargs["user_message"])
 
     async def test_invalid_credential_type_raises(self) -> None:
         db = AsyncMock()
@@ -116,6 +210,7 @@ class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
             node_results=[],
         )
         cred = self._make_credential()
+        wf_patch, gv_patch = self._workflow_and_globals()
         with (
             patch(
                 "app.api.expressions.get_accessible_credential",
@@ -125,6 +220,8 @@ class GenerateExpressionTests(unittest.IsolatedAsyncioTestCase):
                 "app.api.expressions.decrypt_config",
                 return_value={"api_key": "sk-test"},
             ),
+            wf_patch,
+            gv_patch,
             patch(
                 "app.api.expressions.execute_llm",
                 AsyncMock(return_value={"text": "$textInput.body.text"}),

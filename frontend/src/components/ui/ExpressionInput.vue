@@ -286,6 +286,23 @@ const availableNodeResults = computed((): NodeResult[] => {
   return workflowStore.nodeResults.length > 0 ? workflowStore.nodeResults : props.nodeResults;
 });
 
+function mapNodeResultsForAiGenerate(rows: NodeResult[]): EvaluatedNodeResultInput[] {
+  return rows.map((row) => ({
+    node_id: row.node_id,
+    label: row.node_label,
+    output: row.output,
+  }));
+}
+
+/** Prefer last evaluate payload; otherwise canvas/store node outputs so AI generate sees upstream data. */
+const aiExpressionModalCanvasResults = computed((): EvaluatedNodeResultInput[] => {
+  const lastRun = lastRunRequestNodeResults.value;
+  if (lastRun !== null && lastRun.length > 0) {
+    return lastRun;
+  }
+  return mapNodeResultsForAiGenerate(availableNodeResults.value);
+});
+
 interface EvaluateLoopItemNavigationState {
   loopNodeId: string;
   currentIterationIndex: number;
@@ -2931,7 +2948,11 @@ defineExpose({
         v-model:open="showAiBuilder"
         :workflow-id="workflowStore.currentWorkflow?.id ?? ''"
         :current-node-id="props.currentNodeId ?? null"
-        :canvas-node-results="lastRunRequestNodeResults ?? []"
+        :input-value="dialogValue"
+        :canvas-node-results="aiExpressionModalCanvasResults"
+        :evaluate-input-body="workflowStore.buildExecutionRequestBody()"
+        :evaluate-field-name="props.dialogKeyLabel.trim() !== '' ? props.dialogKeyLabel : null"
+        :evaluate-selected-loop-iteration-index="selectedLoopIterationIndex"
         @apply="handleAiApply"
       />
     </Teleport>

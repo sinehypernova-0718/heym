@@ -939,13 +939,21 @@ export const OBJECT_METHODS: CompletionSuggestion[] = [
   },
 ];
 
+export interface ExpressionGeneratePriorAttempt {
+  expression: string;
+  evaluation_error?: string | null;
+  evaluated_result?: unknown | null;
+}
+
 export interface ExpressionGenerateRequest {
   description: string;
+  input_value?: string | null;
   workflow_id: string;
   credential_id: string;
   model: string;
   current_node_id: string | null;
   node_results: Array<{ node_id: string; label: string; output: unknown }>;
+  prior_attempt?: ExpressionGeneratePriorAttempt | null;
 }
 
 export interface ExpressionGenerateResponse {
