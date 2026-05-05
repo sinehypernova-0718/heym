@@ -324,6 +324,8 @@ export interface NodeData {
   websocketMessage?: string;
   websocketTriggerEvents?: WebSocketTriggerEventName[];
   note?: string;
+  stickyWidth?: number;
+  stickyHeight?: number;
   status?: string;
   active?: boolean;
   allowDownstream?: boolean;

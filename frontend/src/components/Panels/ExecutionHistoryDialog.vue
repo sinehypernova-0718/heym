@@ -68,7 +68,7 @@ const selectedEntry = computed<ExecutionHistoryEntry | null>(() => {
 const nodeResults = computed<NodeResult[]>(() => {
   if (!selectedEntry.value?.result?.node_results) return [];
   return selectedEntry.value.result.node_results.filter(
-    (node) => node.status !== "skipped"
+    (node) => node.status !== "skipped" && node.node_type !== "sticky"
   );
 });
 

@@ -1497,6 +1497,7 @@ watch(
           :id="id"
           :data="data"
           :selected="selected"
+          resizable
         />
         <BaseNode
           v-else

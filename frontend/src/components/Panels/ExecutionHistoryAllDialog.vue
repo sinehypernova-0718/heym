@@ -79,7 +79,7 @@ const selectedEntry = computed<AllExecutionHistoryEntry | null>(() => {
 const nodeResults = computed<NodeResult[]>(() => {
   if (!selectedEntry.value?.node_results) return [];
   return selectedEntry.value.node_results.filter(
-    (node) => node.status !== "skipped"
+    (node) => node.status !== "skipped" && node.node_type !== "sticky"
   );
 });
 

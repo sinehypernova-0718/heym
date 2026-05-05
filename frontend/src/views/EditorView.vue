@@ -1774,8 +1774,8 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
     >
       <NodePanel v-show="leftPanelOpen" />
 
-      <div class="flex-1 flex flex-col min-h-0">
-        <div class="flex-1 relative min-h-0">
+      <div class="flex-1 flex flex-col min-h-0 min-w-0">
+        <div class="flex-1 relative min-h-0 min-w-0">
           <button
             class="panel-toggle panel-toggle-left absolute top-1/2 -translate-y-1/2 z-30 w-5 h-12 rounded-r-lg flex items-center justify-center transition-all left-0"
             @click.stop="leftPanelOpen = !leftPanelOpen"
