@@ -1415,6 +1415,18 @@ export interface MCPFetchToolsResponse {
   tools: MCPFetchToolItem[];
 }
 
+export interface MCPServerItem {
+  id: string;
+  name: string;
+  api_key: string;
+  created_at: string;
+  workflow_ids: string[];
+}
+
+export interface MCPServerListResponse {
+  servers: MCPServerItem[];
+}
+
 export const mcpApi = {
   getConfig: async (): Promise<MCPConfigResponse> => {
     const response = await api.get<MCPConfigResponse>("/mcp/config");
@@ -1446,6 +1458,39 @@ export const mcpApi = {
       connection,
     });
     return response.data;
+  },
+};
+
+export const mcpServersApi = {
+  list: async (): Promise<MCPServerListResponse> => {
+    const response = await api.get<MCPServerListResponse>("/mcp/servers");
+    return response.data;
+  },
+
+  create: async (name: string): Promise<MCPServerItem> => {
+    const response = await api.post<MCPServerItem>("/mcp/servers", { name });
+    return response.data;
+  },
+
+  delete: async (serverId: string): Promise<void> => {
+    await api.delete(`/mcp/servers/${serverId}`);
+  },
+
+  regenerateKey: async (serverId: string): Promise<MCPServerItem> => {
+    const response = await api.post<MCPServerItem>(
+      `/mcp/servers/${serverId}/regenerate-key`,
+    );
+    return response.data;
+  },
+
+  toggleWorkflow: async (
+    serverId: string,
+    workflowId: string,
+    enabled: boolean,
+  ): Promise<void> => {
+    await api.patch(`/mcp/servers/${serverId}/workflows/${workflowId}`, {
+      enabled,
+    });
   },
 };
 
