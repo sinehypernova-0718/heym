@@ -108,6 +108,7 @@ const workflowName = computed(() => workflowStore.currentWorkflow?.name || "Work
 const workflowDescription = computed(() => workflowStore.currentWorkflow?.description || "");
 const hasUnsavedChanges = computed(() => workflowStore.hasUnsavedChanges);
 const isSaving = computed(() => workflowStore.isSaving);
+const isEditing = computed(() => isTitleEditing.value || isDescriptionEditing.value);
 
 const isTitleEditing = ref(false);
 const isDescriptionEditing = ref(false);
@@ -115,10 +116,19 @@ const editingTitleValue = ref("");
 const editingDescriptionValue = ref("");
 const titleInputRef = ref<HTMLInputElement | null>(null);
 const descriptionInputRef = ref<HTMLInputElement | null>(null);
+let skipNextTitleCommit = false;
+let skipNextDescriptionCommit = false;
 
 function startTitleEdit(): void {
+  if (isDescriptionEditing.value) {
+    const trimmed = editingDescriptionValue.value.trim();
+    const newValue = trimmed || null;
+    if (newValue !== (workflowStore.currentWorkflow?.description ?? null)) {
+      void workflowStore.updateMetadata(workflowStore.currentWorkflow?.name ?? "", newValue);
+    }
+    isDescriptionEditing.value = false;
+  }
   editingTitleValue.value = workflowStore.currentWorkflow?.name ?? "";
-  isDescriptionEditing.value = false;
   isTitleEditing.value = true;
   void nextTick(() => {
     titleInputRef.value?.select();
@@ -126,6 +136,11 @@ function startTitleEdit(): void {
 }
 
 function commitTitleEdit(): void {
+  if (skipNextTitleCommit) {
+    skipNextTitleCommit = false;
+    isTitleEditing.value = false;
+    return;
+  }
   const trimmed = editingTitleValue.value.trim();
   if (trimmed && trimmed !== workflowStore.currentWorkflow?.name) {
     void workflowStore.updateMetadata(trimmed, workflowStore.currentWorkflow?.description ?? null);
@@ -134,13 +149,20 @@ function commitTitleEdit(): void {
 }
 
 function cancelTitleEdit(): void {
+  skipNextTitleCommit = true;
   isTitleEditing.value = false;
 }
 
 function startDescriptionEdit(): void {
-  if (workflowStore.hasUnsavedChanges) return;
+  if (workflowStore.hasUnsavedChanges && !isTitleEditing.value) return;
+  if (isTitleEditing.value) {
+    const trimmed = editingTitleValue.value.trim();
+    if (trimmed && trimmed !== workflowStore.currentWorkflow?.name) {
+      void workflowStore.updateMetadata(trimmed, workflowStore.currentWorkflow?.description ?? null);
+    }
+    isTitleEditing.value = false;
+  }
   editingDescriptionValue.value = workflowStore.currentWorkflow?.description ?? "";
-  isTitleEditing.value = false;
   isDescriptionEditing.value = true;
   void nextTick(() => {
     descriptionInputRef.value?.focus();
@@ -148,6 +170,11 @@ function startDescriptionEdit(): void {
 }
 
 function commitDescriptionEdit(): void {
+  if (skipNextDescriptionCommit) {
+    skipNextDescriptionCommit = false;
+    isDescriptionEditing.value = false;
+    return;
+  }
   const trimmed = editingDescriptionValue.value.trim();
   const newValue = trimmed || null;
   if (newValue !== (workflowStore.currentWorkflow?.description ?? null)) {
@@ -160,6 +187,7 @@ function commitDescriptionEdit(): void {
 }
 
 function cancelDescriptionEdit(): void {
+  skipNextDescriptionCommit = true;
   isDescriptionEditing.value = false;
 }
 
@@ -1045,13 +1073,14 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
           >Heym</span>
         </router-link>
         <div class="hidden sm:block w-px h-6 bg-border/50 shrink-0" />
-        <div class="hidden sm:block min-w-0">
+        <div class="hidden sm:block min-w-0" data-heym-inline-edit>
           <input
             v-if="isTitleEditing"
             ref="titleInputRef"
             v-model="editingTitleValue"
-            class="font-semibold text-sm md:text-base bg-transparent border-b border-primary outline-none w-full max-w-[120px] sm:max-w-[150px] md:max-w-[250px]"
+            class="font-semibold text-sm md:text-base bg-transparent border-b border-primary outline-none"
             maxlength="100"
+            :size="Math.max(12, editingTitleValue.length + 2)"
             @blur="commitTitleEdit"
             @keydown.enter.prevent="commitTitleEdit"
             @keydown.escape="cancelTitleEdit"
@@ -1059,7 +1088,7 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
           <h1
             v-else
             class="font-semibold text-sm md:text-base truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px] cursor-text hover:bg-muted/50 rounded px-0.5 -mx-0.5"
-            @click="startTitleEdit"
+            @mousedown.prevent="startTitleEdit"
           >
             {{ workflowName }}
           </h1>
@@ -1067,9 +1096,10 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
             v-if="isDescriptionEditing"
             ref="descriptionInputRef"
             v-model="editingDescriptionValue"
-            class="text-xs text-muted-foreground bg-transparent border-b border-primary outline-none w-full max-w-[120px] sm:max-w-[150px] md:max-w-[250px]"
+            class="text-xs text-muted-foreground bg-transparent border-b border-primary outline-none"
             maxlength="300"
             placeholder="Add description..."
+            :size="Math.max(16, editingDescriptionValue.length + 2)"
             @blur="commitDescriptionEdit"
             @keydown.enter.prevent="commitDescriptionEdit"
             @keydown.escape="cancelDescriptionEdit"
@@ -1083,21 +1113,30 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
           <p
             v-else-if="workflowDescription"
             class="text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px] cursor-text hover:bg-muted/50 rounded px-0.5 -mx-0.5"
-            @click="startDescriptionEdit"
+            @mousedown.prevent="startDescriptionEdit"
           >
             {{ workflowDescription }}
           </p>
           <p
             v-else
             class="text-xs text-muted-foreground/40 truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px] cursor-text hover:bg-muted/50 rounded px-0.5 -mx-0.5"
-            @click="startDescriptionEdit"
+            @mousedown.prevent="startDescriptionEdit"
           >
             Add description...
           </p>
         </div>
       </div>
 
-      <div class="flex items-center gap-1 md:gap-2 flex-wrap shrink-0">
+      <p
+        v-show="isEditing"
+        class="hidden sm:block text-xs text-muted-foreground/85 shrink-0 select-none"
+      >
+        ↵ save · Esc cancel
+      </p>
+      <div
+        v-show="!isEditing"
+        class="flex items-center gap-1 md:gap-2 flex-wrap shrink-0"
+      >
         <Button
           variant="ghost"
           size="icon"

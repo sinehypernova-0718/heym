@@ -47,6 +47,11 @@ export function useOverlayBackHandler(): void {
       if (inExpressionOutputQuery) {
         return;
       }
+      const inInlineEdit =
+        t instanceof HTMLElement && Boolean(t.closest("[data-heym-inline-edit]"));
+      if (inInlineEdit) {
+        return;
+      }
       const inDocsSidebar = t instanceof HTMLElement && Boolean(t.closest(".docs-sidebar"));
       const sidebarInputHasText =
         t instanceof HTMLInputElement && inDocsSidebar && t.value.length > 0;
