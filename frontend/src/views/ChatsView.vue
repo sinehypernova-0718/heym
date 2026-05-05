@@ -102,8 +102,18 @@ onUnmounted(() => {
             />
 
             <div
+              v-if="isMobileViewport && chatStore.isSidebarOpen"
+              class="absolute inset-0 z-10"
+              aria-hidden="true"
+              @click="chatStore.closeSidebar()"
+            />
+
+            <div
               class="chat-sidebar-shell"
-              :class="{ 'chat-sidebar-shell--closed': !chatStore.isSidebarOpen }"
+              :class="{
+                'chat-sidebar-shell--closed': !chatStore.isSidebarOpen,
+                'relative z-20': isMobileViewport && chatStore.isSidebarOpen,
+              }"
               :aria-hidden="!chatStore.isSidebarOpen"
             >
               <ChatListPanel
