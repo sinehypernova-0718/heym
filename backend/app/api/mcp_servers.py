@@ -2,6 +2,7 @@ import asyncio
 import json
 import secrets
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -324,7 +325,7 @@ async def named_server_sse(
     base_url = str(request.base_url).rstrip("/")
     message_endpoint = f"{base_url}/api/mcp/servers/{server_id}/message?session={session_token}"
 
-    async def event_generator() -> asyncio.AsyncGenerator[str, None]:
+    async def event_generator() -> AsyncGenerator[str, None]:
         yield f"event: endpoint\ndata: {message_endpoint}\n\n"
         while True:
             if await request.is_disconnected():
