@@ -237,7 +237,7 @@ class MCPServerResponse(BaseModel):
 
 
 class MCPServerListResponse(BaseModel):
-    servers: list["MCPServerResponse"] = Field(default_factory=list)
+    servers: list[MCPServerResponse] = Field(default_factory=list)
 ```
 
 Also verify `datetime` is imported at the top of `schemas.py`. If not present, add `from datetime import datetime` to its imports.
@@ -663,7 +663,7 @@ from app.services.execution_cancellation import register_execution
 from app.services.global_variables_service import get_global_variables_context
 from app.services.mcp_session import mcp_session_store
 from app.services.workflow_executor import execute_workflow
-from app.api.mcp import _persist_global_variables_from_execution
+from app.api.workflows import _persist_global_variables_from_execution
 from app.api.analytics import upsert_workflow_analytics_snapshot
 
 router = APIRouter()
