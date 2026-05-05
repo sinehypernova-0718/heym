@@ -17,6 +17,16 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_PID=""
 FRONTEND_PID=""
 DEBUG_MODE=true
+OPEN_BROWSER=true
+
+open_app_url() {
+    local url="$1"
+    if command -v open >/dev/null 2>&1; then
+        open "$url"
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$url" >/dev/null 2>&1 &
+    fi
+}
 
 show_help() {
     echo -e "${BLUE}Heym - AI Workflow Platform${NC}"
@@ -25,6 +35,8 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --no-debug     Disable debug logging (default: debug enabled)"
+    echo "  --no-open      Do not open the frontend URL in a browser after startup"
+    echo "                 (env: HEYM_RUN_NO_OPEN=1 has the same effect)"
     echo "  -h, --help     Show this help message"
     echo ""
 }
@@ -33,6 +45,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --no-debug)
             DEBUG_MODE=false
+            shift
+            ;;
+        --no-open)
+            OPEN_BROWSER=false
             shift
             ;;
         -h|--help)
@@ -176,5 +192,13 @@ if [ "$DEBUG_MODE" = true ]; then
 fi
 echo -e "${GREEN}========================================${NC}"
 echo -e "${YELLOW}Press Ctrl+C to stop all services${NC}\n"
+
+if [ "$OPEN_BROWSER" = true ] && [ -z "${HEYM_RUN_NO_OPEN:-}" ]; then
+    FE_URL="http://localhost:${FRONTEND_PORT:-4017}"
+    (
+        sleep 3
+        open_app_url "$FE_URL"
+    ) &
+fi
 
 wait

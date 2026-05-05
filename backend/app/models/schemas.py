@@ -869,6 +869,26 @@ class MCPRegenerateKeyResponse(BaseModel):
     mcp_api_key: str
 
 
+class MCPServerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+class MCPServerWorkflowToggleRequest(BaseModel):
+    enabled: bool
+
+
+class MCPServerResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    api_key: str
+    created_at: datetime
+    workflow_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class MCPServerListResponse(BaseModel):
+    servers: list[MCPServerResponse] = Field(default_factory=list)
+
+
 class PortalFileFieldConfig(BaseModel):
     file_upload_enabled: bool = False
     allowed_types: list[str] = Field(default_factory=lambda: ["text"])

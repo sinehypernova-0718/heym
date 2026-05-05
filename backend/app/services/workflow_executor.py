@@ -1707,11 +1707,25 @@ class WorkflowExecutor:
                     inputs[source_label] = self.node_outputs[source_id]
         return inputs
 
+    def _edge_matches_source_handle(self, edge: dict, handle_id: str | None) -> bool:
+        if handle_id is None:
+            return True
+
+        source_handle = edge.get("sourceHandle")
+        if source_handle == handle_id:
+            return True
+
+        source_node = self.nodes.get(edge.get("source"), {})
+        if handle_id == "true" and source_node.get("type") == "condition" and not source_handle:
+            return True
+
+        return False
+
     def get_downstream_nodes(self, node_id: str, handle_id: str | None = None) -> list[str]:
         downstream = []
         for edge in self.edges:
             if edge["source"] == node_id:
-                if handle_id is None or edge.get("sourceHandle") == handle_id:
+                if self._edge_matches_source_handle(edge, handle_id):
                     downstream.append(edge["target"])
         return downstream
 
@@ -5145,11 +5159,103 @@ class WorkflowExecutor:
             args.append(current.strip())
         return method_name, args
 
+    @staticmethod
+    def _has_odd_trailing_backslashes(chars: list[str]) -> bool:
+        count = 0
+        for char in reversed(chars):
+            if char != "\\":
+                break
+            count += 1
+        return count % 2 == 1
+
+    def _split_curl_tokens_tolerant(self, command: str) -> list[str]:
+        """Split curl DSL that contains JSON strings inside single-quoted data args.
+
+        Users commonly paste curl like ``-d '{"content": "..."}'`` and then interpolate
+        JSON-escaped values. Apostrophes inside that JSON string (for example "What's")
+        are invalid for a real shell, but Heym parses the DSL directly instead of
+        executing a shell. This fallback preserves those apostrophes when they are inside
+        a double-quoted JSON string nested in a single-quoted token.
+        """
+        tokens: list[str] = []
+        current: list[str] = []
+        quote: str | None = None
+        in_json_double_string = False
+        token_started = False
+        index = 0
+
+        while index < len(command):
+            char = command[index]
+
+            if quote is not None:
+                json_like_single_quote = quote == "'" and "".join(current).lstrip().startswith(
+                    ("{", "[")
+                )
+                if (
+                    json_like_single_quote
+                    and char == '"'
+                    and not self._has_odd_trailing_backslashes(current)
+                ):
+                    in_json_double_string = not in_json_double_string
+                    current.append(char)
+                    index += 1
+                    continue
+
+                if char == quote and not (quote == "'" and in_json_double_string):
+                    quote = None
+                    token_started = True
+                    index += 1
+                    continue
+
+                current.append(char)
+                index += 1
+                continue
+
+            if char.isspace():
+                if token_started or current:
+                    tokens.append("".join(current))
+                    current = []
+                    token_started = False
+                    in_json_double_string = False
+                index += 1
+                continue
+
+            if char in ("'", '"'):
+                quote = char
+                token_started = True
+                index += 1
+                continue
+
+            if char == "\\" and index + 1 < len(command):
+                current.append(command[index + 1])
+                token_started = True
+                index += 2
+                continue
+
+            current.append(char)
+            token_started = True
+            index += 1
+
+        if quote is not None:
+            raise ValueError("No closing quotation")
+        if token_started or current:
+            tokens.append("".join(current))
+        return tokens
+
+    def _split_curl_tokens(self, command: str) -> list[str]:
+        try:
+            return shlex.split(command)
+        except ValueError as original_error:
+            try:
+                return self._split_curl_tokens_tolerant(command)
+            except ValueError:
+                raise original_error from None
+
     def parse_curl(self, curl_command: str) -> tuple[str, str, dict[str, str], str | None, bool]:
         if not curl_command:
             return "GET", "", {}, None, False
         normalized_cmd = curl_command.replace("\\\n", " ").replace("\\\r\n", " ")
-        tokens = shlex.split(normalized_cmd)
+        tokens = self._split_curl_tokens(normalized_cmd)
         if tokens and tokens[0].lower() == "curl":
             tokens = tokens[1:]
 

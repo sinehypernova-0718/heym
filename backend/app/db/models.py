@@ -117,6 +117,42 @@ class User(Base):
         cascade="all, delete-orphan",
         foreign_keys="TeamMember.user_id",
     )
+    mcp_servers: Mapped[list["MCPServer"]] = relationship(
+        "MCPServer", back_populates="owner", cascade="all, delete-orphan"
+    )
+
+
+class MCPServer(Base):
+    __tablename__ = "mcp_servers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    api_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    owner: Mapped["User"] = relationship("User", back_populates="mcp_servers")
+    server_workflows: Mapped[list["MCPServerWorkflow"]] = relationship(
+        "MCPServerWorkflow", back_populates="server", cascade="all, delete-orphan"
+    )
+
+
+class MCPServerWorkflow(Base):
+    __tablename__ = "mcp_server_workflows"
+
+    mcp_server_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("mcp_servers.id", ondelete="CASCADE"), primary_key=True
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    server: Mapped["MCPServer"] = relationship("MCPServer", back_populates="server_workflows")
+    workflow: Mapped["Workflow"] = relationship("Workflow")
 
 
 class Team(Base):

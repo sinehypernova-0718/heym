@@ -1,5 +1,6 @@
 """Output / template resolution: multi-$ messages and bracket path fallback."""
 
+import json
 import unittest
 import uuid
 from datetime import datetime
@@ -149,6 +150,31 @@ class WorkflowExecutorExpressionParseCacheTests(unittest.TestCase):
         self.assertEqual(first_info.misses, 1)
         self.assertEqual(second_info.misses, 1)
         self.assertGreater(second_info.hits, first_info.hits)
+
+
+class WorkflowExecutorCurlDslTests(unittest.TestCase):
+    def test_parse_curl_data_with_json_escaped_apostrophe_content(self) -> None:
+        ex = WorkflowExecutor(nodes=[], edges=[])
+        content = 'Release notes\n\n## What\'s Changed\r\n* fixed "quotes"'
+        template = (
+            "curl -X POST https://example.test/webhook "
+            "-H 'Content-Type: application/json' "
+            "-d '{\"content\": $setMessage.content.escape()}'"
+        )
+
+        resolved = ex.evaluate_message_template(
+            template,
+            {"setMessage": {"content": content}},
+            None,
+        )
+        method, url, headers, body, follow_redirects = ex.parse_curl(resolved)
+
+        self.assertEqual(method, "POST")
+        self.assertEqual(url, "https://example.test/webhook")
+        self.assertEqual(headers, {"Content-Type": "application/json"})
+        self.assertFalse(follow_redirects)
+        self.assertIsNotNone(body)
+        self.assertEqual(json.loads(body or "{}"), {"content": content})
 
 
 class WorkflowExecutorGcPauseTrackingTests(unittest.TestCase):

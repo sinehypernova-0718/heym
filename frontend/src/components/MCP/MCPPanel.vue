@@ -4,11 +4,13 @@ import { useRouter } from "vue-router";
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   Copy,
   ExternalLink,
   Eye,
   EyeOff,
   Info,
+  Plus,
   RefreshCw,
   Server,
   ToggleLeft,
@@ -21,7 +23,13 @@ import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import { joinOriginAndPath } from "@/lib/appUrl";
 import { cn } from "@/lib/utils";
-import { mcpApi, type MCPConfigResponse, type MCPWorkflowItem } from "@/services/api";
+import {
+  mcpApi,
+  mcpServersApi,
+  type MCPConfigResponse,
+  type MCPServerItem,
+  type MCPWorkflowItem,
+} from "@/services/api";
 
 const router = useRouter();
 
@@ -31,6 +39,15 @@ const connectionTab = ref<"api-key" | "claude">("api-key");
 const showApiKey = ref(false);
 const regenerating = ref(false);
 const togglingWorkflowId = ref<string | null>(null);
+
+const namedServers = ref<MCPServerItem[]>([]);
+const expandedServer = ref<string | null>(null);
+const newServerName = ref("");
+const creatingServer = ref(false);
+const allWorkflows = ref<MCPWorkflowItem[]>([]);
+const showServerApiKey = ref<Record<string, boolean>>({});
+const regeneratingServerKey = ref<string | null>(null);
+const togglingServerWorkflow = ref<string | null>(null);
 
 const toastMessage = ref("");
 const toastVisible = ref(false);
@@ -68,8 +85,121 @@ async function loadConfig(): Promise<void> {
   loading.value = true;
   try {
     config.value = await mcpApi.getConfig();
+    allWorkflows.value = config.value.workflows;
+    await loadNamedServers();
   } finally {
     loading.value = false;
+  }
+}
+
+function serverSseUrl(serverId: string): string {
+  return joinOriginAndPath(window.location.origin, `/api/mcp/servers/${serverId}/sse`);
+}
+
+async function loadNamedServers(): Promise<void> {
+  const result = await mcpServersApi.list();
+  namedServers.value = result.servers;
+}
+
+async function createServer(): Promise<void> {
+  if (creatingServer.value || !newServerName.value.trim()) return;
+  creatingServer.value = true;
+  try {
+    const server = await mcpServersApi.create(newServerName.value.trim());
+    namedServers.value.push(server);
+    newServerName.value = "";
+    expandedServer.value = server.id;
+    showToast(`Server "${server.name}" created`);
+  } catch {
+    showToast("Failed to create server", "error");
+  } finally {
+    creatingServer.value = false;
+  }
+}
+
+async function deleteServer(server: MCPServerItem): Promise<void> {
+  if (!confirm(`Delete server "${server.name}"? This cannot be undone.`)) return;
+  try {
+    await mcpServersApi.delete(server.id);
+    namedServers.value = namedServers.value.filter((s) => s.id !== server.id);
+    if (expandedServer.value === server.id) expandedServer.value = null;
+    showToast(`Server "${server.name}" deleted`);
+  } catch {
+    showToast("Failed to delete server", "error");
+  }
+}
+
+async function regenerateServerKey(server: MCPServerItem): Promise<void> {
+  if (regeneratingServerKey.value) return;
+  if (!confirm(`Regenerate API key for "${server.name}"? The current key will stop working.`)) return;
+  regeneratingServerKey.value = server.id;
+  try {
+    const updated = await mcpServersApi.regenerateKey(server.id);
+    const idx = namedServers.value.findIndex((s) => s.id === server.id);
+    if (idx !== -1) namedServers.value[idx] = updated;
+    showServerApiKey.value[server.id] = true;
+    showToast("API key regenerated");
+  } catch {
+    showToast("Failed to regenerate key", "error");
+  } finally {
+    regeneratingServerKey.value = null;
+  }
+}
+
+function toggleServerKeyVisibility(serverId: string): void {
+  showServerApiKey.value[serverId] = !showServerApiKey.value[serverId];
+}
+
+function serverMcpConfigJson(server: MCPServerItem): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        [server.name.toLowerCase().replace(/\s+/g, "_")]: {
+          url: serverSseUrl(server.id),
+          headers: {
+            "X-MCP-Key": server.api_key,
+          },
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
+function addServerToCursor(server: MCPServerItem): void {
+  const mcpConfig = {
+    url: serverSseUrl(server.id),
+    headers: { "X-MCP-Key": server.api_key },
+  };
+  const configBase64 = btoa(JSON.stringify(mcpConfig));
+  window.open(
+    `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(server.name)}&config=${configBase64}`,
+    "_self",
+  );
+}
+
+async function toggleServerWorkflow(server: MCPServerItem, workflowId: string): Promise<void> {
+  if (togglingServerWorkflow.value) return;
+  togglingServerWorkflow.value = workflowId;
+  const enabled = !server.workflow_ids.includes(workflowId);
+  try {
+    await mcpServersApi.toggleWorkflow(server.id, workflowId, enabled);
+    const idx = namedServers.value.findIndex((s) => s.id === server.id);
+    if (idx !== -1) {
+      const ids = [...namedServers.value[idx].workflow_ids];
+      if (enabled) {
+        ids.push(workflowId);
+      } else {
+        const wIdx = ids.indexOf(workflowId);
+        if (wIdx !== -1) ids.splice(wIdx, 1);
+      }
+      namedServers.value[idx] = { ...namedServers.value[idx], workflow_ids: ids };
+    }
+  } catch {
+    showToast("Failed to update workflow assignment", "error");
+  } finally {
+    togglingServerWorkflow.value = null;
   }
 }
 
@@ -506,6 +636,232 @@ function addToCursor(): void {
           <pre class="p-4 bg-background rounded-lg text-sm overflow-x-auto"><code>{{ mcpConfigJson }}</code></pre>
         </div>
       </Card>
+
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="font-semibold text-lg">
+              Named MCP Servers
+            </h3>
+            <p class="text-sm text-muted-foreground mt-0.5">
+              Create separate MCP endpoints and assign specific workflows to each
+            </p>
+          </div>
+        </div>
+
+        <div class="flex gap-2 mb-4">
+          <input
+            v-model="newServerName"
+            type="text"
+            placeholder="Server name (e.g. CRM Tools)"
+            maxlength="100"
+            class="flex-1 px-3 py-2 text-sm bg-background border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/30"
+            @keydown.enter="createServer"
+          >
+          <Button
+            variant="default"
+            size="sm"
+            class="gap-2 shrink-0"
+            :disabled="creatingServer || !newServerName.trim()"
+            @click="createServer"
+          >
+            <Plus class="w-4 h-4" />
+            Create
+          </Button>
+        </div>
+
+        <div
+          v-if="namedServers.length === 0"
+          class="text-center py-8 border border-dashed rounded-lg"
+        >
+          <Server class="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+          <p class="text-sm text-muted-foreground">
+            No named servers yet. Create one to get a dedicated MCP endpoint.
+          </p>
+        </div>
+
+        <div
+          v-else
+          class="space-y-3"
+        >
+          <Card
+            v-for="server in namedServers"
+            :key="server.id"
+            class="overflow-hidden"
+          >
+            <div
+              class="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+              @click="expandedServer = expandedServer === server.id ? null : server.id"
+            >
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary shrink-0">
+                  <Server class="w-4 h-4" />
+                </div>
+                <div class="min-w-0">
+                  <p class="font-medium text-sm truncate">
+                    {{ server.name }}
+                  </p>
+                  <p class="text-xs text-muted-foreground truncate">
+                    {{ server.workflow_ids.length }} workflow{{ server.workflow_ids.length !== 1 ? 's' : '' }} assigned
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button
+                  class="p-1.5 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+                  title="Delete server"
+                  @click.stop="deleteServer(server)"
+                >
+                  <X class="w-4 h-4" />
+                </button>
+                <ChevronDown
+                  class="w-4 h-4 text-muted-foreground transition-transform"
+                  :class="{ 'rotate-180': expandedServer === server.id }"
+                />
+              </div>
+            </div>
+
+            <div
+              v-if="expandedServer === server.id"
+              class="border-t px-4 pb-4 pt-3 space-y-4"
+            >
+              <div>
+                <label class="text-xs font-medium text-muted-foreground block mb-1.5">SSE Endpoint</label>
+                <div class="flex items-center gap-2">
+                  <code class="flex-1 px-3 py-2 bg-muted rounded-md text-xs font-mono truncate">
+                    {{ serverSseUrl(server.id) }}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    @click="copyToClipboard(serverSseUrl(server.id), 'Endpoint URL')"
+                  >
+                    <Copy class="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <label class="text-xs font-medium text-muted-foreground block mb-1.5">
+                  API Key (X-MCP-Key header)
+                </label>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <div class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 bg-muted rounded-md">
+                    <code class="text-xs font-mono truncate flex-1 min-w-0">
+                      {{ showServerApiKey[server.id] ? server.api_key : server.api_key.slice(0, 8) + '...' + server.api_key.slice(-4) }}
+                    </code>
+                    <button
+                      class="p-1 rounded hover:bg-background text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                      @click.stop="toggleServerKeyVisibility(server.id)"
+                    >
+                      <Eye
+                        v-if="!showServerApiKey[server.id]"
+                        class="w-4 h-4"
+                      />
+                      <EyeOff
+                        v-else
+                        class="w-4 h-4"
+                      />
+                    </button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="shrink-0"
+                    @click="copyToClipboard(server.api_key, 'API Key')"
+                  >
+                    <Copy class="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="shrink-0"
+                    :disabled="regeneratingServerKey === server.id"
+                    @click="regenerateServerKey(server)"
+                  >
+                    <RefreshCw
+                      class="w-4 h-4"
+                      :class="{ 'animate-spin': regeneratingServerKey === server.id }"
+                    />
+                  </Button>
+                </div>
+              </div>
+
+              <div class="pt-1 border-t">
+                <label class="text-xs font-medium text-muted-foreground block mb-2">How to connect</label>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    class="gap-2"
+                    @click="copyToClipboard(serverMcpConfigJson(server), 'MCP Configuration')"
+                  >
+                    <Copy class="w-4 h-4" />
+                    Copy JSON
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    class="gap-2 bg-black hover:bg-neutral-800 text-white border-0"
+                    @click="addServerToCursor(server)"
+                  >
+                    <svg
+                      class="w-4 h-4"
+                      viewBox="0 0 100 100"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M10 90L90 50L10 10V40L50 50L10 60V90Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                    Add to Cursor
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <label class="text-xs font-medium text-muted-foreground block mb-2">Assigned Workflows</label>
+                <div
+                  v-if="allWorkflows.length === 0"
+                  class="text-xs text-muted-foreground italic"
+                >
+                  No workflows available. Create workflows to assign them here.
+                </div>
+                <div
+                  v-else
+                  class="space-y-1 max-h-48 overflow-y-auto pr-1"
+                >
+                  <div
+                    v-for="workflow in allWorkflows"
+                    :key="workflow.id"
+                    class="flex items-center justify-between gap-2 p-2 rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
+                    @click="toggleServerWorkflow(server, workflow.id)"
+                  >
+                    <span class="text-sm truncate flex-1">{{ workflow.name }}</span>
+                    <button
+                      class="shrink-0 text-muted-foreground"
+                      :disabled="togglingServerWorkflow === workflow.id"
+                    >
+                      <ToggleRight
+                        v-if="server.workflow_ids.includes(workflow.id)"
+                        class="w-7 h-7 text-primary"
+                        :class="{ 'animate-pulse': togglingServerWorkflow === workflow.id }"
+                      />
+                      <ToggleLeft
+                        v-else
+                        class="w-7 h-7"
+                        :class="{ 'animate-pulse': togglingServerWorkflow === workflow.id }"
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
     </div>
 
     <Transition

@@ -1073,7 +1073,10 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
           >Heym</span>
         </router-link>
         <div class="hidden sm:block w-px h-6 bg-border/50 shrink-0" />
-        <div class="hidden sm:block min-w-0" data-heym-inline-edit>
+        <div
+          class="hidden sm:block min-w-0"
+          data-heym-inline-edit
+        >
           <input
             v-if="isTitleEditing"
             ref="titleInputRef"
