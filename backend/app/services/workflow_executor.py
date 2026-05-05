@@ -1707,11 +1707,25 @@ class WorkflowExecutor:
                     inputs[source_label] = self.node_outputs[source_id]
         return inputs
 
+    def _edge_matches_source_handle(self, edge: dict, handle_id: str | None) -> bool:
+        if handle_id is None:
+            return True
+
+        source_handle = edge.get("sourceHandle")
+        if source_handle == handle_id:
+            return True
+
+        source_node = self.nodes.get(edge.get("source"), {})
+        if handle_id == "true" and source_node.get("type") == "condition" and not source_handle:
+            return True
+
+        return False
+
     def get_downstream_nodes(self, node_id: str, handle_id: str | None = None) -> list[str]:
         downstream = []
         for edge in self.edges:
             if edge["source"] == node_id:
-                if handle_id is None or edge.get("sourceHandle") == handle_id:
+                if self._edge_matches_source_handle(edge, handle_id):
                     downstream.append(edge["target"])
         return downstream
 

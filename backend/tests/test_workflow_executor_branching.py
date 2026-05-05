@@ -163,6 +163,54 @@ class WorkflowExecutorBranchingTests(unittest.TestCase):
         self.assertEqual(results["finalOut"]["status"], "success")
         self.assertEqual(results["finalOut"]["output"]["result"], "merged")
 
+    def test_condition_treats_missing_source_handle_as_true_branch(self) -> None:
+        nodes = [
+            {
+                "id": "input_1",
+                "type": "textInput",
+                "data": {"label": "userInput", "inputFields": [{"key": "text"}]},
+            },
+            {
+                "id": "condition_1",
+                "type": "condition",
+                "data": {"label": "condition", "condition": '$userInput.body.text == "as"'},
+            },
+            {
+                "id": "success_1",
+                "type": "output",
+                "data": {"label": "successBranch", "message": "$userInput.body.text.upper()"},
+            },
+            {
+                "id": "error_1",
+                "type": "output",
+                "data": {"label": "errorBranch", "message": "false branch"},
+            },
+        ]
+        edges = [
+            {"id": "e1", "source": "input_1", "target": "condition_1", "targetHandle": "input"},
+            {"id": "e2", "source": "condition_1", "target": "success_1"},
+            {
+                "id": "e3",
+                "source": "condition_1",
+                "target": "error_1",
+                "sourceHandle": "false",
+                "targetHandle": "input",
+            },
+        ]
+        executor = WorkflowExecutor(nodes=nodes, edges=edges)
+
+        result = executor.execute(
+            workflow_id=uuid.uuid4(),
+            initial_inputs={"headers": {}, "query": {}, "body": {"text": "hello"}},
+        )
+        results = {row["node_label"]: row for row in result.node_results}
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(results["condition"]["output"]["branch"], "false")
+        self.assertEqual(results["successBranch"]["status"], "skipped")
+        self.assertEqual(results["errorBranch"]["status"], "success")
+        self.assertEqual(result.outputs, {"errorBranch": {"result": "false branch"}})
+
     def test_loop_done_branch_waits_for_loop_done_output(self) -> None:
         nodes, edges, initial_inputs = _make_loop_done_workflow()
         executor = WorkflowExecutor(nodes=nodes, edges=edges)
