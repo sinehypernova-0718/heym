@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useMediaQuery } from "@vueuse/core";
 import { useRoute, useRouter } from "vue-router";
@@ -108,6 +108,61 @@ const workflowName = computed(() => workflowStore.currentWorkflow?.name || "Work
 const workflowDescription = computed(() => workflowStore.currentWorkflow?.description || "");
 const hasUnsavedChanges = computed(() => workflowStore.hasUnsavedChanges);
 const isSaving = computed(() => workflowStore.isSaving);
+
+const isTitleEditing = ref(false);
+const isDescriptionEditing = ref(false);
+const editingTitleValue = ref("");
+const editingDescriptionValue = ref("");
+const titleInputRef = ref<HTMLInputElement | null>(null);
+const descriptionInputRef = ref<HTMLInputElement | null>(null);
+
+function startTitleEdit(): void {
+  editingTitleValue.value = workflowStore.currentWorkflow?.name ?? "";
+  isDescriptionEditing.value = false;
+  isTitleEditing.value = true;
+  void nextTick(() => {
+    titleInputRef.value?.select();
+  });
+}
+
+function commitTitleEdit(): void {
+  const trimmed = editingTitleValue.value.trim();
+  if (trimmed && trimmed !== workflowStore.currentWorkflow?.name) {
+    void workflowStore.updateMetadata(trimmed, workflowStore.currentWorkflow?.description ?? null);
+  }
+  isTitleEditing.value = false;
+}
+
+function cancelTitleEdit(): void {
+  isTitleEditing.value = false;
+}
+
+function startDescriptionEdit(): void {
+  if (workflowStore.hasUnsavedChanges) return;
+  editingDescriptionValue.value = workflowStore.currentWorkflow?.description ?? "";
+  isTitleEditing.value = false;
+  isDescriptionEditing.value = true;
+  void nextTick(() => {
+    descriptionInputRef.value?.focus();
+  });
+}
+
+function commitDescriptionEdit(): void {
+  const trimmed = editingDescriptionValue.value.trim();
+  const newValue = trimmed || null;
+  if (newValue !== (workflowStore.currentWorkflow?.description ?? null)) {
+    void workflowStore.updateMetadata(
+      workflowStore.currentWorkflow?.name ?? "",
+      newValue,
+    );
+  }
+  isDescriptionEditing.value = false;
+}
+
+function cancelDescriptionEdit(): void {
+  isDescriptionEditing.value = false;
+}
+
 const isGenericWebhookBodyMode = computed(() => webhookBodyMode.value === "generic");
 const showcaseContext = computed(() => {
   return resolveShowcaseContext({ routePath: route.path });
@@ -991,20 +1046,53 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
         </router-link>
         <div class="hidden sm:block w-px h-6 bg-border/50 shrink-0" />
         <div class="hidden sm:block min-w-0">
-          <h1 class="font-semibold text-sm md:text-base truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px]">
+          <input
+            v-if="isTitleEditing"
+            ref="titleInputRef"
+            v-model="editingTitleValue"
+            class="font-semibold text-sm md:text-base bg-transparent border-b border-primary outline-none w-full max-w-[120px] sm:max-w-[150px] md:max-w-[250px]"
+            maxlength="100"
+            @blur="commitTitleEdit"
+            @keydown.enter.prevent="commitTitleEdit"
+            @keydown.escape="cancelTitleEdit"
+          >
+          <h1
+            v-else
+            class="font-semibold text-sm md:text-base truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px] cursor-text hover:bg-muted/50 rounded px-0.5 -mx-0.5"
+            @click="startTitleEdit"
+          >
             {{ workflowName }}
           </h1>
-          <p
-            v-if="workflowDescription && !hasUnsavedChanges"
-            class="text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px]"
+          <input
+            v-if="isDescriptionEditing"
+            ref="descriptionInputRef"
+            v-model="editingDescriptionValue"
+            class="text-xs text-muted-foreground bg-transparent border-b border-primary outline-none w-full max-w-[120px] sm:max-w-[150px] md:max-w-[250px]"
+            maxlength="300"
+            placeholder="Add description..."
+            @blur="commitDescriptionEdit"
+            @keydown.enter.prevent="commitDescriptionEdit"
+            @keydown.escape="cancelDescriptionEdit"
           >
-            {{ workflowDescription }}
-          </p>
           <p
             v-else-if="hasUnsavedChanges"
             class="text-xs text-amber-500"
           >
             Unsaved changes
+          </p>
+          <p
+            v-else-if="workflowDescription"
+            class="text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px] cursor-text hover:bg-muted/50 rounded px-0.5 -mx-0.5"
+            @click="startDescriptionEdit"
+          >
+            {{ workflowDescription }}
+          </p>
+          <p
+            v-else
+            class="text-xs text-muted-foreground/40 truncate max-w-[120px] sm:max-w-[150px] md:max-w-[250px] cursor-text hover:bg-muted/50 rounded px-0.5 -mx-0.5"
+            @click="startDescriptionEdit"
+          >
+            Add description...
           </p>
         </div>
       </div>
