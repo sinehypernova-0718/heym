@@ -52,6 +52,8 @@ All of a user's MCP-enabled workflows are currently exposed as a single flat lis
 
 A workflow assigned to a named server does **not** require `mcp_enabled=True` — join table membership is sufficient.
 
+Named servers support **owned workflows only** in this iteration. The `mcp_server_workflows.workflow_id` must belong to the server owner. Shared workflow support (WorkflowShare) can be added in a follow-up.
+
 ---
 
 ## API Endpoints
