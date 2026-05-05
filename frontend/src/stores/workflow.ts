@@ -551,6 +551,22 @@ export const useWorkflowStore = defineStore("workflow", () => {
     }
   }
 
+  async function updateMetadata(name: string, description: string | null): Promise<void> {
+    if (!currentWorkflow.value) return;
+
+    const previousName = currentWorkflow.value.name;
+    const previousDescription = currentWorkflow.value.description;
+    currentWorkflow.value = { ...currentWorkflow.value, name, description };
+
+    try {
+      const updated = await workflowApi.update(currentWorkflow.value.id, { name, description });
+      currentWorkflow.value = updated;
+    } catch {
+      currentWorkflow.value = { ...currentWorkflow.value, name: previousName, description: previousDescription };
+      showToast("Failed to update workflow", "error", 3000);
+    }
+  }
+
   function generateUniqueNodeLabel(baseLabel: string): string {
     const existingLabels = new Set(nodes.value.map((n) => n.data.label));
 
@@ -2212,6 +2228,7 @@ export const useWorkflowStore = defineStore("workflow", () => {
     canRedo,
     loadWorkflow,
     saveWorkflow,
+    updateMetadata,
     addNode,
     updateNode,
     toggleNodeActive,
