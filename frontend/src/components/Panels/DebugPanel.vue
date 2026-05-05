@@ -2291,7 +2291,7 @@ function renderContent(content: string): string {
 
 <template>
   <div
-    class="border-t bg-card/50 flex flex-col relative overflow-x-hidden"
+    class="border-t bg-card/50 flex flex-col relative overflow-x-hidden min-w-0"
     :class="{ 'transition-[height] duration-200': !isResizing }"
     :style="{ height: `${panelHeight}px` }"
   >
@@ -2432,7 +2432,7 @@ function renderContent(content: string): string {
     <div
       v-if="!isCollapsed"
       ref="scrollContainer"
-      class="flex-1 overflow-auto p-4 min-h-0"
+      class="flex-1 overflow-y-auto overflow-x-hidden p-4 min-h-0 min-w-0"
     >
       <div
         v-if="displayResults.length === 0 && !isExecuting"
@@ -2774,14 +2774,17 @@ function renderContent(content: string): string {
               </div>
               <div
                 v-if="shouldShowGenericResultOutput(result.rawOutput)"
-                class="text-muted-foreground text-xs mt-1"
+                class="text-muted-foreground text-xs mt-1 min-w-0 max-w-full"
               >
                 <div
                   v-if="showMarkdownInExecutionLog && getMarkdownDisplayText(result.output) !== null"
-                  class="execution-markdown-output break-words font-sans"
+                  class="execution-markdown-output break-words font-sans min-w-0 max-w-full"
                 >
                   <!-- eslint-disable vue/no-v-html -->
-                  <div v-html="renderExecutionMarkdown(getMarkdownDisplayText(result.output)!)" />
+                  <div
+                    class="execution-markdown-output-inner min-w-0 max-w-full"
+                    v-html="renderExecutionMarkdown(getMarkdownDisplayText(result.output)!)"
+                  />
                   <!-- eslint-enable vue/no-v-html -->
                 </div>
                 <div
@@ -3333,6 +3336,18 @@ function renderContent(content: string): string {
   overflow: hidden;
 }
 
+.execution-markdown-output {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.execution-markdown-output-inner {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .execution-markdown-output :deep(p) {
   margin: 0.35rem 0;
 }
@@ -3374,14 +3389,20 @@ function renderContent(content: string): string {
   color: hsl(var(--foreground));
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 0.85em;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 0.1rem 0.3rem;
+  word-break: break-word;
 }
 
 .execution-markdown-output :deep(pre) {
   background: hsl(var(--background) / 0.7);
   border: 1px solid hsl(var(--border) / 0.7);
   border-radius: 0.375rem;
+  box-sizing: border-box;
   margin: 0.45rem 0;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   padding: 0.625rem;
 }
@@ -3389,7 +3410,13 @@ function renderContent(content: string): string {
 .execution-markdown-output :deep(pre code) {
   background: transparent;
   border-radius: 0;
+  display: block;
+  max-width: 100%;
+  overflow-wrap: normal;
   padding: 0;
+  word-break: normal;
+  white-space: pre;
+  overflow-x: auto;
 }
 
 .execution-markdown-output :deep(blockquote) {
