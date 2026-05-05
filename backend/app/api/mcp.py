@@ -67,7 +67,11 @@ async def get_mcp_user(
     # 0. Check for short-lived SSE session token (?session=)
     session_param = request.query_params.get("session")
     if session_param:
-        user_id_str = mcp_session_store.resolve(session_param)
+        resolve_result = mcp_session_store.resolve(session_param)
+        if resolve_result is None:
+            user_id_str = None
+        else:
+            user_id_str, _ = resolve_result  # ignore server_id for default server
         if user_id_str is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

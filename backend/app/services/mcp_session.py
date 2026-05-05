@@ -9,7 +9,7 @@ leaking long-lived credentials in server access logs.
 import secrets
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _SESSION_TTL_SECONDS = 3600  # 1 hour
 _CLEANUP_INTERVAL_SECONDS = 600
@@ -19,6 +19,7 @@ _CLEANUP_INTERVAL_SECONDS = 600
 class _MCPSession:
     user_id: str
     created_at: float
+    server_id: str | None = field(default=None)
 
 
 class MCPSessionStore:
@@ -37,17 +38,19 @@ class MCPSessionStore:
             del self._sessions[k]
         self._last_cleanup = now
 
-    def create(self, user_id: str) -> str:
-        """Create a new session token mapped to user_id."""
+    def create(self, user_id: str, server_id: str | None = None) -> str:
+        """Create a new session token mapped to user_id (and optionally server_id)."""
         token = secrets.token_urlsafe(32)
         now = time.time()
         with self._lock:
             self._cleanup(now)
-            self._sessions[token] = _MCPSession(user_id=user_id, created_at=now)
+            self._sessions[token] = _MCPSession(
+                user_id=user_id, created_at=now, server_id=server_id
+            )
         return token
 
-    def resolve(self, token: str) -> str | None:
-        """Return user_id for a valid, non-expired session token, or None."""
+    def resolve(self, token: str) -> tuple[str, str | None] | None:
+        """Return (user_id, server_id) for a valid non-expired token, or None."""
         now = time.time()
         with self._lock:
             session = self._sessions.get(token)
@@ -56,7 +59,7 @@ class MCPSessionStore:
             if now - session.created_at > _SESSION_TTL_SECONDS:
                 del self._sessions[token]
                 return None
-            return session.user_id
+            return session.user_id, session.server_id
 
     def revoke(self, token: str) -> None:
         with self._lock:
