@@ -343,20 +343,30 @@ async def named_server_sse(
     )
 
 
-@router.post("/{server_id}/message")
-async def handle_named_server_message(
+@router.post("/{server_id}/sse")
+async def named_server_sse_post(
     server_id: uuid.UUID,
     request: Request,
     server: tuple[User, MCPServer] = Depends(_get_named_server_context),
     db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Streamable HTTP transport (MCP 2025-03-26): POST directly to SSE endpoint."""
+    return await _dispatch_named_server_jsonrpc(
+        server_id=server_id, request=request, server=server, db=db
+    )
+
+
+async def _dispatch_named_server_jsonrpc(
+    server_id: uuid.UUID,
+    request: Request,
+    server: tuple[User, MCPServer],
+    db: AsyncSession,
 ) -> dict:
     body = await request.json()
     msg = MCPJSONRPCRequest(**body)
     user, mcp_server = server
 
     if msg.id is None:
-        if msg.method == "notifications/initialized":
-            return {"jsonrpc": "2.0"}
         return {"jsonrpc": "2.0"}
 
     if msg.method == "initialize":
@@ -509,3 +519,15 @@ async def handle_named_server_message(
         "id": msg.id,
         "error": {"code": -32601, "message": f"Method not found: {msg.method}"},
     }
+
+
+@router.post("/{server_id}/message")
+async def handle_named_server_message(
+    server_id: uuid.UUID,
+    request: Request,
+    server: tuple[User, MCPServer] = Depends(_get_named_server_context),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await _dispatch_named_server_jsonrpc(
+        server_id=server_id, request=request, server=server, db=db
+    )
