@@ -191,13 +191,35 @@ Connect to [Model Context Protocol](https://modelcontextprotocol.io/) servers to
 
 Most API-keyed stdio servers authenticate via environment variables rather than command arguments. Set `env` per-connection so each agent node can use a different credential without touching the host environment.
 
-Example — GitHub MCP:
+`env` values support [Expression DSL](../reference/expression-dsl.md), so you can pass workflow inputs as credentials instead of hardcoding secrets:
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "$userInput.pat" }
+}
+```
+
+The expression `$userInput.pat` is resolved at runtime against the workflow's input data before the MCP process starts. This lets you accept tokens from a trigger or input node rather than embedding them in the workflow definition.
+
+Example — GitHub MCP with hardcoded token:
 
 ```json
 {
   "command": "npx",
   "args": ["-y", "@modelcontextprotocol/server-github"],
   "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxxxxxxxxxx" }
+}
+```
+
+Example — GitHub MCP with dynamic token from workflow input:
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "$userInput.pat" }
 }
 ```
 
@@ -215,15 +237,15 @@ Example — Slack MCP:
 
 | Field | Description |
 |-------|-------------|
-| `url` | SSE endpoint URL |
-| `headers` | JSON object for auth/custom headers |
+| `url` | SSE endpoint URL. Supports expressions (e.g. `$userInput.serverUrl`). |
+| `headers` | JSON object for auth/custom headers. Values support expressions. |
 
 **Streamable HTTP** (remote server):
 
 | Field | Description |
 |-------|-------------|
-| `url` | MCP endpoint URL (e.g. `https://example.com/mcp`) |
-| `headers` | JSON object for auth/custom headers |
+| `url` | MCP endpoint URL (e.g. `https://example.com/mcp`). Supports expressions. |
+| `headers` | JSON object for auth/custom headers. Values support expressions. |
 
 ## Skills
 
