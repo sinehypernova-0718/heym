@@ -2623,7 +2623,9 @@ class WorkflowExecutor:
             if not isinstance(raw, dict):
                 return None
             return {
-                k: self._resolve_template(str(v), inputs, nid) if isinstance(v, str) and "$" in v else v
+                k: self._resolve_template(str(v), inputs, nid)
+                if isinstance(v, str) and "$" in v
+                else v
                 for k, v in raw.items()
             }
 
