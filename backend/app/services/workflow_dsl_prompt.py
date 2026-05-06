@@ -687,9 +687,9 @@ The agent will return structured JSON matching the schema, accessible via `$agen
 - `transport`: "stdio" | "sse" | "streamable_http"
 - `timeoutSeconds`: Timeout for this connection (default: 30)
 - `label`: Optional display name for the server
-- **stdio**: `command` (e.g. "npx"), `args` (JSON array, e.g. `["-y", "@modelcontextprotocol/server-filesystem", "--path", "/tmp"]`), `env` (JSON object of environment variables injected into the process, e.g. `{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."}`) — most API-keyed stdio MCP servers (GitHub, Slack, Linear…) authenticate via `env`, NOT via args, because they read `process.env.X` directly in their source code
-- **sse**: `url` (SSE endpoint), `headers` (JSON object for auth/custom headers)
-- **streamable_http**: `url` (MCP endpoint, e.g. "https://example.com/mcp"), `headers` (JSON object for auth/custom headers)
+- **stdio**: `command` (e.g. "npx"), `args` (JSON array, e.g. `["-y", "@modelcontextprotocol/server-filesystem", "--path", "/tmp"]`), `env` (JSON object of environment variables injected into the process, e.g. `{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."}`) — most API-keyed stdio MCP servers (GitHub, Slack, Linear…) authenticate via `env`, NOT via args, because they read `process.env.X` directly in their source code. **`env` values support expression DSL** — use `$nodeName.field` to pass tokens from workflow inputs instead of hardcoding secrets (e.g. `{"GITHUB_PERSONAL_ACCESS_TOKEN": "$userInput.pat"}`)
+- **sse**: `url` (SSE endpoint, supports expressions), `headers` (JSON object for auth/custom headers, values support expressions)
+- **streamable_http**: `url` (MCP endpoint, e.g. "https://example.com/mcp", supports expressions), `headers` (JSON object for auth/custom headers, values support expressions)
 
 **Tool definition** (each item in `tools` array):
 - `name`: Tool name the LLM will call (e.g., "count_characters")
@@ -776,7 +776,7 @@ The agent will return structured JSON matching the schema, accessible via `$agen
         "timeoutSeconds": 60,
         "command": "npx",
         "args": ["-y", "@modelcontextprotocol/server-github"],
-        "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_YOUR_TOKEN_HERE"}
+        "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "$userInput.pat"}
       }
     ]
   }
@@ -809,6 +809,8 @@ The agent will return structured JSON matching the schema, accessible via `$agen
 ```
 
 **⚠️ CRITICAL for stdio MCP servers with API keys**: Always use `env` field (NOT args) for credentials. GitHub, Slack, Linear, and virtually all API-keyed stdio MCP servers read credentials from environment variables (e.g. `process.env.GITHUB_PERSONAL_ACCESS_TOKEN`), not from command-line arguments. Putting a token in `args` will NOT work for these servers.
+
+**💡 Use expressions in env values** to avoid hardcoding secrets. Reference a workflow input field (e.g. a `pat` field on the input node) with `"$userInput.pat"` — Heym resolves it at runtime before spawning the MCP process. This is the preferred pattern when the token comes from the user or a trigger.
 
 **Agent with MCP Example (SSE):**
 ```json

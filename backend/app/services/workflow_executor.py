@@ -2609,6 +2609,37 @@ class WorkflowExecutor:
             error_output["_trace_id"] = last_trace_id
         return error_output
 
+    def _resolve_mcp_connection(self, conn: dict, inputs: dict, node_id: str | None) -> dict:
+        """Resolve expression DSL in MCP connection env/url/header values."""
+        nid = node_id or ""
+        resolved = dict(conn)
+
+        def _resolve_dict(raw: object) -> dict | None:
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    raw = json.loads(raw)
+                except json.JSONDecodeError:
+                    return None
+            if not isinstance(raw, dict):
+                return None
+            return {
+                k: self._resolve_template(str(v), inputs, nid)
+                if isinstance(v, str) and "$" in v
+                else v
+                for k, v in raw.items()
+            }
+
+        env = _resolve_dict(resolved.get("env"))
+        if env is not None:
+            resolved["env"] = env
+        url = resolved.get("url")
+        if isinstance(url, str) and "$" in url:
+            resolved["url"] = self._resolve_template(url, inputs, nid)
+        headers = _resolve_dict(resolved.get("headers"))
+        if headers is not None:
+            resolved["headers"] = headers
+        return resolved
+
     def _list_mcp_tools(self, connection: dict, timeout_seconds: float) -> list[dict]:
         """List tools from an MCP server connection."""
         from app.services.mcp_tool_executor import list_mcp_tools
@@ -3958,6 +3989,7 @@ class WorkflowExecutor:
 
         mcp_list_start = time.time()
         for conn in mcp_connections:
+            conn = self._resolve_mcp_connection(conn, inputs, node_id)
             conn_timeout = float(conn.get("timeoutSeconds") or tool_timeout_seconds)
             try:
                 mcp_tools = self._list_mcp_tools(conn, conn_timeout)
