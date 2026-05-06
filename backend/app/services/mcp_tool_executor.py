@@ -93,6 +93,14 @@ def _normalize_connection(connection: dict[str, Any]) -> dict[str, Any]:
             conn["headers"] = {}
     elif not isinstance(headers, dict):
         conn["headers"] = headers or {}
+    env = conn.get("env")
+    if isinstance(env, str) and env.strip():
+        try:
+            conn["env"] = json.loads(env)
+        except json.JSONDecodeError:
+            conn["env"] = {}
+    elif env is not None and not isinstance(env, dict):
+        conn["env"] = {}
     return conn
 
 
