@@ -42,6 +42,7 @@ const props = defineProps<Props>();
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CHAT_SCROLLBAR_VERTICAL_INSET_PX = 12;
 
 const chatStore = useChatStore();
 const authStore = useAuthStore();
@@ -50,6 +51,8 @@ const router = useRouter();
 const input = ref("");
 const chatRootRef = ref<HTMLDivElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
+const messagesScrollRef = ref<HTMLDivElement | null>(null);
+const chatScrollbarTrackRef = ref<HTMLDivElement | null>(null);
 const messagesEndRef = ref<HTMLElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const credentials = ref<CredentialListItem[]>([]);
@@ -66,7 +69,13 @@ const isListening = ref(false);
 const isFixingTranscription = ref(false);
 const imageLightboxSrc = ref<string | null>(null);
 const selectedWorkflowPreviewNodes = ref<Record<string, Record<string, unknown> | null>>({});
+const chatScrollbarThumbTop = ref(0);
+const chatScrollbarThumbHeight = ref(44);
+const isDraggingChatScrollbar = ref(false);
 let copiedMessageIdTimeout: ReturnType<typeof setTimeout> | null = null;
+let messagesResizeObserver: ResizeObserver | null = null;
+let chatScrollbarDragStartY = 0;
+let chatScrollbarDragStartScrollTop = 0;
 
 interface SpeechRecognitionResultAlternative {
   transcript: string;
@@ -130,6 +139,16 @@ const userInitial = computed(() => {
   const source = authStore.user?.name?.trim() || authStore.user?.email?.trim() || "?";
   return source.charAt(0).toUpperCase();
 });
+const chatScrollbarThumbStyle = computed(() => ({
+  height: `${chatScrollbarThumbHeight.value}px`,
+  transform: `translateY(${chatScrollbarThumbTop.value}px)`,
+}));
+const chatScrollbarAriaValueNow = computed(() => {
+  const trackHeight = chatScrollbarTrackRef.value?.clientHeight ?? 0;
+  const maxThumbTop = Math.max(trackHeight - chatScrollbarThumbHeight.value, 0);
+  if (maxThumbTop <= 0) return 0;
+  return Math.round((chatScrollbarThumbTop.value / maxThumbTop) * 100);
+});
 
 watch(
   () => props.conversationId,
@@ -141,13 +160,19 @@ watch(
 );
 
 watch(messages, () => {
-  nextTick(scrollToBottom);
+  nextTick(() => {
+    scrollToBottom();
+    updateMessageScrollbar();
+  });
 });
 
 watch(
   () => chatStore.streamingContent,
   () => {
-    nextTick(scrollToBottom);
+    nextTick(() => {
+      scrollToBottom();
+      updateMessageScrollbar();
+    });
   },
 );
 
@@ -169,6 +194,98 @@ watch(
 
 function scrollToBottom(): void {
   messagesEndRef.value?.scrollIntoView({ behavior: "smooth" });
+}
+
+function updateMessageScrollbar(): void {
+  const scrollElement = messagesScrollRef.value;
+  if (!scrollElement) return;
+
+  const metrics = getMessageScrollbarMetrics();
+  if (!metrics) return;
+
+  const rawThumbHeight = metrics.maxScrollTop > 0
+    ? (metrics.viewportHeight / scrollElement.scrollHeight) * metrics.trackHeight
+    : metrics.trackHeight;
+  const thumbHeight = metrics.trackHeight > 0
+    ? Math.max(44, Math.min(metrics.trackHeight, rawThumbHeight))
+    : 0;
+  const maxThumbTop = Math.max(metrics.trackHeight - thumbHeight, 0);
+  const thumbTop = metrics.maxScrollTop > 0
+    ? (scrollElement.scrollTop / metrics.maxScrollTop) * maxThumbTop
+    : 0;
+
+  chatScrollbarThumbHeight.value = Math.round(thumbHeight);
+  chatScrollbarThumbTop.value = Math.round(thumbTop);
+}
+
+function getMessageScrollbarMetrics(): {
+  maxScrollTop: number;
+  trackHeight: number;
+  viewportHeight: number;
+} | null {
+  const scrollElement = messagesScrollRef.value;
+  if (!scrollElement) return null;
+
+  const viewportHeight = scrollElement.clientHeight;
+  const trackHeight = chatScrollbarTrackRef.value?.clientHeight
+    ?? Math.max(viewportHeight - CHAT_SCROLLBAR_VERTICAL_INSET_PX * 2, 0);
+  return {
+    maxScrollTop: Math.max(scrollElement.scrollHeight - viewportHeight, 0),
+    trackHeight,
+    viewportHeight,
+  };
+}
+
+function scrollMessagesFromThumbTop(thumbTop: number): void {
+  const scrollElement = messagesScrollRef.value;
+  const metrics = getMessageScrollbarMetrics();
+  if (!scrollElement || !metrics) return;
+
+  const maxThumbTop = Math.max(metrics.trackHeight - chatScrollbarThumbHeight.value, 0);
+  const clampedThumbTop = Math.min(Math.max(thumbTop, 0), maxThumbTop);
+  scrollElement.scrollTop = maxThumbTop > 0
+    ? (clampedThumbTop / maxThumbTop) * metrics.maxScrollTop
+    : 0;
+  updateMessageScrollbar();
+}
+
+function handleChatScrollbarTrackPointerDown(event: PointerEvent): void {
+  const trackElement = chatScrollbarTrackRef.value;
+  if (!trackElement) return;
+  event.preventDefault();
+  const trackTop = trackElement.getBoundingClientRect().top;
+  const targetThumbTop = event.clientY - trackTop - chatScrollbarThumbHeight.value / 2;
+  scrollMessagesFromThumbTop(targetThumbTop);
+}
+
+function handleChatScrollbarThumbPointerDown(event: PointerEvent): void {
+  event.preventDefault();
+  isDraggingChatScrollbar.value = true;
+  chatScrollbarDragStartY = event.clientY;
+  chatScrollbarDragStartScrollTop = messagesScrollRef.value?.scrollTop ?? 0;
+  window.addEventListener("pointermove", handleChatScrollbarPointerMove);
+  window.addEventListener("pointerup", handleChatScrollbarPointerUp);
+}
+
+function handleChatScrollbarPointerMove(event: PointerEvent): void {
+  if (!isDraggingChatScrollbar.value) return;
+  event.preventDefault();
+  const scrollElement = messagesScrollRef.value;
+  const metrics = getMessageScrollbarMetrics();
+  if (!scrollElement || !metrics) return;
+
+  const maxThumbTop = Math.max(metrics.trackHeight - chatScrollbarThumbHeight.value, 0);
+  if (maxThumbTop <= 0) return;
+  const deltaY = event.clientY - chatScrollbarDragStartY;
+  scrollElement.scrollTop = chatScrollbarDragStartScrollTop
+    + (deltaY / maxThumbTop) * metrics.maxScrollTop;
+  updateMessageScrollbar();
+}
+
+function handleChatScrollbarPointerUp(): void {
+  isDraggingChatScrollbar.value = false;
+  window.removeEventListener("pointermove", handleChatScrollbarPointerMove);
+  window.removeEventListener("pointerup", handleChatScrollbarPointerUp);
 }
 
 function focusInputWhenReady(): void {
@@ -219,8 +336,14 @@ onMounted(() => {
   void loadConversationForRoute(props.conversationId);
   void loadCredentials();
   window.addEventListener(SHOWCASE_CHAT_DRAFT_EVENT, applyShowcaseDraft);
+  window.addEventListener("resize", updateMessageScrollbar);
+  if (typeof ResizeObserver !== "undefined" && messagesScrollRef.value) {
+    messagesResizeObserver = new ResizeObserver(updateMessageScrollbar);
+    messagesResizeObserver.observe(messagesScrollRef.value);
+  }
   applyShowcaseDraft();
   focusInputWhenReady();
+  nextTick(updateMessageScrollbar);
 });
 
 function renderMarkdown(content: string): string {
@@ -459,6 +582,10 @@ function stopStreaming(): void {
 
 onUnmounted(() => {
   window.removeEventListener(SHOWCASE_CHAT_DRAFT_EVENT, applyShowcaseDraft);
+  window.removeEventListener("resize", updateMessageScrollbar);
+  window.removeEventListener("pointermove", handleChatScrollbarPointerMove);
+  window.removeEventListener("pointerup", handleChatScrollbarPointerUp);
+  messagesResizeObserver?.disconnect();
   if (copiedMessageIdTimeout) clearTimeout(copiedMessageIdTimeout);
   speechRecognition.value?.stop();
 });
@@ -567,250 +694,275 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+    <div class="chat-messages-region relative flex min-h-0 flex-1">
       <div
-        v-if="isShowingConversation && messages.length === 0 && !chatStore.isStreaming"
-        class="mx-auto flex flex-1 w-full flex-col items-center justify-center self-center text-center text-muted-foreground px-2 py-6 sm:py-8 gap-4"
-      >
-        <Send class="w-10 h-10 sm:w-12 sm:h-12 opacity-50" />
-        <p class="text-xs sm:text-sm max-w-[280px] sm:max-w-none">
-          Ask to run a workflow, list workflows, or ask about your data.
-        </p>
-      </div>
-      <div
-        v-for="msg in messages"
-        :key="msg.id"
-        :class="['flex gap-3', msg.role === 'user' ? 'justify-end' : 'justify-start']"
+        id="chat-messages-scroll"
+        ref="messagesScrollRef"
+        class="chat-messages-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-4 pl-4 pr-8"
+        @scroll="updateMessageScrollbar"
       >
         <div
-          v-if="msg.role === 'assistant'"
-          class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5"
+          v-if="isShowingConversation && messages.length === 0 && !chatStore.isStreaming"
+          class="mx-auto flex flex-1 w-full flex-col items-center justify-center self-center text-center text-muted-foreground px-2 py-6 sm:py-8 gap-4"
         >
-          <Bot class="w-4 h-4 text-primary" />
+          <Send class="w-10 h-10 sm:w-12 sm:h-12 opacity-50" />
+          <p class="text-xs sm:text-sm max-w-[280px] sm:max-w-none">
+            Ask to run a workflow, list workflows, or ask about your data.
+          </p>
         </div>
-
         <div
-          :class="[
-            'group/message relative rounded-2xl px-4 py-2.5 pr-10 text-sm leading-relaxed break-words',
-            msg.workflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
-            msg.role === 'user'
-              ? 'bg-primary text-primary-foreground rounded-tr-sm'
-              : 'bg-muted text-foreground rounded-tl-sm'
-          ]"
+          v-for="msg in messages"
+          :key="msg.id"
+          :class="['flex gap-3', msg.role === 'user' ? 'justify-end' : 'justify-start']"
         >
-          <button
-            type="button"
-            class="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-lg text-current opacity-60 transition-opacity hover:bg-black/10 sm:opacity-0 sm:group-hover/message:opacity-70 hover:opacity-100"
-            :title="copiedMessageId === msg.id ? 'Copied' : 'Copy'"
-            :aria-label="copiedMessageId === msg.id ? 'Copied' : 'Copy message'"
-            @click="copyMessage(msg)"
-          >
-            <Check
-              v-if="copiedMessageId === msg.id"
-              class="w-3.5 h-3.5"
-            />
-            <Copy
-              v-else
-              class="w-3.5 h-3.5"
-            />
-          </button>
-          <!-- eslint-disable vue/no-v-html -->
           <div
-            class="chat-markdown"
-            @click="handleMarkdownImageClick"
-            v-html="renderMarkdown(msg.content)"
-          />
-          <!-- eslint-enable vue/no-v-html -->
-          <div
-            v-if="msg.images && msg.images.length > 0"
-            class="mt-2 flex flex-wrap gap-2"
+            v-if="msg.role === 'assistant'"
+            class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5"
           >
-            <img
-              v-for="(imgSrc, index) in msg.images"
-              :key="`${msg.id}-${index}`"
-              :src="imgSrc"
-              alt="Generated image"
-              class="max-h-48 max-w-full rounded-lg object-contain cursor-zoom-in border border-border/30 hover:border-border/60 transition-colors"
-              @click.stop="imageLightboxSrc = imgSrc"
-            >
+            <Bot class="w-4 h-4 text-primary" />
           </div>
+
           <div
-            v-if="msg.workflowPreview"
-            class="mt-3 overflow-hidden rounded-xl border border-border/50 bg-background/70"
+            :class="[
+              'group/message relative rounded-2xl px-4 py-2.5 pr-10 text-sm leading-relaxed break-words',
+              msg.workflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
+              msg.role === 'user'
+                ? 'bg-primary text-primary-foreground rounded-tr-sm'
+                : 'bg-muted text-foreground rounded-tl-sm'
+            ]"
           >
-            <div class="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0">
-                <p class="truncate text-sm font-semibold">
-                  {{ msg.workflowPreview.name }}
-                </p>
-                <p
-                  v-if="msg.workflowPreview.description"
-                  class="line-clamp-2 text-xs text-muted-foreground"
-                >
-                  {{ msg.workflowPreview.description }}
-                </p>
-              </div>
-              <a
-                :href="msg.workflowPreview.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                <ExternalLink class="h-3.5 w-3.5" />
-                Open workflow
-              </a>
-            </div>
-            <div
-              :class="[
-                'min-h-0 w-full transition-[height] duration-200',
-                hasWorkflowPreviewSelection(msg.workflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
-              ]"
+            <button
+              type="button"
+              class="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-lg text-current opacity-60 transition-opacity hover:bg-black/10 sm:opacity-0 sm:group-hover/message:opacity-70 hover:opacity-100"
+              :title="copiedMessageId === msg.id ? 'Copied' : 'Copy'"
+              :aria-label="copiedMessageId === msg.id ? 'Copied' : 'Copy message'"
+              @click="copyMessage(msg)"
             >
-              <ReadonlyCanvasPreview
-                :nodes="msg.workflowPreview.nodes"
-                :edges="msg.workflowPreview.edges"
-                :flow-key="msg.workflowPreview.id"
-                :selected-node="selectedWorkflowPreviewNodes[msg.workflowPreview.id] ?? null"
-                empty-message="No workflow preview"
-                :show-mini-map="false"
-                :show-controls="false"
-                :max-zoom="1.1"
-                :background-gap="28"
-                :framed="false"
-                @update:selected-node="(node) => setWorkflowPreviewSelection(msg.workflowPreview!.id, node)"
+              <Check
+                v-if="copiedMessageId === msg.id"
+                class="w-3.5 h-3.5"
               />
-            </div>
-          </div>
-          <div
-            v-if="msg.attachmentName"
-            class="mt-1.5 flex items-center gap-1 text-xs opacity-70"
-          >
-            <Paperclip class="w-3 h-3 shrink-0" />
-            <span class="truncate">{{ msg.attachmentName }}</span>
-          </div>
-        </div>
-
-        <div
-          v-if="msg.role === 'user'"
-          class="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5 text-xs font-semibold text-muted-foreground"
-        >
-          {{ userInitial }}
-        </div>
-      </div>
-
-      <div
-        v-if="chatStore.isStreaming"
-        class="flex gap-3 justify-start"
-      >
-        <div class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-          <Bot class="w-4 h-4 text-primary" />
-        </div>
-        <div
-          :class="[
-            'rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed bg-muted text-foreground break-words',
-            chatStore.streamingWorkflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
-          ]"
-        >
-          <div
-            v-if="chatStore.streamingSteps.length > 0"
-            class="mb-3 space-y-1.5"
-          >
-            <div
-              v-for="(step, index) in chatStore.streamingSteps"
-              :key="`${step}-${index}`"
-              class="flex items-center gap-2 text-xs text-muted-foreground"
-            >
-              <Loader2
-                v-if="index === chatStore.streamingSteps.length - 1 && !chatStore.streamingContent"
-                class="w-3.5 h-3.5 shrink-0 animate-spin"
-              />
-              <span
+              <Copy
                 v-else
-                class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20"
-              >
-                <span class="text-[10px] text-primary">✓</span>
-              </span>
-              <span>{{ step }}</span>
-            </div>
-          </div>
-          <!-- eslint-disable vue/no-v-html -->
-          <div
-            v-if="chatStore.streamingContent"
-            class="chat-markdown"
-            @click="handleMarkdownImageClick"
-            v-html="renderMarkdown(chatStore.streamingContent)"
-          />
-          <!-- eslint-enable vue/no-v-html -->
-          <div
-            v-if="!chatStore.streamingContent && chatStore.streamingImages.length === 0"
-            class="flex items-center gap-2 text-muted-foreground"
-          >
-            <span>{{ chatStore.streamingSteps.length > 0 ? "Preparing response..." : "Heyming..." }}</span>
-          </div>
-          <div
-            v-if="chatStore.streamingImages.length > 0"
-            class="mt-2 flex flex-wrap gap-2"
-          >
-            <img
-              v-for="(imgSrc, index) in chatStore.streamingImages"
-              :key="`streaming-${index}`"
-              :src="imgSrc"
-              alt="Generated image"
-              class="max-h-48 max-w-full rounded-lg object-contain cursor-zoom-in border border-border/30 hover:border-border/60 transition-colors"
-              @click.stop="imageLightboxSrc = imgSrc"
+                class="w-3.5 h-3.5"
+              />
+            </button>
+            <!-- eslint-disable vue/no-v-html -->
+            <div
+              class="chat-markdown"
+              @click="handleMarkdownImageClick"
+              v-html="renderMarkdown(msg.content)"
+            />
+            <!-- eslint-enable vue/no-v-html -->
+            <div
+              v-if="msg.images && msg.images.length > 0"
+              class="mt-2 flex flex-wrap gap-2"
             >
-          </div>
-          <div
-            v-if="chatStore.streamingWorkflowPreview"
-            class="mt-3 overflow-hidden rounded-xl border border-border/50 bg-background/70"
-          >
-            <div class="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0">
-                <p class="truncate text-sm font-semibold">
-                  {{ chatStore.streamingWorkflowPreview.name }}
-                </p>
-                <p
-                  v-if="chatStore.streamingWorkflowPreview.description"
-                  class="line-clamp-2 text-xs text-muted-foreground"
-                >
-                  {{ chatStore.streamingWorkflowPreview.description }}
-                </p>
-              </div>
-              <a
-                :href="chatStore.streamingWorkflowPreview.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              <img
+                v-for="(imgSrc, index) in msg.images"
+                :key="`${msg.id}-${index}`"
+                :src="imgSrc"
+                alt="Generated image"
+                class="max-h-48 max-w-full rounded-lg object-contain cursor-zoom-in border border-border/30 hover:border-border/60 transition-colors"
+                @click.stop="imageLightboxSrc = imgSrc"
               >
-                <ExternalLink class="h-3.5 w-3.5" />
-                Open workflow
-              </a>
             </div>
             <div
-              :class="[
-                'min-h-0 w-full transition-[height] duration-200',
-                hasWorkflowPreviewSelection(chatStore.streamingWorkflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
-              ]"
+              v-if="msg.workflowPreview"
+              class="mt-3 overflow-hidden rounded-xl border border-border/50 bg-background/70"
             >
-              <ReadonlyCanvasPreview
-                :nodes="chatStore.streamingWorkflowPreview.nodes"
-                :edges="chatStore.streamingWorkflowPreview.edges"
-                :flow-key="chatStore.streamingWorkflowPreview.id"
-                :selected-node="selectedWorkflowPreviewNodes[chatStore.streamingWorkflowPreview.id] ?? null"
-                empty-message="No workflow preview"
-                :show-mini-map="false"
-                :show-controls="false"
-                :max-zoom="1.1"
-                :background-gap="28"
-                :framed="false"
-                @update:selected-node="(node) => setWorkflowPreviewSelection(chatStore.streamingWorkflowPreview!.id, node)"
-              />
+              <div class="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold">
+                    {{ msg.workflowPreview.name }}
+                  </p>
+                  <p
+                    v-if="msg.workflowPreview.description"
+                    class="line-clamp-2 text-xs text-muted-foreground"
+                  >
+                    {{ msg.workflowPreview.description }}
+                  </p>
+                </div>
+                <a
+                  :href="msg.workflowPreview.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <ExternalLink class="h-3.5 w-3.5" />
+                  Open workflow
+                </a>
+              </div>
+              <div
+                :class="[
+                  'min-h-0 w-full transition-[height] duration-200',
+                  hasWorkflowPreviewSelection(msg.workflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
+                ]"
+              >
+                <ReadonlyCanvasPreview
+                  :nodes="msg.workflowPreview.nodes"
+                  :edges="msg.workflowPreview.edges"
+                  :flow-key="msg.workflowPreview.id"
+                  :selected-node="selectedWorkflowPreviewNodes[msg.workflowPreview.id] ?? null"
+                  empty-message="No workflow preview"
+                  :show-mini-map="false"
+                  :show-controls="false"
+                  :max-zoom="1.1"
+                  :background-gap="28"
+                  :framed="false"
+                  @update:selected-node="(node) => setWorkflowPreviewSelection(msg.workflowPreview!.id, node)"
+                />
+              </div>
+            </div>
+            <div
+              v-if="msg.attachmentName"
+              class="mt-1.5 flex items-center gap-1 text-xs opacity-70"
+            >
+              <Paperclip class="w-3 h-3 shrink-0" />
+              <span class="truncate">{{ msg.attachmentName }}</span>
+            </div>
+          </div>
+
+          <div
+            v-if="msg.role === 'user'"
+            class="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5 text-xs font-semibold text-muted-foreground"
+          >
+            {{ userInitial }}
+          </div>
+        </div>
+
+        <div
+          v-if="chatStore.isStreaming"
+          class="flex gap-3 justify-start"
+        >
+          <div class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+            <Bot class="w-4 h-4 text-primary" />
+          </div>
+          <div
+            :class="[
+              'rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed bg-muted text-foreground break-words',
+              chatStore.streamingWorkflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
+            ]"
+          >
+            <div
+              v-if="chatStore.streamingSteps.length > 0"
+              class="mb-3 space-y-1.5"
+            >
+              <div
+                v-for="(step, index) in chatStore.streamingSteps"
+                :key="`${step}-${index}`"
+                class="flex items-center gap-2 text-xs text-muted-foreground"
+              >
+                <Loader2
+                  v-if="index === chatStore.streamingSteps.length - 1 && !chatStore.streamingContent"
+                  class="w-3.5 h-3.5 shrink-0 animate-spin"
+                />
+                <span
+                  v-else
+                  class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20"
+                >
+                  <span class="text-[10px] text-primary">✓</span>
+                </span>
+                <span>{{ step }}</span>
+              </div>
+            </div>
+            <!-- eslint-disable vue/no-v-html -->
+            <div
+              v-if="chatStore.streamingContent"
+              class="chat-markdown"
+              @click="handleMarkdownImageClick"
+              v-html="renderMarkdown(chatStore.streamingContent)"
+            />
+            <!-- eslint-enable vue/no-v-html -->
+            <div
+              v-if="!chatStore.streamingContent && chatStore.streamingImages.length === 0"
+              class="flex items-center gap-2 text-muted-foreground"
+            >
+              <span>{{ chatStore.streamingSteps.length > 0 ? "Preparing response..." : "Heyming..." }}</span>
+            </div>
+            <div
+              v-if="chatStore.streamingImages.length > 0"
+              class="mt-2 flex flex-wrap gap-2"
+            >
+              <img
+                v-for="(imgSrc, index) in chatStore.streamingImages"
+                :key="`streaming-${index}`"
+                :src="imgSrc"
+                alt="Generated image"
+                class="max-h-48 max-w-full rounded-lg object-contain cursor-zoom-in border border-border/30 hover:border-border/60 transition-colors"
+                @click.stop="imageLightboxSrc = imgSrc"
+              >
+            </div>
+            <div
+              v-if="chatStore.streamingWorkflowPreview"
+              class="mt-3 overflow-hidden rounded-xl border border-border/50 bg-background/70"
+            >
+              <div class="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold">
+                    {{ chatStore.streamingWorkflowPreview.name }}
+                  </p>
+                  <p
+                    v-if="chatStore.streamingWorkflowPreview.description"
+                    class="line-clamp-2 text-xs text-muted-foreground"
+                  >
+                    {{ chatStore.streamingWorkflowPreview.description }}
+                  </p>
+                </div>
+                <a
+                  :href="chatStore.streamingWorkflowPreview.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <ExternalLink class="h-3.5 w-3.5" />
+                  Open workflow
+                </a>
+              </div>
+              <div
+                :class="[
+                  'min-h-0 w-full transition-[height] duration-200',
+                  hasWorkflowPreviewSelection(chatStore.streamingWorkflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
+                ]"
+              >
+                <ReadonlyCanvasPreview
+                  :nodes="chatStore.streamingWorkflowPreview.nodes"
+                  :edges="chatStore.streamingWorkflowPreview.edges"
+                  :flow-key="chatStore.streamingWorkflowPreview.id"
+                  :selected-node="selectedWorkflowPreviewNodes[chatStore.streamingWorkflowPreview.id] ?? null"
+                  empty-message="No workflow preview"
+                  :show-mini-map="false"
+                  :show-controls="false"
+                  :max-zoom="1.1"
+                  :background-gap="28"
+                  :framed="false"
+                  @update:selected-node="(node) => setWorkflowPreviewSelection(chatStore.streamingWorkflowPreview!.id, node)"
+                />
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div ref="messagesEndRef" />
+        <div ref="messagesEndRef" />
+      </div>
+      <div
+        ref="chatScrollbarTrackRef"
+        class="chat-scrollbar-track"
+        :class="{ 'chat-scrollbar-track--dragging': isDraggingChatScrollbar }"
+        role="scrollbar"
+        aria-controls="chat-messages-scroll"
+        aria-orientation="vertical"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-valuenow="chatScrollbarAriaValueNow"
+        @pointerdown="handleChatScrollbarTrackPointerDown"
+      >
+        <div
+          class="chat-scrollbar-thumb"
+          :style="chatScrollbarThumbStyle"
+          @pointerdown.stop="handleChatScrollbarThumbPointerDown"
+        />
+      </div>
     </div>
 
     <ImageLightbox
@@ -978,6 +1130,48 @@ onUnmounted(() => {
 .chat-markdown :deep(pre code) {
   background: transparent;
   padding: 0;
+}
+
+.chat-messages-scroll {
+  scrollbar-width: none;
+}
+
+.chat-messages-scroll::-webkit-scrollbar {
+  height: 0;
+  width: 0;
+}
+
+.chat-scrollbar-track {
+  background: hsl(var(--muted-foreground) / 0.12);
+  border-radius: 999px;
+  bottom: 0.75rem;
+  cursor: pointer;
+  touch-action: none;
+  position: absolute;
+  right: 0.5rem;
+  top: 0.75rem;
+  width: 0.5rem;
+  z-index: 2;
+}
+
+.chat-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.45);
+  border-radius: 999px;
+  cursor: grab;
+  min-height: 44px;
+  transition: background-color 120ms ease;
+  touch-action: none;
+  width: 100%;
+}
+
+.chat-scrollbar-thumb:hover,
+.chat-scrollbar-track--dragging .chat-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.62);
+}
+
+.chat-scrollbar-track--dragging,
+.chat-scrollbar-track--dragging .chat-scrollbar-thumb {
+  cursor: grabbing;
 }
 
 .chat-markdown :deep(a) {

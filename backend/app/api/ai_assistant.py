@@ -120,6 +120,8 @@ class FixTranscriptionResponse(BaseModel):
 
 
 MAX_DASHBOARD_CHAT_HISTORY = 25
+DASHBOARD_CHAT_TEMPERATURE = 0.1
+WORKFLOW_BUILDER_TEMPERATURE = 0.0
 
 
 def _get_dashboard_chat_node_label(
@@ -234,6 +236,8 @@ DASHBOARD_CHAT_SYSTEM_PROMPT = """You are an assistant that helps the user with 
 CRITICAL - Workflow-first behavior: You receive a list of available workflows at the start. When the user asks for ANY information (sports, weather, news, match schedules, birthdays, etc.), FIRST check if a workflow can answer. Match user intent to workflow names and descriptions (e.g. "when is the next match" / "Fenerbahce match" -> workflow named "Fenerbahce next match" or similar; "weather" -> weather workflow). If a workflow matches, call execute_workflow immediately with appropriate inputs (often empty {} for workflows with no required inputs). NEVER say "I don't have access" without first checking workflows—many questions can be answered by running a workflow.
 
 When you do not know the answer, or the answer may require current/external web information, you may call internal workflows that can search the internet, load websites, browse pages, crawl sites, fetch URLs, or read online content. Look for matching workflow names, descriptions, and input fields, then run the most relevant workflow with the user's query or URL instead of saying you cannot access the internet.
+
+Research-before-create behavior: Before calling create_and_run_workflow for a new automation that depends on current/external web information, unknown public URLs, release notes, changelog pages, pricing pages, documentation pages, news, or third-party platform updates, first try to use available workflows that can search the internet, load websites, browse pages, crawl sites, fetch URLs, or read online content. Use those findings to identify the most canonical source URLs and monitoring strategy, then include that research in the workflow creation goal. If no suitable research workflow exists, create a Heym workflow that performs discovery at runtime instead of hardcoding guessed URLs.
 
 Heym-only creation behavior: Do not recommend alternative platforms, external automation products, separate app/server setups, custom scripts outside Heym, or platform-external workarounds. When the user wants something built, configured, automated, or generated, stay inside Heym: use existing workflows, Heym DSL, and the AI Builder DSL generator via create_and_run_workflow or edit_and_run_workflow. If the request cannot be completed with available Heym capabilities, say that clearly and explain the closest Heym-native option.
 
@@ -859,6 +863,7 @@ def _build_workflow_builder_user_message(
         "Generate a concise English workflow name and description.",
         "The workflow will be saved and run immediately after your response.",
         "If runtime values are needed, expose them as input nodes with clear field keys.",
+        "For workflows about third-party platform releases, changelogs, features, news, docs, pricing, or other current web information, do not hardcode guessed source URLs. Build discovery into the workflow with search/load/crawl/fetch/http/agent steps that find official release or changelog sources before monitoring or notifying.",
         "",
         f"User request:\n{goal}",
     ]
@@ -999,7 +1004,7 @@ async def create_and_run_generated_workflow_tool(
             "stream": False,
         }
         if not is_reasoning_model(model):
-            builder_kwargs["temperature"] = 0.1
+            builder_kwargs["temperature"] = WORKFLOW_BUILDER_TEMPERATURE
         builder_response = client.chat.completions.create(**builder_kwargs)
         builder_choice = builder_response.choices[0] if builder_response.choices else None
         builder_content = builder_choice.message.content if builder_choice else ""
@@ -1132,7 +1137,7 @@ async def edit_and_run_generated_workflow_tool(
             "stream": False,
         }
         if not is_reasoning_model(model):
-            builder_kwargs["temperature"] = 0.1
+            builder_kwargs["temperature"] = WORKFLOW_BUILDER_TEMPERATURE
         builder_response = client.chat.completions.create(**builder_kwargs)
         builder_choice = builder_response.choices[0] if builder_response.choices else None
         builder_content = builder_choice.message.content if builder_choice else ""
@@ -1957,7 +1962,7 @@ async def stream_dashboard_chat(
         "stream": False,
     }
     if not is_reasoning:
-        base_kwargs["temperature"] = 0.3
+        base_kwargs["temperature"] = DASHBOARD_CHAT_TEMPERATURE
 
     messages_to_use = _append_date_to_user_messages(messages)
     rounds = 0

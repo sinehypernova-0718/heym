@@ -3,13 +3,20 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { SquarePen, ChevronRight, Send } from "lucide-vue-next";
 
+import type { WorkflowListItem } from "@/types/workflow";
 import AppHeader from "@/components/Layout/AppHeader.vue";
 import DashboardNav from "@/components/Layout/DashboardNav.vue";
 import WorkspaceShell from "@/components/Layout/WorkspaceShell.vue";
 import ChatListPanel from "@/components/Chat/ChatListPanel.vue";
 import ChatConversation from "@/components/Chat/ChatConversation.vue";
+import WorkflowCommandPalette from "@/components/Dialogs/WorkflowCommandPalette.vue";
+import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
+import { getDocPath } from "@/docs/manifest";
 import type { ShowcaseContext } from "@/features/showcase/showcase.types";
 import { hasShowcaseChatDraftPending } from "@/features/showcase/showcaseChatDraft";
+import { joinOriginAndPath } from "@/lib/appUrl";
+import { useRecentWorkflows } from "@/composables/useRecentWorkflows";
+import { workflowApi } from "@/services/api";
 import { useChatStore } from "@/stores/chat";
 
 const chatsShowcaseContext: ShowcaseContext = "dashboard:chat";
@@ -18,10 +25,13 @@ const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 767px)";
 const route = useRoute();
 const router = useRouter();
 const chatStore = useChatStore();
+const { addRecent } = useRecentWorkflows();
 
 const conversationId = computed(() => route.params.id as string | undefined);
 const isCreateNewCoolingDown = ref(false);
 const isMobileViewport = ref(false);
+const showCommandPalette = ref(false);
+const workflows = ref<WorkflowListItem[]>([]);
 let createNewCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
 let mobileSidebarMediaQuery: MediaQueryList | null = null;
 
@@ -51,12 +61,77 @@ function syncMobileSidebarState(): void {
   }
 }
 
+function handleKeyDown(event: KeyboardEvent): void {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    showCommandPalette.value = true;
+    pushOverlayState();
+  }
+}
+
+async function loadWorkflows(): Promise<void> {
+  try {
+    workflows.value = await workflowApi.list();
+  } catch {
+    workflows.value = [];
+  }
+}
+
+function openWorkflowFromPalette(workflowId: string, event?: MouseEvent): void {
+  showCommandPalette.value = false;
+  const workflow = workflows.value.find((w) => w.id === workflowId);
+  if (workflow) {
+    addRecent(workflowId, workflow.name);
+  }
+  const resolved = router.resolve({ name: "editor", params: { id: workflowId } });
+  if (event && (event.ctrlKey || event.metaKey)) {
+    window.open(resolved.href, "_blank", "noopener,noreferrer");
+  } else {
+    router.push({ name: "editor", params: { id: workflowId } });
+  }
+}
+
+function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
+  showCommandPalette.value = false;
+  const openInNewTab = event && (event.ctrlKey || event.metaKey);
+  const path = tabId === "evals"
+    ? "/evals"
+    : tabId === "chat"
+      ? "/chats"
+      : tabId === "workflows"
+        ? "/"
+        : `/?tab=${tabId}`;
+  if (openInNewTab) {
+    window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
+  } else if (tabId === "evals" || tabId === "chat" || tabId === "workflows") {
+    router.push(path);
+  } else {
+    router.push({ path: "/", query: { tab: tabId } });
+  }
+}
+
+function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent): void {
+  showCommandPalette.value = false;
+  const path = getDocPath(categoryId, slug);
+  if (event && (event.ctrlKey || event.metaKey)) {
+    window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
+  } else {
+    router.push(path);
+  }
+}
+
 onMounted(() => {
   if (typeof window !== "undefined") {
     mobileSidebarMediaQuery = window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY);
     syncMobileSidebarState();
     mobileSidebarMediaQuery.addEventListener("change", syncMobileSidebarState);
+    window.addEventListener("keydown", handleKeyDown);
   }
+  void loadWorkflows();
+  const unsub = onDismissOverlays(() => {
+    showCommandPalette.value = false;
+  });
+  onUnmounted(() => unsub());
   if (!conversationId.value && hasShowcaseChatDraftPending()) {
     void createNew();
   }
@@ -64,6 +139,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   mobileSidebarMediaQuery?.removeEventListener("change", syncMobileSidebarState);
+  if (typeof window !== "undefined") {
+    window.removeEventListener("keydown", handleKeyDown);
+  }
   if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
 });
 </script>
@@ -150,6 +228,17 @@ onUnmounted(() => {
           </div>
         </div>
       </main>
+
+      <WorkflowCommandPalette
+        :open="showCommandPalette"
+        :workflows="workflows"
+        context="dashboard"
+        active-tab="chat"
+        @select="openWorkflowFromPalette"
+        @tab-select="handleTabSelectFromPalette"
+        @doc-select="onDocSelectFromPalette"
+        @close="showCommandPalette = false"
+      />
     </div>
   </WorkspaceShell>
 </template>

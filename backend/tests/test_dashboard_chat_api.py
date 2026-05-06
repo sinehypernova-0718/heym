@@ -9,6 +9,7 @@ from app.api.ai_assistant import (
     FileAttachment,
     _append_date_to_user_messages,
     _build_user_message,
+    _build_workflow_builder_user_message,
     _build_workflow_editor_user_message,
     _extract_generated_workflow_config,
     create_and_run_generated_workflow_tool,
@@ -86,6 +87,8 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         sent_messages = fake_client.chat.completions.create.call_args.kwargs["messages"]
+        sent_kwargs = fake_client.chat.completions.create.call_args.kwargs
+        self.assertEqual(sent_kwargs["temperature"], 0.1)
         self.assertEqual(sent_messages[0], {"role": "system", "content": "system prompt"})
         self.assertIn("What is the latest?", sent_messages[1]["content"])
         self.assertRegex(
@@ -182,6 +185,8 @@ class DashboardChatApiTests(unittest.IsolatedAsyncioTestCase):
             captured["system_prompt"],
         )
         self.assertIn("search the internet, load websites", captured["system_prompt"])
+        self.assertIn("Research-before-create behavior", captured["system_prompt"])
+        self.assertIn("first try to use available workflows", captured["system_prompt"])
         self.assertIn("Heym-only creation behavior", captured["system_prompt"])
         self.assertIn("Do not recommend alternative platforms", captured["system_prompt"])
         self.assertIn("AI Builder DSL generator", captured["system_prompt"])
@@ -564,6 +569,8 @@ Here is the workflow:
         self.assertEqual(result["workflow_preview"]["id"], str(saved_workflow.id))
         self.assertEqual(result["workflow_preview"]["nodes"][1]["id"], "llm")
         self.assertEqual(result["execution"]["status"], "success")
+        builder_kwargs = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(builder_kwargs["temperature"], 0.0)
 
     async def test_edit_and_run_generated_workflow_updates_same_workflow(self) -> None:
         user = MagicMock()
@@ -662,6 +669,18 @@ Here is the workflow:
         self.assertEqual(result["workflow_id"], str(workflow.id))
         self.assertEqual(result["workflow_preview"]["nodes"][1]["id"], "output")
         self.assertEqual(result["execution"]["status"], "success")
+        builder_kwargs = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(builder_kwargs["temperature"], 0.0)
+
+    def test_workflow_builder_prompt_requires_discovery_for_current_web_sources(self) -> None:
+        prompt = _build_workflow_builder_user_message(
+            "Notify Slack when n8n, Needle, or Activepieces releases new features",
+            {},
+            None,
+        )
+
+        self.assertIn("do not hardcode guessed source URLs", prompt)
+        self.assertIn("find official release or changelog sources", prompt)
 
     def test_workflow_editor_prompt_allows_renaming_updated_workflow(self) -> None:
         workflow = MagicMock()
