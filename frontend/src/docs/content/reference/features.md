@@ -569,7 +569,11 @@ See also [Qdrant RAG](../nodes/rag-node.md), [Credentials](./credentials.md), an
 
 ### [MCP](../tabs/mcp-tab.md)
 
-The MCP tab configures Model Context Protocol integration. View and regenerate your MCP API key, copy ready-to-use client JSON, connect Cursor in one click, or follow the Claude setup flow with automatic OAuth registration. Each workflow with an [Agent Node](../nodes/agent-node.md) can expose its tools via MCP; toggle per workflow from this tab. Clients connect to the [SSE](./sse-streaming.md) endpoint at `/api/mcp/sse`.
+The MCP tab configures Model Context Protocol integration. Heym supports two modes:
+
+**Default server** – A single endpoint at `/api/mcp/sse` exposes all MCP-enabled workflows. View and regenerate your API key, copy ready-to-use client JSON, connect Cursor in one click, or follow the Claude setup flow with automatic OAuth registration.
+
+**Named servers** – Create multiple isolated MCP endpoints, each with its own UUID-based URL (`/api/mcp/servers/{uuid}/sse`) and independent API key. Assign specific workflows to each server so different AI clients or teams see only the tools they need. Each named server supports the same auth methods (API key, Claude OAuth) and has its own Copy JSON and Add to Cursor shortcuts. Both endpoints support SSE transport (GET) and Streamable HTTP transport (POST).
 
 See also [Agent Architecture](./agent-architecture.md), [Agent Node](../nodes/agent-node.md), and [SSE Streaming](./sse-streaming.md).
 

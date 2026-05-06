@@ -8,6 +8,7 @@ interface Props {
   placeholder?: string;
   disabled?: boolean;
   rows?: number;
+  wrap?: "soft" | "hard" | "off";
 }
 
 withDefaults(defineProps<Props>(), {
@@ -15,6 +16,7 @@ withDefaults(defineProps<Props>(), {
   placeholder: "",
   disabled: false,
   rows: 3,
+  wrap: "soft",
 });
 
 const emit = defineEmits<{
@@ -45,6 +47,7 @@ function handleInput(event: Event): void {
     :placeholder="placeholder"
     :disabled="disabled"
     :rows="rows"
+    :wrap="wrap"
     :class="classes"
     @input="handleInput"
   />

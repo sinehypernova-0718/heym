@@ -687,7 +687,7 @@ The agent will return structured JSON matching the schema, accessible via `$agen
 - `transport`: "stdio" | "sse" | "streamable_http"
 - `timeoutSeconds`: Timeout for this connection (default: 30)
 - `label`: Optional display name for the server
-- **stdio**: `command` (e.g. "npx"), `args` (JSON array, e.g. `["-y", "@modelcontextprotocol/server-filesystem", "--path", "/tmp"]`)
+- **stdio**: `command` (e.g. "npx"), `args` (JSON array, e.g. `["-y", "@modelcontextprotocol/server-filesystem", "--path", "/tmp"]`), `env` (JSON object of environment variables injected into the process, e.g. `{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."}`) — most API-keyed stdio MCP servers (GitHub, Slack, Linear…) authenticate via `env`, NOT via args, because they read `process.env.X` directly in their source code
 - **sse**: `url` (SSE endpoint), `headers` (JSON object for auth/custom headers)
 - **streamable_http**: `url` (MCP endpoint, e.g. "https://example.com/mcp"), `headers` (JSON object for auth/custom headers)
 
@@ -734,7 +734,7 @@ The agent will return structured JSON matching the schema, accessible via `$agen
 }
 ```
 
-**Agent with MCP Example (stdio):**
+**Agent with MCP Example (stdio — filesystem, no auth needed):**
 ```json
 {
   "type": "agent",
@@ -757,6 +757,58 @@ The agent will return structured JSON matching the schema, accessible via `$agen
   }
 }
 ```
+
+**Agent with MCP Example (stdio — GitHub, env-based auth):**
+```json
+{
+  "type": "agent",
+  "data": {
+    "label": "githubAgent",
+    "credentialId": "YOUR_CREDENTIAL_ID",
+    "model": "gpt-4o",
+    "systemInstruction": "You are a GitHub assistant. Use GitHub tools to manage repos, issues, and pull requests.",
+    "userMessage": "$userInput.body.text",
+    "mcpConnections": [
+      {
+        "id": "github1",
+        "transport": "stdio",
+        "label": "github",
+        "timeoutSeconds": 60,
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_YOUR_TOKEN_HERE"}
+      }
+    ]
+  }
+}
+```
+
+**Agent with MCP Example (stdio — Slack, env-based auth):**
+```json
+{
+  "type": "agent",
+  "data": {
+    "label": "slackAgent",
+    "credentialId": "YOUR_CREDENTIAL_ID",
+    "model": "gpt-4o",
+    "systemInstruction": "You are a Slack assistant. Use Slack tools to read and send messages.",
+    "userMessage": "$userInput.body.text",
+    "mcpConnections": [
+      {
+        "id": "slack1",
+        "transport": "stdio",
+        "label": "slack",
+        "timeoutSeconds": 60,
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-slack"],
+        "env": {"SLACK_BOT_TOKEN": "xoxb-YOUR_TOKEN", "SLACK_TEAM_ID": "T0123456"}
+      }
+    ]
+  }
+}
+```
+
+**⚠️ CRITICAL for stdio MCP servers with API keys**: Always use `env` field (NOT args) for credentials. GitHub, Slack, Linear, and virtually all API-keyed stdio MCP servers read credentials from environment variables (e.g. `process.env.GITHUB_PERSONAL_ACCESS_TOKEN`), not from command-line arguments. Putting a token in `args` will NOT work for these servers.
 
 **Agent with MCP Example (SSE):**
 ```json

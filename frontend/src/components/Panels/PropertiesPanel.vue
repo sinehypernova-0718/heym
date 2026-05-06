@@ -6463,8 +6463,20 @@ onUnmounted(() => {
                         :model-value="typeof conn.args === 'string' ? conn.args : JSON.stringify(conn.args ?? [], null, 2)"
                         placeholder="[&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;--path&quot;, &quot;/tmp&quot;]"
                         :rows="2"
-                        class="font-mono text-xs"
+                        wrap="off"
+                        class="overflow-x-auto whitespace-pre font-mono text-xs"
                         @update:model-value="updateAgentMCPConnection(idx, 'args', $event)"
+                      />
+                    </div>
+                    <div>
+                      <Label class="text-xs">Env (JSON object)</Label>
+                      <Textarea
+                        :model-value="typeof conn.env === 'string' ? conn.env : JSON.stringify(conn.env ?? {}, null, 2)"
+                        placeholder="{&quot;API_KEY&quot;: &quot;your_key&quot;}"
+                        :rows="2"
+                        wrap="off"
+                        class="overflow-x-auto whitespace-pre font-mono text-xs"
+                        @update:model-value="updateAgentMCPConnection(idx, 'env', $event)"
                       />
                     </div>
                   </template>
@@ -6483,7 +6495,8 @@ onUnmounted(() => {
                         :model-value="typeof conn.headers === 'string' ? conn.headers : JSON.stringify(conn.headers ?? {}, null, 2)"
                         placeholder="{&quot;Authorization&quot;: &quot;Bearer ...&quot;, &quot;X-Custom&quot;: &quot;value&quot;}"
                         :rows="2"
-                        class="font-mono text-xs"
+                        wrap="off"
+                        class="overflow-x-auto whitespace-pre font-mono text-xs"
                         @update:model-value="updateAgentMCPConnection(idx, 'headers', $event)"
                       />
                     </div>
