@@ -6467,6 +6467,16 @@ onUnmounted(() => {
                         @update:model-value="updateAgentMCPConnection(idx, 'args', $event)"
                       />
                     </div>
+                    <div>
+                      <Label class="text-xs">Env (JSON object)</Label>
+                      <Textarea
+                        :model-value="typeof conn.env === 'string' ? conn.env : JSON.stringify(conn.env ?? {}, null, 2)"
+                        placeholder="{&quot;API_KEY&quot;: &quot;your_key&quot;}"
+                        :rows="2"
+                        class="font-mono text-xs"
+                        @update:model-value="updateAgentMCPConnection(idx, 'env', $event)"
+                      />
+                    </div>
                   </template>
                   <template v-else-if="conn.transport === 'sse' || conn.transport === 'streamable_http'">
                     <div>
