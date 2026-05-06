@@ -187,6 +187,29 @@ Connect to [Model Context Protocol](https://modelcontextprotocol.io/) servers to
 |-------|-------------|
 | `command` | Command to run (e.g. `npx`) |
 | `args` | JSON array (e.g. `["-y", "@modelcontextprotocol/server-filesystem", "--path", "/tmp"]`) |
+| `env` | JSON object of environment variables injected into the process (e.g. `{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."}`) |
+
+Most API-keyed stdio servers authenticate via environment variables rather than command arguments. Set `env` per-connection so each agent node can use a different credential without touching the host environment.
+
+Example — GitHub MCP:
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxxxxxxxxxx" }
+}
+```
+
+Example — Slack MCP:
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-slack"],
+  "env": { "SLACK_BOT_TOKEN": "xoxb-...", "SLACK_TEAM_ID": "T0123456" }
+}
+```
 
 **SSE** (remote server):
 
