@@ -189,6 +189,7 @@ Create objects/dictionaries using curly brace syntax with any string keys:
 - `regexReplace(text, pattern, replacement)` - Replace with regex pattern
 
 ## String Methods (on string values)
+- `.orEmpty()` - Return the string value, or `""` when the value is null/missing
 - `.upper()` / `.lower()` - Case conversion
 - `.strip()` - Trim whitespace
 - `.capitalize()` / `.title()` - Capitalize
@@ -208,6 +209,7 @@ Create objects/dictionaries using curly brace syntax with any string keys:
 - `.unescape()` - JSON unescape string (convert JSON format to original string)
 
 ### String Method Examples
+- `$profile.nickname.orEmpty()` - Convert nullable/missing text to an empty string
 - `$text.upper()` - Convert to uppercase
 - `$text.lower()` - Convert to lowercase
 - `$text.strip()` - Remove whitespace
@@ -319,7 +321,7 @@ If a function is not listed above, it does not exist.
 - Objects/Dicts can ONLY use: `.get(key)`, `.get(key, default)`, `.keys()`, `.values()`, `.entries()`, `.filter(expr)`, `.map(expr)`, `.toString()`
 
 ### Reserved Node Label Names
-Do not use these names as node labels: `length`, `toString`, `toUpperCase`, `toLowerCase`, `substring`, `indexOf`, `contains`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `regexReplace`, `hash`, `first`, `last`, `random`, `reverse`, `distinct`, `notNull`, `filter`, `map`, `entries`, `keys`, `values`, `sort`, `join`, `headers`, `query`, `value`, `list`, `result`, `array`, `vars`, `items`, `name`, `type`, `status`, `body`, `outputs`, `result`, `item`, `index`, `total`, `isFirst`, `isLast`, `branch`, `results`, `merged`, `error`, `errorNode`, `errorNodeType`, `timestamp`, `input`, `now`, `date`.
+Do not use these names as node labels: `length`, `orEmpty`, `toString`, `toUpperCase`, `toLowerCase`, `substring`, `indexOf`, `contains`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `regexReplace`, `hash`, `first`, `last`, `random`, `reverse`, `distinct`, `notNull`, `filter`, `map`, `entries`, `keys`, `values`, `sort`, `join`, `headers`, `query`, `value`, `list`, `result`, `array`, `vars`, `items`, `name`, `type`, `status`, `body`, `outputs`, `result`, `item`, `index`, `total`, `isFirst`, `isLast`, `branch`, `results`, `merged`, `error`, `errorNode`, `errorNodeType`, `timestamp`, `input`, `now`, `date`.
 
 ## Examples
 

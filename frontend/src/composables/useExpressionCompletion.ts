@@ -103,6 +103,7 @@ const METHOD_RETURN_TYPES: Record<string, PropertyType> = {
   map: "array",
   sort: "array",
   take: "array",
+  orEmpty: "string",
   upper: "string",
   lower: "string",
   strip: "string",

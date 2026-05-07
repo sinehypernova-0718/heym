@@ -1037,6 +1037,36 @@ class TestExpressionEvaluatorServiceEvaluate(unittest.TestCase):
         response = self._service().evaluate("$data.text.upper()", {"data": {"text": "hello"}})
         self.assertEqual(response.result, "HELLO")
 
+    def test_string_method_or_empty_preserves_string(self) -> None:
+        response = self._service().evaluate("$data.text.orEmpty()", {"data": {"text": "hello"}})
+        self.assertEqual(response.result, "hello")
+        self.assertEqual(response.result_type, "string")
+        self.assertTrue(response.preserved_type)
+        self.assertIsNone(response.error)
+
+    def test_string_method_or_empty_converts_null_to_empty_string(self) -> None:
+        response = self._service().evaluate("$data.text.orEmpty()", {"data": {"text": None}})
+        self.assertEqual(response.result, "")
+        self.assertEqual(response.result_type, "string")
+        self.assertTrue(response.preserved_type)
+        self.assertIsNone(response.error)
+
+    def test_string_method_or_empty_converts_missing_field_to_empty_string(self) -> None:
+        response = self._service().evaluate("$data.missing.orEmpty()", {"data": {}})
+        self.assertEqual(response.result, "")
+        self.assertEqual(response.result_type, "string")
+        self.assertTrue(response.preserved_type)
+        self.assertIsNone(response.error)
+
+    def test_string_method_or_empty_can_chain_after_null(self) -> None:
+        response = self._service().evaluate(
+            "$data.text.orEmpty().upper()", {"data": {"text": None}}
+        )
+        self.assertEqual(response.result, "")
+        self.assertEqual(response.result_type, "string")
+        self.assertTrue(response.preserved_type)
+        self.assertIsNone(response.error)
+
     def test_date_number_chain_to_string(self) -> None:
         response = self._service().evaluate("$Date().year.toString()", {})
         self.assertEqual(response.result, str(datetime.now(timezone.utc).year))

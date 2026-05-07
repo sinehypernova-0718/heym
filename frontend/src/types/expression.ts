@@ -58,6 +58,13 @@ export const ITEM_PROPERTIES: CompletionSuggestion[] = [
     propertyType: "number",
   },
   {
+    label: "orEmpty",
+    insertText: "orEmpty()",
+    type: "function",
+    detail: "Use empty string when null",
+    propertyType: "string",
+  },
+  {
     label: "upper",
     insertText: "upper()",
     type: "function",
@@ -570,6 +577,13 @@ export const BUILTIN_FUNCTIONS: CompletionSuggestion[] = [
 ];
 
 export const STRING_METHODS: CompletionSuggestion[] = [
+  {
+    label: "orEmpty",
+    insertText: "orEmpty()",
+    type: "function",
+    detail: "Use empty string when null",
+    propertyType: "string",
+  },
   {
     label: "upper",
     insertText: "upper()",

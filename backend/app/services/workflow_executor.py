@@ -742,6 +742,12 @@ class DotStr(str):
     def length(self) -> int:
         return len(self)
 
+    def orEmpty(self) -> "DotStr":  # noqa: N802
+        return DotStr(self)
+
+    def or_empty(self) -> "DotStr":
+        return self.orEmpty()
+
     def upper(self) -> "DotStr":
         return DotStr(str.upper(self))
 
@@ -1082,6 +1088,10 @@ class HeymExpressionEval(EvalWithCompoundTypes):
     """simpleeval blocks ``.format`` on all objects; allow it only for ``DotDateTime``."""
 
     def _eval_attribute(self, node: ast.Attribute):
+        if node.attr == "orEmpty":
+            base = self._eval(node.value)
+            if base is None:
+                return lambda: DotStr("")
         if node.attr == "format":
             base = self._eval(node.value)
             if isinstance(base, DotDateTime):
@@ -5091,6 +5101,8 @@ class WorkflowExecutor:
             value = combined
 
             string_methods = {
+                "orEmpty": lambda s: s if s is not None else "",
+                "or_empty": lambda s: s if s is not None else "",
                 "upper": lambda s: s.upper(),
                 "uppercase": lambda s: s.upper(),
                 "lower": lambda s: s.lower(),
@@ -5106,9 +5118,15 @@ class WorkflowExecutor:
                 "unescape": lambda s: self._safe_json_parse(s),
             }
 
-            for part in parts:
+            for index, part in enumerate(parts):
                 method_name, method_args = self._parse_method_call(part)
-                if method_name in string_methods and isinstance(value, str):
+                if (
+                    value is None
+                    and method_name in {"orEmpty", "or_empty"}
+                    and method_args is not None
+                ):
+                    value = ""
+                elif method_name in string_methods and isinstance(value, str):
                     value = string_methods[method_name](value)
                 elif method_name == "length" and isinstance(value, (str, list)):
                     value = len(value)
@@ -5156,6 +5174,10 @@ class WorkflowExecutor:
                     value = self._read_property_with_subscripts(value, splitp)
 
                 if value is None:
+                    next_part = parts[index + 1] if index + 1 < len(parts) else ""
+                    next_method_name, next_method_args = self._parse_method_call(next_part)
+                    if next_method_name in {"orEmpty", "or_empty"} and next_method_args is not None:
+                        continue
                     return None
 
                 # Re-wrap intermediate scalars so chained calls like `.length.toString()`

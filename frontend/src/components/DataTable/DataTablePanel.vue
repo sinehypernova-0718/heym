@@ -54,6 +54,7 @@ const searchQuery = ref("");
 const selectedTable = ref<DataTable | null>(null);
 const rows = ref<DataTableRow[]>([]);
 const rowsLoading = ref(false);
+const detailLoading = ref(Boolean(props.initialTableId));
 const rowPage = ref(0);
 const rowPageSize = 25;
 const rowTotal = ref(0);
@@ -459,21 +460,31 @@ watch(
     if (selectedTable.value?.id === parsed.id) {
       return;
     }
+    detailLoading.value = true;
     try {
       selectedTable.value = await dataTablesApi.get(parsed.id);
       rowPage.value = 0;
       await loadRows();
     } catch {
       error.value = "Failed to load data table";
+    } finally {
+      detailLoading.value = false;
     }
   },
 );
 
 onMounted(async () => {
-  await loadTables();
+  const tablesPromise = loadTables();
   if (props.initialTableId) {
-    await openTable(props.initialTableId);
+    detailLoading.value = true;
+    try {
+      await Promise.all([tablesPromise, openTable(props.initialTableId)]);
+    } finally {
+      detailLoading.value = false;
+    }
+    return;
   }
+  await tablesPromise;
 });
 </script>
 
@@ -494,7 +505,9 @@ onMounted(async () => {
     </div>
 
     <!-- ════════ LIST VIEW ════════ -->
-    <template v-if="!selectedTable">
+    <template v-if="detailLoading" />
+
+    <template v-else-if="!selectedTable">
       <div class="flex items-center justify-between gap-3">
         <div class="relative flex-1">
           <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
