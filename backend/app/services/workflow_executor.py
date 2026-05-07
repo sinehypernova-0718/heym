@@ -2614,31 +2614,66 @@ class WorkflowExecutor:
         nid = node_id or ""
         resolved = dict(conn)
 
-        def _resolve_dict(raw: object) -> dict | None:
+        def _resolve_json_like(raw: object, expected_type: type) -> object | None:
             if isinstance(raw, str) and raw.strip():
                 try:
                     raw = json.loads(raw)
                 except json.JSONDecodeError:
                     return None
-            if not isinstance(raw, dict):
+            if not isinstance(raw, expected_type):
                 return None
-            return {
-                k: self._resolve_template(str(v), inputs, nid)
-                if isinstance(v, str) and "$" in v
-                else v
-                for k, v in raw.items()
-            }
+            return self._resolve_mcp_config_value(raw, inputs, nid)
 
-        env = _resolve_dict(resolved.get("env"))
+        env = _resolve_json_like(resolved.get("env"), dict)
         if env is not None:
             resolved["env"] = env
         url = resolved.get("url")
         if isinstance(url, str) and "$" in url:
             resolved["url"] = self._resolve_template(url, inputs, nid)
-        headers = _resolve_dict(resolved.get("headers"))
+        headers = _resolve_json_like(resolved.get("headers"), dict)
         if headers is not None:
             resolved["headers"] = headers
+        args = _resolve_json_like(resolved.get("args"), list)
+        if args is not None:
+            resolved["args"] = args
         return resolved
+
+    def _resolve_mcp_config_value(
+        self,
+        raw: object,
+        inputs: dict,
+        node_id: str | None,
+    ) -> object:
+        """Resolve MCP config/tool argument expressions while preserving arrays and objects."""
+        if isinstance(raw, dict):
+            return {
+                key: self._resolve_mcp_config_value(value, inputs, node_id)
+                for key, value in raw.items()
+            }
+        if isinstance(raw, list):
+            return [self._resolve_mcp_config_value(value, inputs, node_id) for value in raw]
+        if not isinstance(raw, str) or "$" not in raw:
+            return raw
+
+        trimmed = raw.strip()
+        if trimmed.startswith(("{", "[")):
+            try:
+                parsed = json.loads(trimmed)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, (dict, list)):
+                return self._resolve_mcp_config_value(parsed, inputs, node_id)
+
+        if self._is_single_dollar_expression(trimmed):
+            return self.resolve_expression(trimmed, inputs, node_id, preserve_type=True)
+        if should_resolve_embedded_dollar_refs_arithmetically(trimmed, self):
+            return self.resolve_arithmetic_expression(
+                raw,
+                inputs,
+                node_id,
+                preserve_type=True,
+            )
+        return self.evaluate_message_template(raw, inputs, node_id, preserve_type=True)
 
     def _list_mcp_tools(self, connection: dict, timeout_seconds: float) -> list[dict]:
         """List tools from an MCP server connection."""
@@ -8790,9 +8825,11 @@ class WorkflowExecutor:
 
                 mcp_connection = self._resolve_mcp_connection(mcp_connection, inputs, node_id)
 
-                resolved_args = {
-                    k: self.resolve_expression(str(v), inputs) for k, v in tool_arguments.items()
-                }
+                resolved_args = self._resolve_mcp_config_value(
+                    tool_arguments,
+                    inputs,
+                    node_id,
+                )
 
                 mcp_result = execute_mcp_tool(mcp_connection, selected_tool, resolved_args, timeout)
                 output = {"result": mcp_result}

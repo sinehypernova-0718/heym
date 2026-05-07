@@ -100,7 +100,7 @@ export interface AgentMCPConnection {
   timeoutSeconds: number;
   command?: string;
   args?: string[] | string;
-  env?: Record<string, string>;
+  env?: Record<string, string> | string;
   url?: string;
   headers?: Record<string, string> | string;
 }

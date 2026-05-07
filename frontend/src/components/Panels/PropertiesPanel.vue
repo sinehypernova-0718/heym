@@ -338,6 +338,7 @@ const llmImageExpressionInputRef = ref<InstanceType<typeof ExpressionInput> | nu
 const currentLlmExpressionFieldIndex = ref(0);
 const agentSystemInstructionInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
 const agentImageExpressionInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
+const agentMcpEnvInputRefs = ref<Map<string, InstanceType<typeof ExpressionInput>>>(new Map());
 const currentAgentExpressionFieldIndex = ref(0);
 const variableValueInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
 const throwErrorMessageInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
@@ -449,6 +450,9 @@ const currentDriveExpressionFieldIndex = ref(0);
 const currentPlaywrightExpressionFieldIndex = ref(0);
 /** ExpressionInput instances keyed by stable slot id (survives action changes / unmount). */
 const playwrightExprRefsBySlotKey = ref<Record<string, InstanceType<typeof ExpressionInput> | null>>({});
+const mcpCallArgumentInputRefs = ref<Map<string, InstanceType<typeof ExpressionInput>>>(new Map());
+const mcpCallConnectionEnvInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
+const currentMCPCallExpressionFieldIndex = ref(0);
 const validationErrors = ref<ValidationError[]>([]);
 const showValidationDialog = ref(false);
 
@@ -1381,10 +1385,14 @@ function closeAllExpressionExpandDialogs(): void {
   llmImageExpressionInputRef.value?.closeExpandDialog();
   agentSystemInstructionInputRef.value?.closeExpandDialog();
   agentImageExpressionInputRef.value?.closeExpandDialog();
+  for (const input of agentMcpEnvInputRefs.value.values()) {
+    input.closeExpandDialog();
+  }
   googleSheetsSpreadsheetIdExpressionInputRef.value?.closeExpandDialog();
   googleSheetsSheetNameExpressionInputRef.value?.closeExpandDialog();
   googleSheetsValuesInputRef.value?.closeExpandDialog();
   closeBigQueryExpressionDialogs();
+  closeMCPCallExpressionDialogs();
 }
 
 /** Opens the primary expression evaluate dialog for whichever node is currently selected. */
@@ -1462,6 +1470,19 @@ function openPrimaryExpandDialogForSelectedNode(): void {
       if (attempts > 20) return;
       if (agentSystemInstructionInputRef.value) {
         nextTick(() => openAgentExpressionFieldAtIndex(0));
+      } else {
+        setTimeout(() => tryOpenDialog(attempts + 1), 100);
+      }
+    };
+    nextTick(() => tryOpenDialog());
+  } else if (nodeType === "mcpCall") {
+    currentMCPCallExpressionFieldIndex.value = 0;
+    const tryOpenDialog = (attempts = 0): void => {
+      if (attempts > 20) return;
+      if (mcpCallArgumentInputRefs.value.size > 0) {
+        nextTick(() => openMCPCallExpressionFieldAtIndex(0));
+      } else if (mcpCallConnectionEnvInputRef.value) {
+        nextTick(() => mcpCallConnectionEnvInputRef.value?.openExpandDialog());
       } else {
         setTimeout(() => tryOpenDialog(attempts + 1), 100);
       }
@@ -1789,6 +1810,7 @@ function selectedNodeHasPrimaryEvaluateExpandTarget(): boolean {
     case "websocketSend":
     case "llm":
     case "agent":
+    case "mcpCall":
     case "slack":
     case "sendEmail":
     case "condition":
@@ -1965,12 +1987,18 @@ function openAgentExpressionFieldAtIndex(index: number): void {
     return;
   }
   currentAgentExpressionFieldIndex.value = index;
+  const baseCount = n.data.imageInputEnabled ? 3 : 2;
   if (index === 0) {
     agentSystemInstructionInputRef.value?.openExpandDialog();
   } else if (index === 1) {
     userMessageInputRef.value?.openExpandDialog();
   } else if (index === 2 && n.data.imageInputEnabled) {
     agentImageExpressionInputRef.value?.openExpandDialog();
+  } else if (index >= baseCount) {
+    const connId = agentMcpEnvConnectionIds.value[index - baseCount];
+    if (connId) {
+      agentMcpEnvInputRefs.value.get(connId)?.openExpandDialog();
+    }
   }
 }
 
@@ -1990,10 +2018,78 @@ function handleAgentExpressionFieldNavigate(direction: "prev" | "next"): void {
   agentSystemInstructionInputRef.value?.closeExpandDialog();
   userMessageInputRef.value?.closeExpandDialog();
   agentImageExpressionInputRef.value?.closeExpandDialog();
+  for (const input of agentMcpEnvInputRefs.value.values()) {
+    input.closeExpandDialog();
+  }
   currentAgentExpressionFieldIndex.value = newIndex;
   nextTick(() => {
     openAgentExpressionFieldAtIndex(newIndex);
   });
+}
+
+function setAgentMCPEnvInputRef(
+  connId: string,
+  el: unknown,
+): void {
+  if (el) {
+    agentMcpEnvInputRefs.value.set(connId, el as InstanceType<typeof ExpressionInput>);
+  } else {
+    agentMcpEnvInputRefs.value.delete(connId);
+  }
+}
+
+function agentMCPEnvExpressionIndex(connId: string): number {
+  const n = selectedNode.value;
+  const baseCount = n?.type === "agent" && n.data.imageInputEnabled ? 3 : 2;
+  const envIndex = agentMcpEnvConnectionIds.value.indexOf(connId);
+  return envIndex === -1 ? baseCount : baseCount + envIndex;
+}
+
+function openMCPCallExpressionFieldAtIndex(index: number): void {
+  const key = mcpCallArgumentKeys.value[index];
+  if (!key) {
+    return;
+  }
+  currentMCPCallExpressionFieldIndex.value = index;
+  mcpCallArgumentInputRefs.value.get(key)?.openExpandDialog();
+}
+
+function handleMCPCallExpressionFieldNavigate(direction: "prev" | "next"): void {
+  const total = mcpCallExpressionFieldCount.value;
+  const newIndex =
+    direction === "prev"
+      ? currentMCPCallExpressionFieldIndex.value - 1
+      : currentMCPCallExpressionFieldIndex.value + 1;
+  if (newIndex < 0 || newIndex >= total) {
+    return;
+  }
+  closeMCPCallExpressionDialogs();
+  currentMCPCallExpressionFieldIndex.value = newIndex;
+  nextTick(() => {
+    openMCPCallExpressionFieldAtIndex(newIndex);
+  });
+}
+
+function setMCPCallArgumentInputRef(
+  key: string,
+  el: unknown,
+): void {
+  if (el) {
+    mcpCallArgumentInputRefs.value.set(key, el as InstanceType<typeof ExpressionInput>);
+  } else {
+    mcpCallArgumentInputRefs.value.delete(key);
+  }
+}
+
+function onMCPCallRegisterExpressionFieldIndex(index: number): void {
+  currentMCPCallExpressionFieldIndex.value = index;
+}
+
+function closeMCPCallExpressionDialogs(): void {
+  mcpCallConnectionEnvInputRef.value?.closeExpandDialog();
+  for (const input of mcpCallArgumentInputRefs.value.values()) {
+    input.closeExpandDialog();
+  }
 }
 
 watch(
@@ -2014,6 +2110,7 @@ watch(
     currentDataTableExpressionFieldIndex.value = 0;
     currentDriveExpressionFieldIndex.value = 0;
     currentPlaywrightExpressionFieldIndex.value = 0;
+    currentMCPCallExpressionFieldIndex.value = 0;
     playwrightExprRefsBySlotKey.value = {};
     currentOutputExpressionFieldIndex.value = 0;
   },
@@ -3771,8 +3868,28 @@ const agentExpressionFieldCount = computed((): number => {
   if (!n || n.type !== "agent") {
     return 1;
   }
-  return n.data.imageInputEnabled ? 3 : 2;
+  return (n.data.imageInputEnabled ? 3 : 2) + agentMcpEnvConnectionIds.value.length;
 });
+
+const agentMcpEnvConnectionIds = computed((): string[] => {
+  const n = workflowStore.selectedNode;
+  if (!n || n.type !== "agent") {
+    return [];
+  }
+  return (n.data.mcpConnections || [])
+    .filter((conn) => conn.transport === "stdio")
+    .map((conn) => conn.id);
+});
+
+const mcpCallArgumentKeys = computed((): string[] => {
+  const n = workflowStore.selectedNode;
+  if (!n || n.type !== "mcpCall") {
+    return [];
+  }
+  return Object.keys(n.data.toolArguments ?? {});
+});
+
+const mcpCallExpressionFieldCount = computed((): number => mcpCallArgumentKeys.value.length);
 
 const selectedModelIsReasoning = computed(() => {
   const modelId = workflowStore.selectedNode?.data.model;
@@ -4434,8 +4551,14 @@ const mcpCallFetchState = ref<MCPCallFetchState>({ loading: false, error: null, 
 function updateMCPCallConnectionField(field: keyof AgentMCPConnection, value: unknown): void {
   if (!selectedNode.value) return;
   const current = { ...(selectedNode.value.data.connection ?? {}) };
+  const transportChanged = field === "transport" && current.transport !== value;
   (current as Record<string, unknown>)[field] = value;
   updateNodeData("connection", current);
+  if (transportChanged) {
+    mcpCallFetchState.value = { loading: false, error: null, tools: [] };
+    updateNodeData("selectedTool", "");
+    updateNodeData("toolArguments", {});
+  }
 }
 
 async function fetchMCPCallTools(): Promise<void> {
@@ -6581,13 +6704,24 @@ onUnmounted(() => {
                     </div>
                     <div>
                       <Label class="text-xs">Env (JSON object)</Label>
-                      <Textarea
+                      <ExpressionInput
+                        :ref="(el) => setAgentMCPEnvInputRef(conn.id, el)"
                         :model-value="typeof conn.env === 'string' ? conn.env : JSON.stringify(conn.env ?? {}, null, 2)"
                         placeholder="{&quot;API_KEY&quot;: &quot;your_key&quot;}"
                         :rows="2"
-                        wrap="off"
-                        class="overflow-x-auto whitespace-pre font-mono text-xs"
+                        :nodes="workflowStore.nodes"
+                        :node-results="workflowStore.nodeResults"
+                        :edges="workflowStore.edges"
+                        :current-node-id="selectedNode.id"
+                        expandable
+                        navigation-enabled
+                        :navigation-index="agentMCPEnvExpressionIndex(conn.id)"
+                        :navigation-total="agentExpressionFieldCount"
+                        :dialog-node-label="selectedNodeEvaluateDialogLabel"
+                        :dialog-key-label="`MCP ${idx + 1} env`"
                         @update:model-value="updateAgentMCPConnection(idx, 'env', $event)"
+                        @navigate="handleAgentExpressionFieldNavigate"
+                        @register-field-index="onAgentRegisterExpressionFieldIndex"
                       />
                     </div>
                   </template>
@@ -11092,12 +11226,18 @@ onUnmounted(() => {
                     </div>
                     <div>
                       <Label class="text-xs">Env (JSON object)</Label>
-                      <Textarea
+                      <ExpressionInput
+                        ref="mcpCallConnectionEnvInputRef"
                         :model-value="typeof selectedNode.data.connection?.env === 'string' ? selectedNode.data.connection.env : JSON.stringify(selectedNode.data.connection?.env ?? {}, null, 2)"
                         placeholder="{&quot;API_KEY&quot;: &quot;your_key&quot;}"
                         :rows="2"
-                        wrap="off"
-                        class="overflow-x-auto whitespace-pre font-mono text-xs"
+                        :nodes="workflowStore.nodes"
+                        :node-results="workflowStore.nodeResults"
+                        :edges="workflowStore.edges"
+                        :current-node-id="selectedNode.id"
+                        expandable
+                        :dialog-node-label="selectedNodeEvaluateDialogLabel"
+                        dialog-key-label="MCP env"
                         @update:model-value="updateMCPCallConnectionField('env', $event)"
                       />
                     </div>
@@ -11213,11 +11353,24 @@ onUnmounted(() => {
                       class="text-muted-foreground font-normal"
                     >— {{ propDef.description }}</span>
                   </Label>
-                  <Input
+                  <ExpressionInput
+                    :ref="(el) => setMCPCallArgumentInputRef(String(propKey), el)"
                     :model-value="String(selectedNode.data.toolArguments?.[propKey] ?? '')"
                     placeholder="value or $expr"
-                    class="font-mono text-xs"
+                    single-line
+                    :nodes="workflowStore.nodes"
+                    :node-results="workflowStore.nodeResults"
+                    :edges="workflowStore.edges"
+                    :current-node-id="selectedNode.id"
+                    expandable
+                    navigation-enabled
+                    :navigation-index="mcpCallArgumentKeys.indexOf(String(propKey))"
+                    :navigation-total="mcpCallExpressionFieldCount"
+                    :dialog-node-label="selectedNodeEvaluateDialogLabel"
+                    :dialog-key-label="`MCP argument · ${String(propKey)}`"
                     @update:model-value="updateMCPCallArgument(String(propKey), $event)"
+                    @navigate="handleMCPCallExpressionFieldNavigate"
+                    @register-field-index="onMCPCallRegisterExpressionFieldIndex"
                   />
                 </div>
                 <p class="text-xs text-muted-foreground">

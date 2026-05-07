@@ -107,6 +107,77 @@ class MCPCallNodeTests(unittest.TestCase):
         self.assertEqual(resolved_args["query"], "hello world")
 
     @patch("app.services.mcp_tool_executor.execute_mcp_tool")
+    def test_dsl_argument_preserves_array_type(self, mock_exec: MagicMock) -> None:
+        """Full-expression tool arguments keep arrays instead of becoming JSON strings."""
+        mock_exec.return_value = "ok"
+        executor = _make_executor(
+            {
+                "label": "mcpCall",
+                "connection": CONNECTION,
+                "selectedTool": "search",
+                "toolArguments": {"terms": "$userInput.body.terms"},
+                "timeoutSeconds": 30,
+            }
+        )
+        inputs = {"userInput": {"body": {"terms": ["alpha", "beta"]}}}
+        executor.label_to_output["userInput"] = {"body": {"terms": ["alpha", "beta"]}}
+        executor.execute_node("node_mcp1", inputs)
+        resolved_args = mock_exec.call_args[0][2]
+        self.assertEqual(resolved_args["terms"], ["alpha", "beta"])
+
+    @patch("app.services.mcp_tool_executor.execute_mcp_tool")
+    def test_json_argument_with_nested_dsl_values_resolved(self, mock_exec: MagicMock) -> None:
+        """JSON array/object argument strings may contain expression values."""
+        mock_exec.return_value = "ok"
+        executor = _make_executor(
+            {
+                "label": "mcpCall",
+                "connection": CONNECTION,
+                "selectedTool": "search",
+                "toolArguments": {
+                    "payload": (
+                        '{"filters":["open","$userInput.body.status"],'
+                        '"limit":"$userInput.body.limit"}'
+                    ),
+                },
+                "timeoutSeconds": 30,
+            }
+        )
+        inputs = {"userInput": {"body": {"status": "urgent", "limit": 3}}}
+        executor.label_to_output["userInput"] = {"body": {"status": "urgent", "limit": 3}}
+        executor.execute_node("node_mcp1", inputs)
+        resolved_args = mock_exec.call_args[0][2]
+        self.assertEqual(
+            resolved_args["payload"],
+            {"filters": ["open", "urgent"], "limit": 3},
+        )
+
+    @patch("app.services.mcp_tool_executor.execute_mcp_tool")
+    def test_connection_args_and_env_expressions_resolved(self, mock_exec: MagicMock) -> None:
+        """Agent/MCP connection config resolves env values and stdio args recursively."""
+        mock_exec.return_value = "ok"
+        executor = _make_executor(
+            {
+                "label": "mcpCall",
+                "connection": {
+                    **CONNECTION,
+                    "transport": "stdio",
+                    "args": '["--token", "$userInput.body.token"]',
+                    "env": '{"TOKEN":"$userInput.body.token"}',
+                },
+                "selectedTool": "search",
+                "toolArguments": {},
+                "timeoutSeconds": 30,
+            }
+        )
+        inputs = {"userInput": {"body": {"token": "secret-token"}}}
+        executor.label_to_output["userInput"] = {"body": {"token": "secret-token"}}
+        executor.execute_node("node_mcp1", inputs)
+        resolved_connection = mock_exec.call_args[0][0]
+        self.assertEqual(resolved_connection["args"], ["--token", "secret-token"])
+        self.assertEqual(resolved_connection["env"], {"TOKEN": "secret-token"})
+
+    @patch("app.services.mcp_tool_executor.execute_mcp_tool")
     def test_timeout_passed(self, mock_exec: MagicMock) -> None:
         """timeoutSeconds from node_data is passed to execute_mcp_tool as float."""
         mock_exec.return_value = None
