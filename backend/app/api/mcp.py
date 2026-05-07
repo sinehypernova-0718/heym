@@ -4,7 +4,7 @@ import secrets
 import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import Response, StreamingResponse
@@ -18,6 +18,7 @@ from app.api.workflows import (
     collect_referenced_workflows,
     extract_input_fields_from_workflow,
 )
+from app.config import settings
 from app.db.models import (
     Credential,
     CredentialType,
@@ -28,7 +29,7 @@ from app.db.models import (
     Workflow,
     WorkflowShare,
 )
-from app.db.session import get_db
+from app.db.session import async_session_maker, get_db
 from app.models.schemas import (
     MCPConfigResponse,
     MCPFetchToolItem,
@@ -57,6 +58,32 @@ from app.services.mcp_session import mcp_session_store, mcp_sse_channels
 from app.services.workflow_executor import execute_workflow
 
 router = APIRouter()
+T = TypeVar("T")
+_MCP_PROTOCOL_SEMAPHORE = asyncio.Semaphore(max(1, settings.mcp_protocol_max_concurrency))
+
+
+async def _run_mcp_protocol_limited(operation: Callable[[], Awaitable[T]]) -> T:
+    if settings.mcp_protocol_max_concurrency <= 0:
+        return await operation()
+    if _MCP_PROTOCOL_SEMAPHORE.locked():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many concurrent MCP protocol requests. Try again shortly.",
+        )
+    await _MCP_PROTOCOL_SEMAPHORE.acquire()
+    try:
+        return await operation()
+    finally:
+        _MCP_PROTOCOL_SEMAPHORE.release()
+
+
+def _session_user_from_id(user_id_str: str) -> User:
+    return User(
+        id=uuid.UUID(user_id_str),
+        email="",
+        hashed_password="",
+        name="",
+    )
 
 
 async def _accept_sse_response_if_active(request: Request, response: dict) -> Response | None:
@@ -72,6 +99,19 @@ async def _accept_sse_response_if_active(request: Request, response: dict) -> Re
     return Response("Accepted", status_code=status.HTTP_202_ACCEPTED)
 
 
+def _reject_if_sse_channel_missing(request: Request) -> None:
+    session_token = request.query_params.get("session")
+    if not session_token or mcp_sse_channels.exists(session_token):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "SSE session is not active on this backend worker. Enable sticky sessions "
+            "for MCP SSE traffic or use Streamable HTTP."
+        ),
+    )
+
+
 async def get_mcp_user(
     request: Request,
     x_mcp_key: str | None = Header(None, alias="X-MCP-Key"),
@@ -82,22 +122,13 @@ async def get_mcp_user(
     if session_param:
         resolve_result = mcp_session_store.resolve(session_param)
         if resolve_result is None:
-            user_id_str = None
-        else:
-            user_id_str, _ = resolve_result  # ignore server_id for default server
-        if user_id_str is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired session token",
                 headers={"WWW-Authenticate": 'Bearer realm="heym-mcp"'},
             )
-        import uuid as _uuid
-
-        user_result = await db.execute(select(User).where(User.id == _uuid.UUID(user_id_str)))
-        user = user_result.scalar_one_or_none()
-        if user is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        return user
+        user_id_str, _ = resolve_result  # ignore server_id for default server
+        return _session_user_from_id(user_id_str)
 
     # 1. Check for Bearer token (OAuth) — from header or ?token= query param
     auth_header = request.headers.get("Authorization", "")
@@ -156,6 +187,21 @@ async def get_mcp_user(
         )
 
     return user
+
+
+async def get_mcp_user_for_sse(
+    request: Request,
+    x_mcp_key: str | None = Header(None, alias="X-MCP-Key"),
+) -> User:
+    """
+    Authenticate MCP SSE without holding a DB dependency for the stream lifetime.
+
+    FastAPI finalizes yield dependencies after a StreamingResponse completes, so
+    using get_db() directly on long-lived SSE routes can pin pooled DB
+    connections until the client disconnects.
+    """
+    async with async_session_maker() as db:
+        return await get_mcp_user(request=request, x_mcp_key=x_mcp_key, db=db)
 
 
 async def get_user_mcp_workflows(db: AsyncSession, user_id: uuid.UUID) -> list[Workflow]:
@@ -473,8 +519,21 @@ async def fetch_mcp_tools(
     conn = dict(connection)
     conn.setdefault("id", conn.get("label", "default"))
 
+    # Cap the hard timeout so a silent auth failure (e.g. 401 in a background
+    # SSE task) doesn't leave the frontend spinner running for the full
+    # connection timeout. The MCP read_timeout is still respected internally;
+    # this adds an outer asyncio deadline on top.
+    hard_timeout = min(timeout_seconds + 3.0, 15.0)
     try:
-        raw_tools = await asyncio.to_thread(list_mcp_tools, conn, timeout_seconds)
+        raw_tools = await asyncio.wait_for(
+            asyncio.to_thread(list_mcp_tools, conn, timeout_seconds),
+            timeout=hard_timeout,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connection timed out. Check the server URL and authentication headers.",
+        ) from exc
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -482,7 +541,11 @@ async def fetch_mcp_tools(
         ) from e
 
     tools = [
-        MCPFetchToolItem(name=t.get("name", ""), description=t.get("description") or "")
+        MCPFetchToolItem(
+            name=t.get("name", ""),
+            description=t.get("description") or "",
+            inputSchema=t.get("parameters") or None,
+        )
         for t in raw_tools
     ]
     return MCPFetchToolsResponse(tools=tools)
@@ -806,7 +869,10 @@ async def handle_mcp_message(
     mcp_user: User = Depends(get_mcp_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict | Response:
-    response = await _dispatch_mcp_jsonrpc(request=request, mcp_user=mcp_user, db=db)
+    _reject_if_sse_channel_missing(request)
+    response = await _run_mcp_protocol_limited(
+        lambda: _dispatch_mcp_jsonrpc(request=request, mcp_user=mcp_user, db=db)
+    )
     sse_response = await _accept_sse_response_if_active(request, response)
     return sse_response or response
 
@@ -817,177 +883,24 @@ async def mcp_sse_post_endpoint(
     mcp_user: User = Depends(get_mcp_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    body = await request.json()
-    msg = MCPJSONRPCRequest(**body)
-
-    if msg.id is None:
-        return {"jsonrpc": "2.0"}
-
-    if msg.method == "initialize":
-        result = MCPInitializeResult()
-        return {
-            "jsonrpc": "2.0",
-            "id": msg.id,
-            "result": result.model_dump(),
-        }
-
-    if msg.method == "tools/list":
-        workflows = await get_user_mcp_workflows(db, mcp_user.id)
-        tools = [workflow_to_mcp_tool(w) for w in workflows]
-        return {
-            "jsonrpc": "2.0",
-            "id": msg.id,
-            "result": {"tools": [t.model_dump() for t in tools]},
-        }
-
-    if msg.method == "tools/call":
-        tool_name = msg.params.get("name", "")
-        arguments = msg.params.get("arguments", {})
-
-        workflows = await get_user_mcp_workflows(db, mcp_user.id)
-        target_workflow = None
-
-        for w in workflows:
-            # Match by sanitized workflow name
-            w_tool_name = w.name.lower().replace(" ", "_").replace("-", "_")
-            w_tool_name = "".join(c if c.isalnum() or c == "_" else "" for c in w_tool_name)
-            if w_tool_name == tool_name:
-                target_workflow = w
-                break
-
-        if target_workflow is None:
-            return {
-                "jsonrpc": "2.0",
-                "id": msg.id,
-                "error": {"code": -32601, "message": f"Tool not found: {tool_name}"},
-            }
-
-        if not target_workflow.nodes:
-            return {
-                "jsonrpc": "2.0",
-                "id": msg.id,
-                "error": {"code": -32602, "message": "Workflow has no nodes"},
-            }
-
-        enriched_inputs = {
-            "headers": {},
-            "query": {},
-            "body": arguments,
-        }
-
-        workflow_cache = await collect_referenced_workflows(db, target_workflow.nodes)
-        credentials_context = await get_credentials_context_for_user(db, mcp_user.id)
-
-        execution_id = uuid.uuid4()
-        cancel_event = register_execution(workflow_id=target_workflow.id, execution_id=execution_id)
-        try:
-            execution_result = await asyncio.to_thread(
-                execute_workflow,
-                workflow_id=target_workflow.id,
-                nodes=target_workflow.nodes,
-                edges=target_workflow.edges,
-                inputs=enriched_inputs,
-                workflow_cache=workflow_cache,
-                test_run=False,
-                credentials_context=credentials_context,
-                trace_user_id=mcp_user.id,
-                cancel_event=cancel_event,
-            )
-
-            # Save execution history with MCP trigger source
-            history_entry = ExecutionHistory(
-                workflow_id=target_workflow.id,
-                inputs=enriched_inputs,
-                outputs=execution_result.outputs,
-                node_results=execution_result.node_results,
-                status=execution_result.status,
-                execution_time_ms=execution_result.execution_time_ms,
-                trigger_source="MCP",
-            )
-            db.add(history_entry)
-            await upsert_workflow_analytics_snapshot(
-                db,
-                workflow_id=target_workflow.id,
-                owner_id=target_workflow.owner_id,
-                workflow_name_snapshot=target_workflow.name,
-                status=execution_result.status,
-                execution_time_ms=execution_result.execution_time_ms,
-            )
-
-            for sub_exec in execution_result.sub_workflow_executions:
-                sub_history = ExecutionHistory(
-                    workflow_id=uuid.UUID(sub_exec.workflow_id),
-                    inputs=sub_exec.inputs,
-                    outputs=sub_exec.outputs,
-                    node_results=sub_exec.node_results,
-                    status=sub_exec.status,
-                    execution_time_ms=sub_exec.execution_time_ms,
-                    trigger_source=sub_exec.trigger_source,
-                )
-                db.add(sub_history)
-                await upsert_workflow_analytics_snapshot(
-                    db,
-                    workflow_id=uuid.UUID(sub_exec.workflow_id),
-                    owner_id=None,
-                    workflow_name_snapshot=sub_exec.workflow_name or "Sub-workflow",
-                    status=sub_exec.status,
-                    execution_time_ms=sub_exec.execution_time_ms,
-                )
-
-            _add_mcp_workflow_trace(
-                db,
-                user_id=mcp_user.id,
-                workflow=target_workflow,
-                tool_name=tool_name,
-                arguments=arguments,
-                execution_result=execution_result,
-            )
-            await db.flush()
-
-            output_text = json.dumps(execution_result.outputs, indent=2, ensure_ascii=False)
-
-            return {
-                "jsonrpc": "2.0",
-                "id": msg.id,
-                "result": {
-                    "content": [{"type": "text", "text": output_text}],
-                    "isError": execution_result.status == "error",
-                },
-            }
-        except Exception as e:
-            _add_mcp_workflow_trace(
-                db,
-                user_id=mcp_user.id,
-                workflow=target_workflow,
-                tool_name=tool_name,
-                arguments=arguments,
-                error=str(e),
-            )
-            await db.flush()
-            return {
-                "jsonrpc": "2.0",
-                "id": msg.id,
-                "error": {"code": -32603, "message": f"Execution error: {str(e)}"},
-            }
-        finally:
-            clear_active_execution(execution_id)
-
-    return {
-        "jsonrpc": "2.0",
-        "id": msg.id,
-        "error": {"code": -32601, "message": f"Method not found: {msg.method}"},
-    }
+    return await _run_mcp_protocol_limited(
+        lambda: _dispatch_mcp_jsonrpc(request=request, mcp_user=mcp_user, db=db)
+    )
 
 
 @router.get("/sse")
 async def mcp_sse_endpoint(
     request: Request,
-    mcp_user: User = Depends(get_mcp_user),
-    db: AsyncSession = Depends(get_db),
+    mcp_user: User = Depends(get_mcp_user_for_sse),
 ) -> StreamingResponse:
     # Issue a short-lived session token so the long-lived credential
     # (MCP API key or OAuth bearer) never appears in the message endpoint URL
     # or server access logs.
+    if not mcp_sse_channels.can_register():
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many active MCP SSE sessions. Try again shortly.",
+        )
     session_token = mcp_session_store.create(str(mcp_user.id))
     message_endpoint = f"/api/mcp/message?session={session_token}"
 

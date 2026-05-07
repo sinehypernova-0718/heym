@@ -36,9 +36,9 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
-from app.api.mcp import get_mcp_config, handle_mcp_message, mcp_sse_endpoint
+from app.api.mcp import get_mcp_config, get_mcp_user, handle_mcp_message, mcp_sse_endpoint
 from app.api.mcp_servers import handle_named_server_message, named_server_sse
 from app.config import settings
 from app.models.schemas import MCPInitializeResult
@@ -114,6 +114,24 @@ class MCPInitializeVersionTests(unittest.TestCase):
 class DefaultSSEOriginTests(unittest.IsolatedAsyncioTestCase):
     """Tests for mcp_sse_endpoint in app/api/mcp.py."""
 
+    async def test_session_token_auth_does_not_query_database(self) -> None:
+        """Session-token message auth is stateless and does not consume DB pool slots."""
+        from app.services.mcp_session import mcp_session_store
+
+        user_id = str(uuid.uuid4())
+        token = mcp_session_store.create(user_id)
+        request = _make_json_request(
+            "/api/mcp/message",
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            f"session={token}".encode(),
+        )
+        db = AsyncMock()
+
+        user = await get_mcp_user(request=request, x_mcp_key=None, db=db)
+
+        self.assertEqual(str(user.id), user_id)
+        db.execute.assert_not_called()
+
     @patch("app.api.mcp.mcp_session_store")
     async def test_returns_relative_url_when_behind_proxy(self, mock_store: MagicMock) -> None:
         """
@@ -128,7 +146,7 @@ class DefaultSSEOriginTests(unittest.IsolatedAsyncioTestCase):
         request = _make_request("http://127.0.0.1:10105/")
         user = SimpleNamespace(id=uuid.uuid4())
 
-        response = await mcp_sse_endpoint(request=request, mcp_user=user, db=AsyncMock())
+        response = await mcp_sse_endpoint(request=request, mcp_user=user)
         event = await _first_sse_event(response)
 
         self.assertIn("event: endpoint", event)
@@ -147,7 +165,7 @@ class DefaultSSEOriginTests(unittest.IsolatedAsyncioTestCase):
         request = _make_request("http://localhost:10105/")
         user = SimpleNamespace(id=uuid.uuid4())
 
-        response = await mcp_sse_endpoint(request=request, mcp_user=user, db=AsyncMock())
+        response = await mcp_sse_endpoint(request=request, mcp_user=user)
         event = await _first_sse_event(response)
 
         self.assertIn("/api/mcp/message?session=local-tok", event)
@@ -161,7 +179,7 @@ class DefaultSSEOriginTests(unittest.IsolatedAsyncioTestCase):
         request = _make_request()
         user = SimpleNamespace(id=uuid.uuid4())
 
-        response = await mcp_sse_endpoint(request=request, mcp_user=user, db=AsyncMock())
+        response = await mcp_sse_endpoint(request=request, mcp_user=user)
         event = await _first_sse_event(response)
 
         self.assertIn("session=unique-session-xyz", event)
@@ -174,7 +192,7 @@ class DefaultSSEOriginTests(unittest.IsolatedAsyncioTestCase):
         request.is_disconnected = AsyncMock(return_value=False)
         user = SimpleNamespace(id=uuid.uuid4())
 
-        response = await mcp_sse_endpoint(request=request, mcp_user=user, db=AsyncMock())
+        response = await mcp_sse_endpoint(request=request, mcp_user=user)
         body_iterator = response.body_iterator
         first_event = await body_iterator.__anext__()
 
@@ -195,6 +213,24 @@ class DefaultSSEOriginTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("event: message", message_event)
         self.assertIn('"id": 1', message_event)
         self.assertIn('"result"', message_event)
+
+    async def test_message_with_missing_sse_channel_raises_409(self) -> None:
+        """A session POST on the wrong worker must fail instead of losing the response."""
+        user = SimpleNamespace(id=uuid.uuid4())
+
+        with self.assertRaises(HTTPException) as ctx:
+            await handle_mcp_message(
+                request=_make_json_request(
+                    "/api/mcp/message",
+                    {"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+                    b"session=missing-channel",
+                ),
+                mcp_user=user,
+                db=AsyncMock(),
+            )
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("sticky sessions", ctx.exception.detail)
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +324,27 @@ class NamedServerSSEOriginTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("event: message", message_event)
         self.assertIn('"id": "init-1"', message_event)
         self.assertIn('"result"', message_event)
+
+    async def test_named_message_with_missing_sse_channel_raises_409(self) -> None:
+        """Named SSE session POSTs on another worker fail with an actionable error."""
+        server_id = uuid.uuid4()
+        user = SimpleNamespace(id=uuid.uuid4())
+        mcp_server = SimpleNamespace(id=server_id)
+
+        with self.assertRaises(HTTPException) as ctx:
+            await handle_named_server_message(
+                server_id=server_id,
+                request=_make_json_request(
+                    f"/api/mcp/servers/{server_id}/message",
+                    {"jsonrpc": "2.0", "id": "init-1", "method": "initialize"},
+                    b"session=missing-channel",
+                ),
+                server=(user, mcp_server),
+                db=AsyncMock(),
+            )
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("Streamable HTTP", ctx.exception.detail)
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, watch, nextTick, ref } from "vue";
-import { AlertTriangle, Ban, Bot, Brain, Braces, Bug, CalendarClock, Clock, Database, FileJson, GitBranch, GitMerge, Globe, HardDrive, Inbox, LayoutTemplate, Mail, MessageSquare, MonitorPlay, Play, Rabbit, Radio, Repeat, Search, Send, Settings2, Sheet, Shuffle, StickyNote, Table2, Terminal, Type, Variable, X, XCircle } from "lucide-vue-next";
+import { AlertTriangle, Ban, Bot, Brain, Braces, Bug, CalendarClock, Clock, Database, FileJson, GitBranch, GitMerge, Globe, HardDrive, Inbox, LayoutTemplate, Mail, MessageSquare, MonitorPlay, Play, Plug, Rabbit, Radio, Repeat, Search, Send, Settings2, Sheet, Shuffle, StickyNote, Table2, Terminal, Type, Variable, X, XCircle } from "lucide-vue-next";
 
 import type { NodeTemplate } from "@/features/templates/types/template.types";
 import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
@@ -166,12 +166,14 @@ const icons = {
   playwright: MonitorPlay,
   dataTable: Table2,
   drive: HardDrive,
+  mcpCall: Plug,
 };
 
 const BLOCKED_AS_TOOL = new Set<string>([
   "merge", "switch", "loop", "agent", "llm", "condition",
   "execute", "sticky", "errorHandler",
   "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
+  "mcpCall",
 ]);
 
 const allNodeTypes = Object.values(NODE_DEFINITIONS);
