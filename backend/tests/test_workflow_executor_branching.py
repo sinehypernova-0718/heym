@@ -1,5 +1,8 @@
 import unittest
 import uuid
+from unittest.mock import patch
+
+import httpx
 
 from app.services.workflow_executor import WorkflowExecutor
 
@@ -265,6 +268,66 @@ class WorkflowExecutorBranchingTests(unittest.TestCase):
         self.assertEqual(results["star"]["status"], "success")
         self.assertEqual(results["searchResult"]["status"], "success")
         self.assertEqual(result.outputs, {"searchResult": {"result": "hello"}})
+
+    def test_http_success_skips_error_handle_branch(self) -> None:
+        nodes = [
+            {
+                "id": "http_1",
+                "type": "http",
+                "data": {
+                    "label": "httpRequest",
+                    "curl": "curl -X GET https://example.test/health",
+                    "onErrorEnabled": True,
+                },
+            },
+            {
+                "id": "success_1",
+                "type": "output",
+                "data": {"label": "success", "message": "$httpRequest.status"},
+            },
+            {
+                "id": "error_1",
+                "type": "output",
+                "data": {"label": "errorBranch", "message": "$httpRequest"},
+            },
+        ]
+        edges = [
+            {
+                "id": "e1",
+                "source": "http_1",
+                "target": "success_1",
+                "sourceHandle": "output",
+                "targetHandle": "input",
+            },
+            {
+                "id": "e2",
+                "source": "http_1",
+                "target": "error_1",
+                "sourceHandle": "error",
+                "targetHandle": "input",
+            },
+        ]
+        request = httpx.Request("GET", "https://example.test/health")
+        response = httpx.Response(200, json={"status": "healthy"}, request=request)
+
+        with patch("app.services.workflow_executor.get_http_client") as mock_get_client:
+            mock_get_client.return_value.request.return_value = response
+            executor = WorkflowExecutor(nodes=nodes, edges=edges)
+
+            result = executor.execute(
+                workflow_id=uuid.uuid4(),
+                initial_inputs={"headers": {}, "query": {}, "body": {}},
+            )
+
+        results = {row["node_label"]: row for row in result.node_results}
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(results["httpRequest"]["status"], "success")
+        self.assertEqual(results["httpRequest"]["output"]["status"], 200)
+        self.assertEqual(results["success"]["status"], "success")
+        self.assertEqual(results["success"]["output"], {"result": 200})
+        self.assertEqual(results["errorBranch"]["status"], "skipped")
+        self.assertEqual(result.outputs, {"success": {"result": 200}})
 
     def test_loop_done_branch_waits_for_loop_done_output(self) -> None:
         nodes, edges, initial_inputs = _make_loop_done_workflow()

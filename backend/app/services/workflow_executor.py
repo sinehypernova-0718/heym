@@ -2208,7 +2208,39 @@ class WorkflowExecutor:
             self.store_node_output(node_id, result.node_label, result.output)
             if result.output.get("_errorBranch"):
                 self._handle_error_branch_routing(node_id)
+            else:
+                self._handle_success_branch_routing(node_id)
         return result
+
+    def _handle_success_branch_routing(self, node_id: str) -> None:
+        """Skip error-handle branches when the source node completed successfully."""
+        active_edges = [
+            edge for edge in self.get_active_edges() if edge.get("targetHandle") != "tool-input"
+        ]
+        success_targets = [
+            edge["target"]
+            for edge in active_edges
+            if edge["source"] == node_id and edge.get("sourceHandle") != "error"
+        ]
+        error_targets = [
+            edge["target"]
+            for edge in active_edges
+            if edge["source"] == node_id and edge.get("sourceHandle") == "error"
+        ]
+        if not error_targets:
+            return
+
+        preserved_node_ids: set[str] = set()
+        for target in success_targets:
+            preserved_node_ids.update(self.get_branch_node_ids(target, active_edges))
+
+        exclusive_nodes = self.get_exclusive_branch_node_ids(
+            root_node_id=node_id,
+            start_node_ids=error_targets,
+            edges=active_edges,
+            preserve_node_ids=preserved_node_ids,
+        )
+        self.skipped_nodes.update(exclusive_nodes)
 
     def _handle_error_branch_routing(self, node_id: str) -> None:
         """Skip only non-error downstream nodes that depend exclusively on the failed node."""
