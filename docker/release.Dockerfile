@@ -47,11 +47,21 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    docker.io \
     tzdata \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI (static binary — no daemon needed, connects via mounted socket)
+RUN ARCH="$(uname -m)" \
+    && case "$ARCH" in \
+        x86_64)  DA=x86_64  ;; \
+        aarch64) DA=aarch64 ;; \
+        armv7l)  DA=armv7   ;; \
+        *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
+    esac \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${DA}/docker-27.3.1.tgz" \
+        | tar xz --strip-components=1 -C /usr/local/bin docker/docker
 
 ENV DOCS_DIR=/app/docs \
     PLAYWRIGHT_INSTALL_AT_STARTUP=false \

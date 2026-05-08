@@ -126,8 +126,11 @@ docker pull ghcr.io/heymrun/heym:latest
 docker run --rm \
   --env-file .env \
   -p 4017:4017 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   ghcr.io/heymrun/heym:latest
 ```
+
+> **Docker socket required for MCP stdio tools.** Any MCP connection that uses `transport: stdio` with `command: docker` (e.g. the GitHub MCP server) needs access to the host Docker daemon. Mount `/var/run/docker.sock` as shown above; without it those MCP calls will fail with `docker: command not found`.
 
 **Minimum environment variables for direct image runs:**
 

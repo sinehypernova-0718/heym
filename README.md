@@ -245,14 +245,19 @@ cp .env.example .env
 git clone https://github.com/heymrun/heym.git
 cd heym
 cp .env.example .env
-docker run --env-file .env -p 4017:4017 ghcr.io/heymrun/heym:latest
+docker run --env-file .env \
+  -p 4017:4017 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/heymrun/heym:latest
 
 # OR — minimal, no .env file
 docker run \
   -e ENCRYPTION_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
   -e SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
   -e DATABASE_URL=postgresql+asyncpg://postgres:postgres@host.docker.internal:6543/heym \
-  -p 4017:4017 ghcr.io/heymrun/heym:latest
+  -p 4017:4017 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/heymrun/heym:latest
 ```
 
 Open the editor in your browser at port `4017` in either setup.

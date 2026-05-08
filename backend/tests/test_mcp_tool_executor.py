@@ -1,5 +1,6 @@
 """Unit tests for mcp_tool_executor helper functions."""
 
+import os
 import unittest
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from app.services.mcp_tool_executor import (
     _extract_tool_result,
     _mcp_tool_to_openai_format,
     _normalize_connection,
+    _open_transport,
     _post_failure_message,
 )
 
@@ -301,3 +303,75 @@ class ExecuteMcpToolSessionToolListTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("is not available on this connection", str(ctx.exception))
         self.assertIn("list_notifications", str(ctx.exception))
+
+
+class StdioEnvMergeTests(unittest.IsolatedAsyncioTestCase):
+    """stdio transport must inherit os.environ so PATH is available for commands like docker."""
+
+    async def test_user_env_merged_with_os_environ(self) -> None:
+        captured: list[dict] = []
+
+        async def fake_stdio_client(params):
+            captured.append({"env": params.env})
+
+            @asynccontextmanager
+            async def _ctx():
+                yield object(), object()
+
+            return _ctx()
+
+        with (
+            patch("app.services.mcp_tool_executor.StdioServerParameters") as mock_params,
+            patch("app.services.mcp_tool_executor.stdio_client") as mock_stdio_client,
+        ):
+            mock_stdio_client.return_value.__aenter__ = AsyncMock(return_value=(object(), object()))
+            mock_stdio_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            conn = {
+                "transport": "stdio",
+                "command": "docker",
+                "args": ["run", "-i", "--rm", "some-image"],
+                "env": {"SECRET_TOKEN": "abc123"},
+            }
+
+            try:
+                async with _open_transport(conn, 5.0):
+                    pass
+            except Exception:
+                pass
+
+            mock_params.assert_called_once()
+            call_kwargs = mock_params.call_args
+            passed_env = call_kwargs.kwargs.get("env") or (
+                call_kwargs.args[2] if len(call_kwargs.args) > 2 else None
+            )
+            if passed_env is None and call_kwargs.kwargs:
+                passed_env = call_kwargs.kwargs.get("env")
+
+            self.assertIsNotNone(passed_env, "env must be passed to StdioServerParameters")
+            self.assertIn("PATH", passed_env, "PATH must be inherited from os.environ")
+            self.assertEqual(passed_env.get("SECRET_TOKEN"), "abc123", "user env var present")
+            self.assertEqual(passed_env.get("PATH"), os.environ.get("PATH"))
+
+    async def test_no_user_env_passes_none(self) -> None:
+        with (
+            patch("app.services.mcp_tool_executor.StdioServerParameters") as mock_params,
+            patch("app.services.mcp_tool_executor.stdio_client") as mock_stdio_client,
+        ):
+            mock_stdio_client.return_value.__aenter__ = AsyncMock(return_value=(object(), object()))
+            mock_stdio_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            conn = {"transport": "stdio", "command": "uvx", "args": ["some-server"]}
+
+            try:
+                async with _open_transport(conn, 5.0):
+                    pass
+            except Exception:
+                pass
+
+            mock_params.assert_called_once()
+            call_kwargs = mock_params.call_args
+            passed_env = call_kwargs.kwargs.get("env")
+            self.assertIsNone(
+                passed_env, "None env should pass through unchanged (full inheritance)"
+            )
