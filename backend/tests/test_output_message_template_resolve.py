@@ -1,5 +1,6 @@
 """Output / template resolution: multi-$ messages and bracket path fallback."""
 
+import gc
 import json
 import unittest
 import uuid
@@ -246,7 +247,14 @@ class WorkflowExecutorGcPauseTrackingTests(unittest.TestCase):
             patch.object(executor, "execute_node", side_effect=fake_execute_node),
             patch("app.services.workflow_executor.time.perf_counter", return_value=10.0),
         ):
-            result = executor.execute_node_parallel("set1", {"value": 1})
+            # Disable automatic GC so real collections don't fire the callback and
+            # add spurious zero-duration pauses, which would cause this assertion to
+            # fail on Linux where the collector is more aggressive.
+            gc.disable()
+            try:
+                result = executor.execute_node_parallel("set1", {"value": 1})
+            finally:
+                gc.enable()
 
         self.assertNotIn("gc_pause_ms", result.metadata)
         self.assertNotIn("gc_pause_count", result.metadata)

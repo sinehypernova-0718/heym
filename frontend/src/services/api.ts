@@ -2221,8 +2221,21 @@ export const dataTablesApi = {
     await api.delete(`/data-tables/${id}`);
   },
 
-  listRows: async (id: string, limit = 50, offset = 0): Promise<DataTableRow[]> => {
-    const response = await api.get<DataTableRow[]>(`/data-tables/${id}/rows?limit=${limit}&offset=${offset}`);
+  listRows: async (
+    id: string,
+    limit = 50,
+    offset = 0,
+    sortBy: "created_at" | "updated_at" = "created_at",
+    sortDirection: "asc" | "desc" = "desc",
+  ): Promise<DataTableRow[]> => {
+    const response = await api.get<DataTableRow[]>(`/data-tables/${id}/rows`, {
+      params: {
+        limit,
+        offset,
+        sort_by: sortBy,
+        sort_direction: sortDirection,
+      },
+    });
     return response.data;
   },
 
