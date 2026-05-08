@@ -3,7 +3,10 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -36,6 +39,10 @@ const props = defineProps<{ initialTableId?: string | null }>();
 const emit = defineEmits<{ navigate: [id: string | null] }>();
 const route = useRoute();
 
+type RowSortField = "created_at" | "updated_at";
+type RowSortDirection = "asc" | "desc";
+type RowPageSize = 25 | 50 | 100 | "all";
+
 function parseDataTableRoute(tab: unknown): { kind: "list" } | { kind: "detail"; id: string } {
   const raw = Array.isArray(tab) ? tab[0] : tab;
   if (typeof raw !== "string") return { kind: "list" };
@@ -56,8 +63,16 @@ const rows = ref<DataTableRow[]>([]);
 const rowsLoading = ref(false);
 const detailLoading = ref(Boolean(props.initialTableId));
 const rowPage = ref(0);
-const rowPageSize = 25;
+const rowPageSize = ref<RowPageSize>(25);
 const rowTotal = ref(0);
+const rowSortField = ref<RowSortField>("created_at");
+const rowSortDirection = ref<RowSortDirection>("desc");
+const rowPageSizeOptions: Array<{ value: RowPageSize; label: string }> = [
+  { value: 25, label: "25" },
+  { value: 50, label: "50" },
+  { value: 100, label: "100" },
+  { value: "all", label: "All" },
+];
 
 // ── Create dialog ──
 const showCreateDialog = ref(false);
@@ -131,13 +146,31 @@ async function loadRows() {
   if (!selectedTable.value) return;
   rowsLoading.value = true;
   try {
-    const allRows = await dataTablesApi.listRows(selectedTable.value.id, rowPageSize, rowPage.value * rowPageSize);
+    const limit = rowPageSize.value === "all" ? 0 : rowPageSize.value;
+    const offset = rowPageSize.value === "all" ? 0 : rowPage.value * rowPageSize.value;
+    const allRows = await dataTablesApi.listRows(
+      selectedTable.value.id,
+      limit,
+      offset,
+      rowSortField.value,
+      rowSortDirection.value,
+    );
     rows.value = allRows;
     rowTotal.value = selectedTable.value.row_count;
   } catch {
     error.value = "Failed to load rows";
   } finally {
     rowsLoading.value = false;
+  }
+}
+
+async function refreshSelectedTable(): Promise<void> {
+  if (!selectedTable.value) return;
+  try {
+    selectedTable.value = await dataTablesApi.get(selectedTable.value.id);
+    await loadRows();
+  } catch {
+    error.value = "Failed to refresh data table";
   }
 }
 
@@ -425,18 +458,44 @@ async function handleImportComplete() {
 }
 
 // ── Pagination ──
-const totalPages = computed(() => Math.max(1, Math.ceil(rowTotal.value / rowPageSize)));
-function prevPage() {
+const totalPages = computed(() => {
+  if (rowPageSize.value === "all") return 1;
+  return Math.max(1, Math.ceil(rowTotal.value / rowPageSize.value));
+});
+
+function prevPage(): void {
   if (rowPage.value > 0) {
     rowPage.value--;
     loadRows();
   }
 }
-function nextPage() {
+
+function nextPage(): void {
   if (rowPage.value < totalPages.value - 1) {
     rowPage.value++;
     loadRows();
   }
+}
+
+function setRowPageSize(value: string): void {
+  rowPageSize.value = value === "all" ? "all" : (Number(value) as 25 | 50 | 100);
+  rowPage.value = 0;
+  loadRows();
+}
+
+function handleRowPageSizeChange(event: Event): void {
+  setRowPageSize((event.target as HTMLSelectElement).value);
+}
+
+function toggleRowSort(field: RowSortField): void {
+  if (rowSortField.value === field) {
+    rowSortDirection.value = rowSortDirection.value === "asc" ? "desc" : "asc";
+  } else {
+    rowSortField.value = field;
+    rowSortDirection.value = "desc";
+  }
+  rowPage.value = 0;
+  loadRows();
 }
 
 const sortedColumns = computed(() => {
@@ -646,12 +705,26 @@ onMounted(async () => {
           <h2 class="text-lg font-semibold">
             {{ selectedTable.name }}
           </h2>
+          <span class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            {{ rowTotal }} rows
+          </span>
           <span
             v-if="selectedTable.description"
             class="text-sm text-muted-foreground"
           >{{ selectedTable.description }}</span>
         </div>
         <div class="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            :disabled="rowsLoading"
+            @click="refreshSelectedTable"
+          >
+            <RefreshCw
+              class="mr-1 h-4 w-4"
+              :class="{ 'animate-spin': rowsLoading }"
+            /> Refresh
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -729,10 +802,36 @@ onMounted(async () => {
                 {{ col.name }}
               </th>
               <th class="w-36 px-3 py-2 text-right font-medium text-muted-foreground text-xs">
-                Created
+                <button
+                  class="inline-flex items-center justify-end gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+                  @click="toggleRowSort('created_at')"
+                >
+                  Created
+                  <ArrowUp
+                    v-if="rowSortField === 'created_at' && rowSortDirection === 'asc'"
+                    class="h-3.5 w-3.5"
+                  />
+                  <ArrowDown
+                    v-else-if="rowSortField === 'created_at'"
+                    class="h-3.5 w-3.5"
+                  />
+                </button>
               </th>
               <th class="w-36 px-3 py-2 text-right font-medium text-muted-foreground text-xs">
-                Updated
+                <button
+                  class="inline-flex items-center justify-end gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+                  @click="toggleRowSort('updated_at')"
+                >
+                  Updated
+                  <ArrowUp
+                    v-if="rowSortField === 'updated_at' && rowSortDirection === 'asc'"
+                    class="h-3.5 w-3.5"
+                  />
+                  <ArrowDown
+                    v-else-if="rowSortField === 'updated_at'"
+                    class="h-3.5 w-3.5"
+                  />
+                </button>
               </th>
               <th class="w-24 px-3 py-2 text-right font-medium text-muted-foreground">
                 ID
@@ -904,7 +1003,7 @@ onMounted(async () => {
             <!-- Empty state -->
             <tr v-if="rows.length === 0 && !addingRow && !rowsLoading">
               <td
-                :colspan="sortedColumns.length + 2"
+                :colspan="sortedColumns.length + 4"
                 class="px-3 py-8 text-center text-muted-foreground"
               >
                 No rows yet. Click "Add Row" to get started.
@@ -924,12 +1023,30 @@ onMounted(async () => {
         >
           <Plus class="mr-1 h-4 w-4" /> Add Row
         </Button>
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+        <div class="flex items-center gap-3 text-sm text-muted-foreground">
           <span>{{ rowTotal }} rows</span>
+          <label class="flex items-center">
+            <span class="relative inline-flex">
+              <select
+                :value="String(rowPageSize)"
+                class="h-8 min-w-24 appearance-none rounded-md border bg-background pl-3 pr-9 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                @change="handleRowPageSizeChange"
+              >
+                <option
+                  v-for="option in rowPageSizeOptions"
+                  :key="option.label"
+                  :value="String(option.value)"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+              <ChevronDown class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            </span>
+          </label>
           <Button
             size="sm"
             variant="ghost"
-            :disabled="rowPage === 0"
+            :disabled="rowPageSize === 'all' || rowPage === 0"
             @click="prevPage"
           >
             <ChevronLeft class="h-4 w-4" />
@@ -938,7 +1055,7 @@ onMounted(async () => {
           <Button
             size="sm"
             variant="ghost"
-            :disabled="rowPage >= totalPages - 1"
+            :disabled="rowPageSize === 'all' || rowPage >= totalPages - 1"
             @click="nextPage"
           >
             <ChevronRight class="h-4 w-4" />

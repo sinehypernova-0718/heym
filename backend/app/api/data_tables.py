@@ -1,8 +1,9 @@
 import csv
 import io
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
@@ -96,6 +97,25 @@ async def _row_count(table_id: uuid.UUID, db: AsyncSession) -> int:
         select(func.count()).select_from(DataTableRow).where(DataTableRow.table_id == table_id)
     )
     return result.scalar() or 0
+
+
+def _row_sort_clause(sort_by: str, sort_direction: str) -> Any:
+    sort_columns = {
+        "created_at": DataTableRow.created_at,
+        "updated_at": DataTableRow.updated_at,
+    }
+    column = sort_columns.get(sort_by)
+    if column is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sort_by must be one of: created_at, updated_at",
+        )
+    if sort_direction not in {"asc", "desc"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sort_direction must be asc or desc",
+        )
+    return column.asc() if sort_direction == "asc" else column.desc()
 
 
 def _coerce_row_data(data: dict, columns: list[dict]) -> tuple[dict, list[str]]:
@@ -449,20 +469,24 @@ async def delete_data_table(
 @router.get("/{table_id}/rows", response_model=list[DataTableRowResponse])
 async def list_rows(
     table_id: uuid.UUID,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=0),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("created_at", pattern=r"^(created_at|updated_at)$"),
+    sort_direction: str = Query("desc", pattern=r"^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[DataTableRowResponse]:
     table = await _get_data_table_with_access(table_id, current_user.id, db)
     columns = table.columns or []
-    result = await db.execute(
+    query = (
         select(DataTableRow)
         .where(DataTableRow.table_id == table_id)
-        .order_by(DataTableRow.created_at.desc())
-        .limit(limit)
+        .order_by(_row_sort_clause(sort_by, sort_direction), DataTableRow.id.asc())
         .offset(offset)
     )
+    if limit > 0:
+        query = query.limit(limit)
+    result = await db.execute(query)
     rows = result.scalars().all()
     return [
         DataTableRowResponse(
