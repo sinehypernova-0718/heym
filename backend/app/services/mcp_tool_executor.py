@@ -5,6 +5,8 @@ Execute MCP (Model Context Protocol) tool calls via stdio, SSE, or Streamable HT
 import asyncio
 import json
 import logging
+import os
+import shutil
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -270,13 +272,19 @@ async def _open_transport(
     if transport == "stdio":
         command = conn.get("command", "")
         args = conn.get("args") or []
-        env = conn.get("env")
+        user_env = conn.get("env")
         if not command:
             raise ValueError("stdio connection requires 'command'")
+        # Always inherit the process environment so PATH is available (e.g. to find
+        # docker, npx, uvx). User-supplied vars are merged on top.
+        merged_env = {**os.environ, **(user_env or {})} if user_env else None
+        # Resolve to absolute path using the current process PATH so the binary is
+        # always found regardless of what env the subprocess receives.
+        resolved_command = shutil.which(command) or command
         server_params = StdioServerParameters(
-            command=command,
+            command=resolved_command,
             args=args if isinstance(args, list) else [],
-            env=env,
+            env=merged_env,
         )
         async with stdio_client(server_params) as (read_stream, write_stream):
             yield read_stream, write_stream
