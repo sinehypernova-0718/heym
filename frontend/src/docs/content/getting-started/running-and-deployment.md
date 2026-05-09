@@ -127,6 +127,7 @@ docker run --rm \
   --env-file .env \
   -p 4017:4017 \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$(pwd)/data/files:/app/data/files" \
   ghcr.io/heymrun/heym:latest
 ```
 
@@ -153,7 +154,7 @@ docker run --rm \
 - The image exposes port `4017`
 - The backend stays internal and is proxied under `/api`
 - When `POSTGRES_HOST=localhost`, the release image automatically rewrites it to `host.docker.internal` when needed so the same `.env` works with a host-level PostgreSQL container on macOS Docker/Desktop tools
-- Mount persistent storage if you want uploaded/generated files to survive container restarts
+- Keep the `data/files` mount if you want Drive uploads and skill-generated files to survive container restarts
 
 ---
 

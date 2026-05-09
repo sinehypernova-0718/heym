@@ -248,6 +248,7 @@ cp .env.example .env
 docker run --env-file .env \
   -p 4017:4017 \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$(pwd)/data/files:/app/data/files" \
   ghcr.io/heymrun/heym:latest
 
 # OR — minimal, no .env file
@@ -257,10 +258,12 @@ docker run \
   -e DATABASE_URL=postgresql+asyncpg://postgres:postgres@host.docker.internal:6543/heym \
   -p 4017:4017 \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$(pwd)/data/files:/app/data/files" \
   ghcr.io/heymrun/heym:latest
 ```
 
 Open the editor in your browser at port `4017` in either setup.
+For direct `docker run` setups, the `data/files` mount keeps Drive uploads and skill-generated files available across container restarts.
 
 <details>
 <summary><b>🐳 Docker Production Deployment</b></summary>
