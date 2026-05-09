@@ -2,14 +2,23 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { BaseEdge, EdgeLabelRenderer, getBezierPath } from "@vue-flow/core";
 import type { EdgeProps } from "@vue-flow/core";
-import { Plus } from "lucide-vue-next";
+import { Plus, Trash2 } from "lucide-vue-next";
 
 import { useWorkflowStore } from "@/stores/workflow";
+
+interface EdgeActionData {
+  allowDelete?: boolean;
+  allowInsert?: boolean;
+}
 
 const props = defineProps<EdgeProps>();
 
 const workflowStore = useWorkflowStore();
 const isHovered = ref(false);
+const edgeActionData = computed(() => props.data as EdgeActionData | undefined);
+const canDelete = computed(() => edgeActionData.value?.allowDelete !== false);
+const canInsert = computed(() => edgeActionData.value?.allowInsert !== false);
+const hasActions = computed(() => canDelete.value || canInsert.value);
 
 const path = computed(() => {
   const [edgePath, labelX, labelY] = getBezierPath({
@@ -25,6 +34,7 @@ const path = computed(() => {
 });
 
 function handleInsertClick(event: MouseEvent): void {
+  if (!canInsert.value) return;
   event.stopPropagation();
 
   workflowStore.setPendingInsertEdge({
@@ -36,6 +46,13 @@ function handleInsertClick(event: MouseEvent): void {
   });
 
   workflowStore.clearNodeSearchQuery();
+}
+
+function handleDeleteClick(event: MouseEvent): void {
+  if (!canDelete.value) return;
+  event.stopPropagation();
+
+  workflowStore.removeEdge(props.id);
 }
 
 function onEdgeMouseEnter(): void {
@@ -73,37 +90,57 @@ onUnmounted(() => {
   />
   <EdgeLabelRenderer>
     <div
-      class="insert-button-wrapper nodrag nopan"
+      v-if="hasActions"
+      class="edge-actions-wrapper nodrag nopan"
       :class="{ 'is-visible': isHovered }"
       :style="{
         transform: `translate(-50%, -50%) translate(${path.labelX}px, ${path.labelY}px)`,
         pointerEvents: 'all',
       }"
+      @pointerdown.stop
+      @dblclick.stop
       @mouseenter="isHovered = true"
       @mouseleave="isHovered = false"
     >
       <button
-        class="insert-button"
+        v-if="canInsert"
+        class="edge-action-button insert-button"
+        type="button"
+        aria-label="Insert node between"
+        title="Insert node"
         @click="handleInsertClick"
       >
         <Plus class="w-3 h-3" />
+      </button>
+      <button
+        v-if="canDelete"
+        class="edge-action-button delete-button"
+        type="button"
+        aria-label="Delete connection"
+        title="Delete connection"
+        @click="handleDeleteClick"
+      >
+        <Trash2 class="w-3 h-3" />
       </button>
     </div>
   </EdgeLabelRenderer>
 </template>
 
 <style scoped>
-.insert-button-wrapper {
+.edge-actions-wrapper {
   position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
 
-.insert-button-wrapper.is-visible {
+.edge-actions-wrapper.is-visible {
   opacity: 1;
 }
 
-.insert-button {
+.edge-action-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -118,8 +155,18 @@ onUnmounted(() => {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.insert-button:hover {
+.edge-action-button:hover {
   transform: scale(1.2);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.insert-button {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.delete-button {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
 }
 </style>

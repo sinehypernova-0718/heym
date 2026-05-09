@@ -152,12 +152,16 @@ const subAgentEdges = computed(() => buildSubAgentEdges(workflowStore.nodes));
 const vueFlowEdges = computed(() => [
   ...workflowStore.edges.map((edge) => ({
     id: edge.id,
-    type: edge.targetHandle === "tool-input" ? "default" : "insertable",
+    type: "insertable",
     source: edge.source,
     target: edge.target,
     sourceHandle: resolveRenderedSourceHandle(edge, workflowStore.nodes),
     targetHandle: edge.targetHandle,
     animated: true,
+    data: {
+      allowDelete: true,
+      allowInsert: edge.targetHandle !== "tool-input",
+    },
     style:
       edge.targetHandle === "tool-input"
         ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 0.75 }
@@ -171,6 +175,10 @@ const vueFlowEdges = computed(() => [
     sourceHandle: edge.sourceHandle,
     targetHandle: edge.targetHandle,
     animated: true,
+    data: {
+      allowDelete: false,
+      allowInsert: false,
+    },
   })),
 ]);
 
