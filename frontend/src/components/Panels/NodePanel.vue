@@ -6,6 +6,13 @@ import type { NodeTemplate } from "@/features/templates/types/template.types";
 import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
 
 import { buildWorkflowNodeFromNodeTemplate } from "@/lib/nodeFromTemplate";
+import {
+  INPUT_HANDLE,
+  TOOL_INPUT_HANDLE,
+  TOOL_OUTPUT_HANDLE,
+  isBlockedAsTool,
+  isNoRegularInputNodeType,
+} from "@/lib/canvasConnectionRules";
 import { nodeIcons } from "@/lib/nodeIcons";
 import { cn, generateId, replaceInputRefs } from "@/lib/utils";
 import { templatesApi } from "@/services/api";
@@ -169,13 +176,6 @@ const icons = {
   mcpCall: Plug,
 };
 
-const BLOCKED_AS_TOOL = new Set<string>([
-  "merge", "switch", "loop", "agent", "llm", "condition",
-  "execute", "sticky", "errorHandler",
-  "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
-  "mcpCall",
-]);
-
 const allNodeTypes = Object.values(NODE_DEFINITIONS);
 
 const nodeTypes = computed(() => {
@@ -284,10 +284,8 @@ function recordTemplateUse(templateId: string): void {
 }
 
 function addNodeFromTemplate(template: NodeTemplate): void {
-  const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
-
   const pendingInsert = workflowStore.pendingInsertEdge;
-  if (pendingInsert && !noInputTypes.includes(template.node_type as NodeType)) {
+  if (pendingInsert && !isNoRegularInputNodeType(template.node_type as NodeType)) {
     const sourceNode = workflowStore.nodes.find((n) => n.id === pendingInsert.sourceId);
     const newNode = buildWorkflowNodeFromNodeTemplate(
       template,
@@ -329,25 +327,27 @@ function addNodeFromTemplate(template: NodeTemplate): void {
 
   if (pendingSource) {
     const nodeType = template.node_type as NodeType;
-    if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
-      const edge: WorkflowEdge = {
-        id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
-        source: newNode.id,
-        target: pendingSource.nodeId,
-        sourceHandle: "tool-output",
-        targetHandle: "tool-input",
-      };
-      workflowStore.addEdge(edge);
-      workflowStore.clearNodeSearchQuery();
-      searchInputRef.value?.blur();
-      workflowStore.requestTidyUp();
-    } else if (!noInputTypes.includes(nodeType)) {
+    if (pendingSource.handleId === TOOL_INPUT_HANDLE) {
+      if (!isBlockedAsTool(nodeType)) {
+        const edge: WorkflowEdge = {
+          id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+          source: newNode.id,
+          target: pendingSource.nodeId,
+          sourceHandle: TOOL_OUTPUT_HANDLE,
+          targetHandle: TOOL_INPUT_HANDLE,
+        };
+        workflowStore.addEdge(edge);
+        workflowStore.clearNodeSearchQuery();
+        searchInputRef.value?.blur();
+        workflowStore.requestTidyUp();
+      }
+    } else if (!isNoRegularInputNodeType(nodeType)) {
       const edge: WorkflowEdge = {
         id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
         source: pendingSource.nodeId,
         target: newNode.id,
         sourceHandle: pendingSource.handleId || undefined,
-        targetHandle: "input",
+        targetHandle: INPUT_HANDLE,
       };
       workflowStore.addEdge(edge);
       workflowStore.clearNodeSearchQuery();
@@ -361,10 +361,8 @@ function addNodeFromTemplate(template: NodeTemplate): void {
 }
 
 function handleDoubleClick(type: NodeType): void {
-  const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
-
   const pendingInsert = workflowStore.pendingInsertEdge;
-  if (pendingInsert && !noInputTypes.includes(type)) {
+  if (pendingInsert && !isNoRegularInputNodeType(type)) {
     const newNode: WorkflowNode = {
       id: generateId(),
       type,
@@ -420,25 +418,27 @@ function handleDoubleClick(type: NodeType): void {
   workflowStore.addNode(newNode);
 
   if (pendingSource) {
-    if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(type)) {
-      const edge: WorkflowEdge = {
-        id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
-        source: newNode.id,
-        target: pendingSource.nodeId,
-        sourceHandle: "tool-output",
-        targetHandle: "tool-input",
-      };
-      workflowStore.addEdge(edge);
-      workflowStore.clearNodeSearchQuery();
-      searchInputRef.value?.blur();
-      workflowStore.requestTidyUp();
-    } else if (!noInputTypes.includes(type)) {
+    if (pendingSource.handleId === TOOL_INPUT_HANDLE) {
+      if (!isBlockedAsTool(type)) {
+        const edge: WorkflowEdge = {
+          id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
+          source: newNode.id,
+          target: pendingSource.nodeId,
+          sourceHandle: TOOL_OUTPUT_HANDLE,
+          targetHandle: TOOL_INPUT_HANDLE,
+        };
+        workflowStore.addEdge(edge);
+        workflowStore.clearNodeSearchQuery();
+        searchInputRef.value?.blur();
+        workflowStore.requestTidyUp();
+      }
+    } else if (!isNoRegularInputNodeType(type)) {
       const edge: WorkflowEdge = {
         id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
         source: pendingSource.nodeId,
         target: newNode.id,
         sourceHandle: pendingSource.handleId || undefined,
-        targetHandle: "input",
+        targetHandle: INPUT_HANDLE,
       };
       workflowStore.addEdge(edge);
       workflowStore.clearNodeSearchQuery();

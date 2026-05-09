@@ -88,6 +88,7 @@ export const useWorkflowStore = defineStore("workflow", () => {
   const pendingConnectionSource = ref<{
     nodeId: string;
     handleId: string | null;
+    handleType?: "source" | "target" | null;
   } | null>(null);
 
   const pendingInsertEdge = ref<{
@@ -1415,7 +1416,11 @@ export const useWorkflowStore = defineStore("workflow", () => {
   }
 
   function setPendingConnectionSource(
-    source: { nodeId: string; handleId: string | null } | null,
+    source: {
+      nodeId: string;
+      handleId: string | null;
+      handleType?: "source" | "target" | null;
+    } | null,
   ): void {
     pendingConnectionSource.value = source;
   }

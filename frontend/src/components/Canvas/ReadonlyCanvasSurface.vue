@@ -93,6 +93,10 @@ const vueFlowEdges = computed(() =>
     sourceHandle: resolveRenderedSourceHandle(edge, props.nodes),
     targetHandle: edge.targetHandle,
     animated: true,
+    data: {
+      allowDelete: false,
+      allowInsert: false,
+    },
   })),
 );
 

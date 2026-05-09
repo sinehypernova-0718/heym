@@ -10,7 +10,6 @@ import { FileJson, LayoutGrid } from "lucide-vue-next";
 import ShareTemplateModal from "@/features/templates/components/ShareTemplateModal.vue";
 
 import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
-import { NODE_DEFINITIONS } from "@/types/node";
 
 import BaseNode from "@/components/Nodes/BaseNode.vue";
 import InsertableEdge from "@/components/Canvas/InsertableEdge.vue";
@@ -19,6 +18,14 @@ import StickyNoteNode from "@/components/Nodes/StickyNoteNode.vue";
 import AgentMemoryGraphDialog from "@/components/Dialogs/AgentMemoryGraphDialog.vue";
 import ExtractSubWorkflowDialog from "@/components/Dialogs/ExtractSubWorkflowDialog.vue";
 import { buildSubAgentEdges, getSubAgentLabels } from "@/lib/agentCanvasLinks";
+import {
+  INPUT_HANDLE,
+  TOOL_INPUT_HANDLE,
+  TOOL_OUTPUT_HANDLE,
+  getToolConnectionValidationMessage,
+  isNoRegularInputNodeType,
+  isTargetOnlyHandleId,
+} from "@/lib/canvasConnectionRules";
 import { buildWorkflowNodeFromNodeTemplate } from "@/lib/nodeFromTemplate";
 import { generateId, replaceInputRefs } from "@/lib/utils";
 import { buildMeasuredNodeSizeMap, getWorkflowNodeLayoutSize } from "@/lib/workflowLayout";
@@ -71,14 +78,11 @@ function onMiniMapMouseLeave(): void {
   if (showMiniMap.value) scheduleMiniMapHide();
 }
 
-const BLOCKED_AS_TOOL = new Set<string>([
-  "merge", "switch", "loop", "agent", "llm", "condition",
-  "execute", "sticky", "errorHandler",
-  "cron", "textInput", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger",
-  "mcpCall",
-]);
-
-const pendingConnection = ref<{ nodeId: string; handleId: string | null } | null>(null);
+const pendingConnection = ref<{
+  nodeId: string;
+  handleId: string | null;
+  handleType?: "source" | "target" | null;
+} | null>(null);
 const isDraggingFile = ref(false);
 
 const contextMenuVisible = ref(false);
@@ -152,14 +156,18 @@ const subAgentEdges = computed(() => buildSubAgentEdges(workflowStore.nodes));
 const vueFlowEdges = computed(() => [
   ...workflowStore.edges.map((edge) => ({
     id: edge.id,
-    type: edge.targetHandle === "tool-input" ? "default" : "insertable",
+    type: "insertable",
     source: edge.source,
     target: edge.target,
     sourceHandle: resolveRenderedSourceHandle(edge, workflowStore.nodes),
     targetHandle: edge.targetHandle,
     animated: true,
+    data: {
+      allowDelete: true,
+      allowInsert: edge.targetHandle !== TOOL_INPUT_HANDLE,
+    },
     style:
-      edge.targetHandle === "tool-input"
+      edge.targetHandle === TOOL_INPUT_HANDLE
         ? { stroke: "#7c3aed", strokeDasharray: "6 3", strokeWidth: 0.75 }
         : undefined,
   })),
@@ -171,6 +179,10 @@ const vueFlowEdges = computed(() => [
     sourceHandle: edge.sourceHandle,
     targetHandle: edge.targetHandle,
     animated: true,
+    data: {
+      allowDelete: false,
+      allowInsert: false,
+    },
   })),
 ]);
 
@@ -184,57 +196,83 @@ function canConnectAgentToAgent(sourceId: string, targetId: string): boolean {
   return sourceNode.data?.isOrchestrator === true;
 }
 
+function addToolEdge(toolNodeId: string, agentNodeId: string): boolean {
+  const toolNode = workflowStore.nodes.find((n) => n.id === toolNodeId);
+  const agentNode = workflowStore.nodes.find((n) => n.id === agentNodeId);
+  if (!toolNode || !agentNode || agentNode.type !== "agent") return false;
+
+  const validationMessage = getToolConnectionValidationMessage(toolNode.type);
+  if (validationMessage) {
+    showToast(validationMessage, "error");
+    return false;
+  }
+
+  const hasFlowEdge = workflowStore.edges.some(
+    (e) =>
+      (e.source === toolNodeId || e.target === toolNodeId) &&
+      e.targetHandle !== TOOL_INPUT_HANDLE,
+  );
+  if (hasFlowEdge) {
+    showToast("Nodes already connected in the workflow cannot be used as tools.", "error");
+    return false;
+  }
+
+  const existingToolEdge = workflowStore.edges.some(
+    (e) =>
+      e.source === toolNodeId &&
+      e.target === agentNodeId &&
+      e.sourceHandle === TOOL_OUTPUT_HANDLE &&
+      e.targetHandle === TOOL_INPUT_HANDLE,
+  );
+  if (existingToolEdge) return true;
+
+  const edge: WorkflowEdge = {
+    id: `edge_${toolNodeId}_${agentNodeId}_${Date.now()}`,
+    source: toolNodeId,
+    target: agentNodeId,
+    sourceHandle: TOOL_OUTPUT_HANDLE,
+    targetHandle: TOOL_INPUT_HANDLE,
+  };
+  workflowStore.addEdge(edge);
+  return true;
+}
+
 onConnect((connection) => {
-  if (connection.source && connection.target) {
-    const allowed = canConnectAgentToAgent(connection.source, connection.target);
-    if (!allowed) {
-      showToast("This agent is not in orchestrator mode, so it cannot connect to other agent nodes.", "error");
-      return;
-    }
+  if (!connection.source || !connection.target) return;
+
+  if (connection.targetHandle === TOOL_INPUT_HANDLE) {
+    addToolEdge(connection.source, connection.target);
+    return;
   }
 
-  if (connection.targetHandle === "tool-input" && connection.source) {
-    const sourceNode = workflowStore.nodes.find((n) => n.id === connection.source);
-    if (sourceNode) {
-      if (BLOCKED_AS_TOOL.has(sourceNode.type)) {
-        showToast("This node type cannot be used as a tool.", "error");
-        return;
-      }
-      const nodeDef = NODE_DEFINITIONS[sourceNode.type as keyof typeof NODE_DEFINITIONS];
-      if (nodeDef && nodeDef.inputs === 0) {
-        showToast("Trigger nodes cannot be used as tools.", "error");
-        return;
-      }
-    }
+  if (connection.sourceHandle === TOOL_INPUT_HANDLE) {
+    addToolEdge(connection.target, connection.source);
+    return;
   }
 
-  if (connection.targetHandle === "tool-input" && connection.source) {
-    const hasFlowEdge = workflowStore.edges.some(
-      (e) =>
-        (e.source === connection.source || e.target === connection.source) &&
-        e.targetHandle !== "tool-input",
-    );
-    if (hasFlowEdge) {
-      showToast("Nodes already connected in the workflow cannot be used as tools.", "error");
-      return;
-    }
+  if (isTargetOnlyHandleId(connection.sourceHandle)) {
+    return;
   }
 
-  if (connection.targetHandle !== "tool-input" && connection.source) {
-    const isSourceToolNode = workflowStore.edges.some(
-      (e) => e.source === connection.source && e.targetHandle === "tool-input",
-    );
-    if (isSourceToolNode) {
-      showToast("Tool nodes cannot participate in the regular workflow flow.", "error");
-      return;
-    }
+  const allowed = canConnectAgentToAgent(connection.source, connection.target);
+  if (!allowed) {
+    showToast("This agent is not in orchestrator mode, so it cannot connect to other agent nodes.", "error");
+    return;
+  }
+
+  const isSourceToolNode = workflowStore.edges.some(
+    (e) => e.source === connection.source && e.targetHandle === TOOL_INPUT_HANDLE,
+  );
+  if (isSourceToolNode) {
+    showToast("Tool nodes cannot participate in the regular workflow flow.", "error");
+    return;
   }
 
   const edge: WorkflowEdge = {
     id: `edge_${connection.source}_${connection.target}_${Date.now()}`,
     source: connection.source,
     target: connection.target,
-    sourceHandle: connection.targetHandle === "tool-input" ? "tool-output" : (connection.sourceHandle || undefined),
+    sourceHandle: connection.sourceHandle || undefined,
     targetHandle: connection.targetHandle || undefined,
   };
   workflowStore.addEdge(edge);
@@ -244,7 +282,11 @@ let connectionCreated = false;
 
 onConnectStart((params: { event?: MouseEvent | TouchEvent } & OnConnectStartParams) => {
   if (params.nodeId) {
-    pendingConnection.value = { nodeId: params.nodeId, handleId: params.handleId ?? null };
+    pendingConnection.value = {
+      nodeId: params.nodeId,
+      handleId: params.handleId ?? null,
+      handleType: params.handleType ?? null,
+    };
   }
   connectionCreated = false;
   workflowStore.clearPendingConnectionSource();
@@ -273,6 +315,10 @@ onConnectEnd((event: MouseEvent | TouchEvent | undefined) => {
     return;
   }
 
+  if (source.handleType === "target" && source.handleId !== TOOL_INPUT_HANDLE) {
+    return;
+  }
+
   const targetElement = document.elementFromPoint(clientX, clientY);
   if (!targetElement) {
     lastDropTime = Date.now();
@@ -297,8 +343,12 @@ onConnectEnd((event: MouseEvent | TouchEvent | undefined) => {
   if (!targetNode) return;
 
   const nodeType = targetNode.data?.nodeType as NodeType;
-  const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
-  if (noInputTypes.includes(nodeType)) return;
+  if (source.handleId === TOOL_INPUT_HANDLE) {
+    addToolEdge(nodeId, source.nodeId);
+    return;
+  }
+
+  if (isNoRegularInputNodeType(nodeType)) return;
 
   const existingEdge = workflowStore.edges.find(
     e => e.source === source.nodeId && e.target === nodeId && e.sourceHandle === source.handleId
@@ -315,7 +365,7 @@ onConnectEnd((event: MouseEvent | TouchEvent | undefined) => {
     source: source.nodeId,
     target: nodeId,
     sourceHandle: source.handleId || undefined,
-    targetHandle: "input",
+    targetHandle: INPUT_HANDLE,
   };
   workflowStore.addEdge(edge);
 });
@@ -665,31 +715,21 @@ function handleDrop(event: DragEvent): void {
         workflowStore.addNode(newNode);
         if (pendingSource) {
           const nodeType = template.node_type as NodeType;
-          if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
+          if (pendingSource.handleId === TOOL_INPUT_HANDLE) {
+            addToolEdge(newNode.id, pendingSource.nodeId);
+            workflowStore.clearNodeSearchQuery();
+            workflowStore.requestTidyUp();
+          } else if (!isNoRegularInputNodeType(nodeType)) {
             const edge: WorkflowEdge = {
-              id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
-              source: newNode.id,
-              target: pendingSource.nodeId,
-              sourceHandle: "tool-output",
-              targetHandle: "tool-input",
+              id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
+              source: pendingSource.nodeId,
+              target: newNode.id,
+              sourceHandle: pendingSource.handleId || undefined,
+              targetHandle: INPUT_HANDLE,
             };
             workflowStore.addEdge(edge);
             workflowStore.clearNodeSearchQuery();
             workflowStore.requestTidyUp();
-          } else {
-            const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
-            if (!noInputTypes.includes(nodeType)) {
-              const edge: WorkflowEdge = {
-                id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
-                source: pendingSource.nodeId,
-                target: newNode.id,
-                sourceHandle: pendingSource.handleId || undefined,
-                targetHandle: "input",
-              };
-              workflowStore.addEdge(edge);
-              workflowStore.clearNodeSearchQuery();
-              workflowStore.requestTidyUp();
-            }
           }
           workflowStore.clearPendingConnectionSource();
         }
@@ -738,31 +778,21 @@ function handleDrop(event: DragEvent): void {
   workflowStore.addNode(newNode);
 
   if (pendingSource) {
-    if (pendingSource.handleId === "tool-input" && !BLOCKED_AS_TOOL.has(nodeType)) {
+    if (pendingSource.handleId === TOOL_INPUT_HANDLE) {
+      addToolEdge(newNode.id, pendingSource.nodeId);
+      workflowStore.clearNodeSearchQuery();
+      workflowStore.requestTidyUp();
+    } else if (!isNoRegularInputNodeType(nodeType)) {
       const edge: WorkflowEdge = {
-        id: `edge_${newNode.id}_${pendingSource.nodeId}_${Date.now()}`,
-        source: newNode.id,
-        target: pendingSource.nodeId,
-        sourceHandle: "tool-output",
-        targetHandle: "tool-input",
+        id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
+        source: pendingSource.nodeId,
+        target: newNode.id,
+        sourceHandle: pendingSource.handleId || undefined,
+        targetHandle: INPUT_HANDLE,
       };
       workflowStore.addEdge(edge);
       workflowStore.clearNodeSearchQuery();
       workflowStore.requestTidyUp();
-    } else {
-      const noInputTypes: NodeType[] = ["textInput", "cron", "sticky", "merge", "errorHandler", "telegramTrigger", "websocketTrigger", "slackTrigger", "imapTrigger"];
-      if (!noInputTypes.includes(nodeType)) {
-        const edge: WorkflowEdge = {
-          id: `edge_${pendingSource.nodeId}_${newNode.id}_${Date.now()}`,
-          source: pendingSource.nodeId,
-          target: newNode.id,
-          sourceHandle: pendingSource.handleId || undefined,
-          targetHandle: "input",
-        };
-        workflowStore.addEdge(edge);
-        workflowStore.clearNodeSearchQuery();
-        workflowStore.requestTidyUp();
-      }
     }
     workflowStore.clearPendingConnectionSource();
   }
@@ -1069,7 +1099,7 @@ function tidyUp(): void {
   const nodePositions = new Map<string, { x: number; y: number }>();
   const toolNodeAgentMap = new Map<string, string>();
   layoutEdges
-    .filter((edge) => edge.targetHandle === "tool-input")
+    .filter((edge) => edge.targetHandle === TOOL_INPUT_HANDLE)
     .forEach((edge) => toolNodeAgentMap.set(edge.source, edge.target));
 
   const agentToolNodes = new Map<string, string[]>();
