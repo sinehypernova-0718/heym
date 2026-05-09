@@ -8685,7 +8685,7 @@ class WorkflowExecutor:
                 if not owner_id:
                     raise ValueError("Drive Node: no owner context available")
 
-                if operation != "downloadUrl":
+                if operation not in ("downloadUrl", "getAll"):
                     file_id_str = self._resolve_template(
                         node_data.get("driveFileId", ""), inputs, node_id
                     )
@@ -8793,18 +8793,82 @@ class WorkflowExecutor:
 
                 else:
                     with SessionLocal() as db:
-                        file_row = (
-                            db.query(GeneratedFile)
-                            .filter(
-                                GeneratedFile.id == file_uuid,
-                                GeneratedFile.owner_id == owner_id,
+                        if operation == "getAll":
+                            query = (
+                                db.query(GeneratedFile)
+                                .filter(GeneratedFile.owner_id == owner_id)
+                                .order_by(GeneratedFile.created_at.desc())
                             )
-                            .first()
-                        )
-                        if not file_row:
-                            raise ValueError(
-                                f"Drive Node: file not found or access denied: {file_uuid}"
+                            raw_limit = node_data.get("driveLimit")
+                            if raw_limit is not None and str(raw_limit).strip() != "":
+                                limit = int(raw_limit)
+                                if limit > 0:
+                                    query = query.limit(limit)
+                            file_rows = query.all()
+                            base_url = self._base_url
+
+                            files = []
+                            for row in file_rows:
+                                default_token = next(
+                                    (
+                                        t
+                                        for t in (getattr(row, "access_tokens", None) or [])
+                                        if getattr(t, "basic_auth_password_hash", None) is None
+                                    ),
+                                    None,
+                                )
+                                created_at = getattr(row, "created_at", None)
+                                metadata = getattr(row, "metadata_json", None) or {}
+                                files.append(
+                                    {
+                                        "id": str(row.id),
+                                        "filename": row.filename,
+                                        "mime_type": row.mime_type,
+                                        "size_bytes": row.size_bytes,
+                                        "workflow_id": (
+                                            str(row.workflow_id)
+                                            if getattr(row, "workflow_id", None)
+                                            else None
+                                        ),
+                                        "source_node_label": getattr(
+                                            row, "source_node_label", None
+                                        ),
+                                        "download_url": (
+                                            build_download_url(base_url, default_token.token)
+                                            if default_token
+                                            else ""
+                                        ),
+                                        "metadata": metadata if isinstance(metadata, dict) else {},
+                                        "created_at": (
+                                            created_at.isoformat()
+                                            if hasattr(created_at, "isoformat")
+                                            else str(created_at)
+                                            if created_at is not None
+                                            else None
+                                        ),
+                                    }
+                                )
+
+                            output = {
+                                "status": "success",
+                                "operation": "getAll",
+                                "files": files,
+                                "count": len(files),
+                            }
+
+                        else:
+                            file_row = (
+                                db.query(GeneratedFile)
+                                .filter(
+                                    GeneratedFile.id == file_uuid,
+                                    GeneratedFile.owner_id == owner_id,
+                                )
+                                .first()
                             )
+                            if not file_row:
+                                raise ValueError(
+                                    f"Drive Node: file not found or access denied: {file_uuid}"
+                                )
 
                         if operation == "delete":
                             disk_path = _storage_root() / file_row.storage_path
@@ -8931,7 +8995,7 @@ class WorkflowExecutor:
                                 file_bytes = disk_path.read_bytes()
                                 output["file_base64"] = _base64.b64encode(file_bytes).decode()
 
-                        else:
+                        elif operation != "getAll":
                             raise ValueError(f"Drive Node: unknown operation '{operation}'")
 
             elif node_type == "mcpCall":

@@ -450,8 +450,16 @@ export interface NodeData {
   dataTableLimit?: number;
   dataTableSort?: string;
   dataTableInputMode?: "raw" | "selective";
-  driveOperation?: "get" | "delete" | "setPassword" | "setTtl" | "setMaxDownloads" | "downloadUrl";
+  driveOperation?:
+    | "get"
+    | "getAll"
+    | "delete"
+    | "setPassword"
+    | "setTtl"
+    | "setMaxDownloads"
+    | "downloadUrl";
   driveFileId?: string;
+  driveLimit?: number;
   drivePassword?: string;
   driveTtlHours?: number;
   driveMaxDownloads?: number;

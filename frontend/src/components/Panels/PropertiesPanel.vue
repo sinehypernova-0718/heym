@@ -2736,12 +2736,18 @@ const driveExpressionFieldCount = computed((): number => {
   if (!n || n.type !== "drive") {
     return 1;
   }
+  if (n.data.driveOperation === "getAll") {
+    return 0;
+  }
   return n.data.driveOperation === "setPassword" ? 2 : 1;
 });
 
 function openDriveExpressionFieldAtIndex(index: number): void {
   const n = selectedNode.value;
   if (!n || n.type !== "drive") {
+    return;
+  }
+  if (n.data.driveOperation === "getAll") {
     return;
   }
   currentDriveExpressionFieldIndex.value = index;
@@ -3124,6 +3130,7 @@ const dataTableOperationOptions = [
 
 const driveOperationOptions = [
   { value: "get", label: "Get File" },
+  { value: "getAll", label: "Get All Files" },
   { value: "downloadUrl", label: "Download from URL" },
   { value: "delete", label: "Delete File" },
   { value: "setPassword", label: "Set Password" },
@@ -9833,7 +9840,7 @@ onUnmounted(() => {
             </div>
 
             <div
-              v-if="selectedNode.data.driveOperation && selectedNode.data.driveOperation !== 'downloadUrl'"
+              v-if="selectedNode.data.driveOperation && !['downloadUrl', 'getAll'].includes(selectedNode.data.driveOperation)"
               class="space-y-2"
             >
               <Label>File ID</Label>
@@ -9885,6 +9892,23 @@ onUnmounted(() => {
               </template>
               <p class="text-xs text-muted-foreground">
                 ID of the file to manage
+              </p>
+            </div>
+
+            <div
+              v-if="selectedNode.data.driveOperation === 'getAll'"
+              class="space-y-2"
+            >
+              <Label>Limit</Label>
+              <Input
+                type="number"
+                :model-value="selectedNode.data.driveLimit ?? ''"
+                min="0"
+                placeholder="No limit"
+                @update:model-value="updateNodeData('driveLimit', $event !== '' ? Number($event) : undefined)"
+              />
+              <p class="text-xs text-muted-foreground">
+                Maximum number of files to return
               </p>
             </div>
 
@@ -9988,6 +10012,13 @@ onUnmounted(() => {
                   <div>${{ selectedNode.data.label }}.size_bytes - file size</div>
                   <div>${{ selectedNode.data.label }}.download_url - public download URL</div>
                   <div>${{ selectedNode.data.label }}.file_base64 - base64 content (if enabled)</div>
+                </template>
+                <template v-else-if="selectedNode.data.driveOperation === 'getAll'">
+                  <div>${{ selectedNode.data.label }}.files - file metadata array</div>
+                  <div>${{ selectedNode.data.label }}.count - number of files</div>
+                  <div>${{ selectedNode.data.label }}.files[0].filename - file name</div>
+                  <div>${{ selectedNode.data.label }}.files[0].size_bytes - file size</div>
+                  <div>${{ selectedNode.data.label }}.files[0].download_url - public download URL</div>
                 </template>
                 <template v-else-if="selectedNode.data.driveOperation === 'downloadUrl'">
                   <div>${{ selectedNode.data.label }}.id - new file UUID</div>

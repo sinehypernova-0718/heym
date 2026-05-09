@@ -30,7 +30,7 @@ See [Drive reference](../reference/drive.md) for full details.
 
 ## Related
 
-- [Drive Node](../nodes/drive-node.md) - Delete files or change share constraints from a workflow
+- [Drive Node](../nodes/drive-node.md) - List files, retrieve metadata, or change share constraints from a workflow
 - [File Generation](../reference/file-generation.md) - How skills generate files
 - [Drive reference](../reference/drive.md) - Share links, tokens, and cleanup
 - [Portal](../reference/portal.md) - File links in portal chat responses

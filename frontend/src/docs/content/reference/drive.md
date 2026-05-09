@@ -55,6 +55,7 @@ Generated files are stored on the server's filesystem under `data/files/`. In Do
 
 The [Drive node](../nodes/drive-node.md) lets you manage Drive files programmatically from within a workflow. Use it to:
 
+- **List** your files and return metadata such as filename, MIME type, size, source, and download URL
 - **Delete** a file after it has been delivered to the user
 - **Set a password** on the download link
 - **Set a TTL** so the link expires after N hours
@@ -66,10 +67,9 @@ See the [Drive node documentation](../nodes/drive-node.md) for configuration det
 
 ## Related
 
-- [Drive Node](../nodes/drive-node.md) - Workflow operations (delete, password, TTL, max downloads)
+- [Drive Node](../nodes/drive-node.md) - Workflow operations (list, get, delete, password, TTL, max downloads)
 - [Drive Tab](../tabs/drive-tab.md) - Browse files in the dashboard
 - [File Generation](./file-generation.md) - How `_generated_files` and download URLs are produced
 
 ## Cleanup
 Expired share tokens are automatically cleaned up daily. Files themselves persist until manually deleted through the Drive tab. Use **Clear All** to delete every file and their share links in one action.
-

@@ -2,6 +2,7 @@
 
 import unittest
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -208,6 +209,22 @@ def _make_db_mock(
     deleted_objects: list = []
     fake_db._deleted = deleted_objects
     fake_db.delete.side_effect = lambda obj: deleted_objects.append(obj)
+    return fake_db
+
+
+def _make_get_all_db_mock(file_rows: list[object]) -> MagicMock:
+    """Build a fake SessionLocal mock for Drive getAll list queries."""
+    fake_db = MagicMock()
+    fake_db.__enter__ = MagicMock(return_value=fake_db)
+    fake_db.__exit__ = MagicMock(return_value=False)
+
+    query = MagicMock()
+    query.filter.return_value = query
+    query.order_by.return_value = query
+    query.limit.return_value = query
+    query.all.return_value = file_rows
+    fake_db.query.return_value = query
+    fake_db._query = query
     return fake_db
 
 
@@ -830,6 +847,67 @@ class DriveNodeGetTests(unittest.TestCase):
         drive_nr = next((r for r in result.node_results if r["node_type"] == "drive"), None)
         self.assertIsNotNone(drive_nr)
         self.assertEqual(drive_nr["status"], "error")
+
+
+class DriveNodeGetAllTests(unittest.TestCase):
+    """Drive node getAll operation."""
+
+    def test_get_all_returns_file_metadata_list(self) -> None:
+        """getAll returns the owner's file metadata without file contents."""
+        owner_id = uuid.uuid4()
+        workflow_id = uuid.uuid4()
+        first_file_id = uuid.uuid4()
+        second_file_id = uuid.uuid4()
+        file_rows = [
+            SimpleNamespace(
+                id=first_file_id,
+                owner_id=owner_id,
+                filename="report.pdf",
+                mime_type="application/pdf",
+                size_bytes=45231,
+                workflow_id=workflow_id,
+                source_node_label="generateReport",
+                metadata_json={"page_count": 3},
+                created_at=datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc),
+                access_tokens=[
+                    SimpleNamespace(token="tok-report", basic_auth_password_hash=None),
+                ],
+            ),
+            SimpleNamespace(
+                id=second_file_id,
+                owner_id=owner_id,
+                filename="image.png",
+                mime_type="image/png",
+                size_bytes=12345,
+                workflow_id=None,
+                source_node_label=None,
+                metadata_json={},
+                created_at=datetime(2026, 1, 1, 9, 30, tzinfo=timezone.utc),
+                access_tokens=[],
+            ),
+        ]
+        db = _make_get_all_db_mock(file_rows)
+
+        nr = _run_drive_workflow(
+            {"label": "drive", "driveOperation": "getAll"},
+            owner_id,
+            db,
+        )
+
+        self.assertEqual(nr["status"], "success")
+        self.assertEqual(nr["output"]["operation"], "getAll")
+        self.assertEqual(nr["output"]["count"], 2)
+        self.assertEqual(len(nr["output"]["files"]), 2)
+        self.assertEqual(nr["output"]["files"][0]["id"], str(first_file_id))
+        self.assertEqual(nr["output"]["files"][0]["filename"], "report.pdf")
+        self.assertEqual(nr["output"]["files"][0]["size_bytes"], 45231)
+        self.assertEqual(nr["output"]["files"][0]["workflow_id"], str(workflow_id))
+        self.assertEqual(nr["output"]["files"][0]["source_node_label"], "generateReport")
+        self.assertEqual(nr["output"]["files"][0]["metadata"], {"page_count": 3})
+        self.assertEqual(nr["output"]["files"][0]["download_url"], "/api/files/dl/newtoken")
+        self.assertEqual(nr["output"]["files"][1]["download_url"], "")
+        self.assertNotIn("file_base64", nr["output"]["files"][0])
+        db._query.all.assert_called_once()
 
 
 class DriveNodeDownloadUrlTests(unittest.TestCase):
