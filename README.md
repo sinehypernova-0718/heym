@@ -616,4 +616,10 @@ Commercial use, enterprise licensing, and professional support are available.
   </picture>
 </a>
 
+## Contributors
+
+<a href="https://github.com/heymrun/heym/graphs/contributors">
+  <img alt="Heym contributors" src="https://contrib.rocks/image?repo=heymrun/heym" />
+</a>
+
 </div>
