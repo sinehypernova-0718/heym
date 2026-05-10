@@ -178,14 +178,17 @@ async def upload_file(
     """Upload a file manually to Drive."""
     base_url = build_public_base_url(request)
     file_bytes = await file.read()
-    row = await store_file(
-        db,
-        owner_id=user.id,
-        file_bytes=file_bytes,
-        filename=file.filename or "upload",
-        mime_type=file.content_type,
-        source_node_label="manual upload",
-    )
+    try:
+        row = await store_file(
+            db,
+            owner_id=user.id,
+            file_bytes=file_bytes,
+            filename=file.filename or "upload",
+            mime_type=file.content_type,
+            source_node_label="manual upload",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     await create_access_token(db, file_id=row.id, created_by_id=user.id)
     await db.commit()
     await db.refresh(row, ["access_tokens"])

@@ -5,7 +5,7 @@ import secrets
 import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import bcrypt
 from sqlalchemy import select
@@ -17,6 +17,37 @@ from app.db.models import FileAccessToken, GeneratedFile
 
 def _storage_root() -> Path:
     return Path(settings.file_storage_dir)
+
+
+def _normalize_storage_filename(filename: str) -> str:
+    normalized = filename.strip()
+    if not normalized:
+        raise ValueError("Filename cannot be empty")
+    if "\x00" in normalized:
+        raise ValueError("Filename cannot contain NUL bytes")
+
+    posix_path = PurePosixPath(normalized)
+    windows_path = PureWindowsPath(normalized)
+    path_parts = list(posix_path.parts) + list(windows_path.parts)
+    if (
+        normalized in {".", ".."}
+        or any(part == ".." for part in path_parts)
+        or posix_path.name != normalized
+        or windows_path.name != normalized
+        or windows_path.drive
+        or windows_path.root
+    ):
+        raise ValueError("Filename cannot contain path components")
+
+    return normalized
+
+
+def _safe_storage_path(relative_path: str) -> Path:
+    storage_root = _storage_root().resolve()
+    candidate = (storage_root / relative_path).resolve()
+    if not candidate.is_relative_to(storage_root):
+        raise ValueError("File path escapes storage root")
+    return candidate
 
 
 async def store_file(
@@ -32,6 +63,8 @@ async def store_file(
     source_node_label: str | None = None,
     metadata: dict | None = None,
 ) -> GeneratedFile:
+    filename = _normalize_storage_filename(filename)
+
     if not mime_type:
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
@@ -43,7 +76,7 @@ async def store_file(
 
     file_uuid = uuid.uuid4()
     relative_path = f"{owner_id}/{file_uuid}/{filename}"
-    absolute_path = _storage_root() / relative_path
+    absolute_path = _safe_storage_path(relative_path)
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
     absolute_path.write_bytes(file_bytes)
 
@@ -66,7 +99,7 @@ async def store_file(
 
 
 def get_file_path(generated_file: GeneratedFile) -> Path:
-    return _storage_root() / generated_file.storage_path
+    return _safe_storage_path(generated_file.storage_path)
 
 
 async def delete_file(db: AsyncSession, generated_file: GeneratedFile) -> None:
