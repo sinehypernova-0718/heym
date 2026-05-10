@@ -1221,7 +1221,7 @@ async def run_execute_workflow_tool(
     if not workflow.nodes:
         return json.dumps({"status": "error", "error": "Workflow has no nodes"})
 
-    workflow_cache = await collect_referenced_workflows(db, workflow.nodes)
+    workflow_cache = await collect_referenced_workflows(db, workflow.nodes, actor_user_id=user_id)
     credentials_context = await get_credentials_context(db, user_id)
 
     enriched_inputs = {

@@ -321,7 +321,9 @@ class RabbitMQConsumerManager:
                     await message.nack(requeue=True)
                     return
 
-                workflow_cache = await collect_referenced_workflows(db, workflow.nodes)
+                workflow_cache = await collect_referenced_workflows(
+                    db, workflow.nodes, actor_user_id=workflow.owner_id
+                )
                 credentials_context = await get_credentials_context(db, workflow.owner_id)
                 global_variables_context = await get_global_variables_context(db, workflow.owner_id)
 

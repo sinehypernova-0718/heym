@@ -449,7 +449,9 @@ async def _dispatch_named_server_jsonrpc(
             }
 
         enriched_inputs = {"headers": {}, "query": {}, "body": arguments}
-        workflow_cache = await collect_referenced_workflows(db, target_workflow.nodes)
+        workflow_cache = await collect_referenced_workflows(
+            db, target_workflow.nodes, actor_user_id=user.id
+        )
         credentials_context = await get_credentials_context_for_user(db, user.id)
         global_variables_context = await get_global_variables_context(db, user.id)
 

@@ -127,7 +127,9 @@ async def _execute_workflow_background(
                 logger.error("Workflow %s not found for Slack execution", workflow.id)
                 return
 
-            workflow_cache = await collect_referenced_workflows(db, fresh_workflow.nodes)
+            workflow_cache = await collect_referenced_workflows(
+                db, fresh_workflow.nodes, actor_user_id=fresh_workflow.owner_id
+            )
             credentials_context = await get_credentials_context(db, fresh_workflow.owner_id)
             global_variables_context = await get_global_variables_context(
                 db, fresh_workflow.owner_id
