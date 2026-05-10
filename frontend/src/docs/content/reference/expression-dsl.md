@@ -81,6 +81,26 @@ When an expression is part of a larger string, the final result is always a stri
 - `Count: $node.count` → `"Count: 5"`
 - `Hello $node.name` → `"Hello Ada"`
 
+## Sticky Notes
+
+[Sticky Note](../nodes/sticky-note-node.md) nodes are canvas documentation, not executable expression fields. Their `note` content is rendered as markdown, so use regular markdown links and images instead of `$...` expressions.
+
+Sticky notes support a custom display title and six saved background colors:
+
+```json
+{
+  "type": "sticky",
+  "data": {
+    "label": "stickyNote",
+    "stickyTitle": "Launch Notes",
+    "stickyColor": "sky",
+    "note": "![Heym Logo](https://heym.run/og-image.png)\n\n[Heym.run](https://heym.run)"
+  }
+}
+```
+
+Allowed `stickyColor` values are `yellow`, `sky`, `emerald`, `rose`, `violet`, and `zinc`.
+
 ## Arithmetic
 
 Supported operators: `+`, `-`, `*`, `/`, `%`
@@ -347,6 +367,7 @@ item.name
 - [Expression Evaluation Dialog](./expression-evaluation-dialog.md) – Expandable editor with backend live preview and autocomplete
 - [Canvas Features](./canvas-features.md) – Data pin for testing expressions without re-running nodes
 - [Node Types](./node-types.md) – Nodes that use expressions ([LLM](../nodes/llm-node.md), [Condition](../nodes/condition-node.md), [Output](../nodes/output-node.md), [Set](../nodes/set-node.md), etc.)
+- [Sticky Note](../nodes/sticky-note-node.md) – Canvas markdown notes with editable title, color, and image display
 - [Agent Node](../nodes/agent-node.md) – Using expressions in agent prompts
 - [Agent Persistent Memory](./agent-persistent-memory.md) – `persistentMemoryEnabled` and `memoryShares` in agent `data` (not expression fields)
 - [Workflow Structure](./workflow-structure.md) – Node `data` fields that accept expressions

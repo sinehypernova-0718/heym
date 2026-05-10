@@ -867,7 +867,7 @@ function getDefaultNodeData(type: NodeType): WorkflowNode["data"] {
       websocketSubprotocols: "",
       websocketMessage: "$input",
     },
-    sticky: { label: "stickyNote", note: "Double click to edit" },
+    sticky: { label: "stickyNote", stickyTitle: "Sticky Note", stickyColor: "yellow", note: "Double click to edit" },
     merge: { label: "merge", inputCount: 2 },
     set: { label: "set", mappings: [{ key: "text", value: "$input.text" }] },
     jsonOutputMapper: {
