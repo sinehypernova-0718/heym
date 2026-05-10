@@ -12,7 +12,12 @@ from fastapi import HTTPException, Request
 
 from app.api.ai_assistant import run_execute_workflow_tool
 from app.api.portal import portal_cancel_execution
-from app.api.workflows import execute_workflow_endpoint, execute_workflow_stream, parse_execute_body
+from app.api.workflows import (
+    collect_referenced_workflows,
+    execute_workflow_endpoint,
+    execute_workflow_stream,
+    parse_execute_body,
+)
 from app.db.models import DataTable, DataTableRow
 from app.services.workflow_executor import (
     ExecutionResult,
@@ -43,6 +48,109 @@ def make_request(
         "query_string": query_string,
     }
     return Request(scope, receive)
+
+
+class CollectReferencedWorkflowsAccessTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _result(value: object) -> MagicMock:
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = value
+        return result
+
+    async def test_execute_node_rejects_referenced_workflow_without_actor_access(self) -> None:
+        actor_id = uuid.uuid4()
+        victim_workflow_id = uuid.uuid4()
+        victim_workflow = SimpleNamespace(
+            id=victim_workflow_id,
+            owner_id=uuid.uuid4(),
+            name="victim",
+            nodes=[{"id": "start", "type": "manual", "data": {}}],
+            edges=[],
+        )
+        db = AsyncMock()
+        db.execute.side_effect = [
+            self._result(victim_workflow),
+            self._result(None),
+            self._result(None),
+        ]
+
+        with self.assertRaises(HTTPException) as ctx:
+            await collect_referenced_workflows(
+                db,
+                [
+                    {
+                        "id": "execute-1",
+                        "type": "execute",
+                        "data": {"executeWorkflowId": str(victim_workflow_id)},
+                    }
+                ],
+                actor_user_id=actor_id,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(ctx.exception.detail, "Referenced workflow access denied")
+
+    async def test_agent_subworkflow_rejects_referenced_workflow_without_actor_access(self) -> None:
+        actor_id = uuid.uuid4()
+        victim_workflow_id = uuid.uuid4()
+        victim_workflow = SimpleNamespace(
+            id=victim_workflow_id,
+            owner_id=uuid.uuid4(),
+            name="victim",
+            nodes=[{"id": "start", "type": "manual", "data": {}}],
+            edges=[],
+        )
+        db = AsyncMock()
+        db.execute.side_effect = [
+            self._result(victim_workflow),
+            self._result(None),
+            self._result(None),
+        ]
+
+        with self.assertRaises(HTTPException) as ctx:
+            await collect_referenced_workflows(
+                db,
+                [
+                    {
+                        "id": "agent-1",
+                        "type": "agent",
+                        "data": {"subWorkflowIds": [str(victim_workflow_id)]},
+                    }
+                ],
+                actor_user_id=actor_id,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(ctx.exception.detail, "Referenced workflow access denied")
+
+    async def test_actor_owned_referenced_workflow_is_cached(self) -> None:
+        actor_id = uuid.uuid4()
+        target_workflow_id = uuid.uuid4()
+        target_workflow = SimpleNamespace(
+            id=target_workflow_id,
+            owner_id=actor_id,
+            name="owned child",
+            nodes=[{"id": "start", "type": "manual", "data": {}}],
+            edges=[],
+        )
+        db = AsyncMock()
+        db.execute.return_value = self._result(target_workflow)
+
+        cache = await collect_referenced_workflows(
+            db,
+            [
+                {
+                    "id": "execute-1",
+                    "type": "execute",
+                    "data": {"executeWorkflowId": str(target_workflow_id)},
+                }
+            ],
+            actor_user_id=actor_id,
+        )
+
+        self.assertIn(str(target_workflow_id), cache)
+        self.assertEqual(cache[str(target_workflow_id)]["name"], "owned child")
+        self.assertEqual(cache[str(target_workflow_id)]["nodes"], target_workflow.nodes)
 
 
 class ParseExecuteBodyTests(unittest.IsolatedAsyncioTestCase):

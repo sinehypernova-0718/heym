@@ -1931,10 +1931,55 @@ async def validate_workflow_auth(
         return
 
 
+async def _add_referenced_workflow_to_cache(
+    db: AsyncSession,
+    target_id: str,
+    collected: dict[str, dict],
+    actor_user_id: uuid.UUID | None,
+) -> None:
+    if not target_id or target_id in collected:
+        return
+
+    try:
+        target_uuid = uuid.UUID(target_id)
+    except ValueError:
+        return
+
+    result = await db.execute(select(Workflow).where(Workflow.id == target_uuid))
+    target_workflow = result.scalar_one_or_none()
+    if not target_workflow or not target_workflow.nodes:
+        return
+
+    if actor_user_id is not None and not await user_has_workflow_access(
+        db,
+        target_workflow,
+        actor_user_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Referenced workflow access denied",
+        )
+
+    input_fields = extract_input_fields_from_workflow(target_workflow)
+    collected[target_id] = {
+        "nodes": target_workflow.nodes,
+        "edges": target_workflow.edges,
+        "name": target_workflow.name or "",
+        "input_fields": [f.model_dump(by_alias=True) for f in input_fields],
+    }
+    await collect_referenced_workflows(
+        db,
+        target_workflow.nodes,
+        collected,
+        actor_user_id=actor_user_id,
+    )
+
+
 async def collect_referenced_workflows(
     db: AsyncSession,
     nodes: list[dict],
     collected: dict[str, dict] | None = None,
+    actor_user_id: uuid.UUID | None = None,
 ) -> dict[str, dict]:
     if collected is None:
         collected = {}
@@ -1942,43 +1987,11 @@ async def collect_referenced_workflows(
     for node in nodes:
         if node.get("type") == "execute":
             target_id = node.get("data", {}).get("executeWorkflowId", "")
-            if target_id and target_id not in collected:
-                try:
-                    result = await db.execute(
-                        select(Workflow).where(Workflow.id == uuid.UUID(target_id))
-                    )
-                    target_workflow = result.scalar_one_or_none()
-                    if target_workflow and target_workflow.nodes:
-                        input_fields = extract_input_fields_from_workflow(target_workflow)
-                        collected[target_id] = {
-                            "nodes": target_workflow.nodes,
-                            "edges": target_workflow.edges,
-                            "name": target_workflow.name or "",
-                            "input_fields": [f.model_dump(by_alias=True) for f in input_fields],
-                        }
-                        await collect_referenced_workflows(db, target_workflow.nodes, collected)
-                except Exception:
-                    pass
+            await _add_referenced_workflow_to_cache(db, target_id, collected, actor_user_id)
 
         if node.get("type") == "agent":
             for target_id in node.get("data", {}).get("subWorkflowIds") or []:
-                if target_id and target_id not in collected:
-                    try:
-                        result = await db.execute(
-                            select(Workflow).where(Workflow.id == uuid.UUID(target_id))
-                        )
-                        target_workflow = result.scalar_one_or_none()
-                        if target_workflow and target_workflow.nodes:
-                            input_fields = extract_input_fields_from_workflow(target_workflow)
-                            collected[target_id] = {
-                                "nodes": target_workflow.nodes,
-                                "edges": target_workflow.edges,
-                                "name": target_workflow.name or "",
-                                "input_fields": [f.model_dump(by_alias=True) for f in input_fields],
-                            }
-                            await collect_referenced_workflows(db, target_workflow.nodes, collected)
-                    except Exception:
-                        pass
+                await _add_referenced_workflow_to_cache(db, target_id, collected, actor_user_id)
 
     return collected
 
@@ -2171,7 +2184,9 @@ async def execute_workflow_endpoint(
             detail="Workflow has no nodes",
         )
 
-    workflow_cache = await collect_referenced_workflows(db, workflow.nodes)
+    workflow_cache = await collect_referenced_workflows(
+        db, workflow.nodes, actor_user_id=current_user.id if current_user else workflow.owner_id
+    )
 
     credentials_owner_id = current_user.id if current_user else workflow.owner_id
     credentials_context = await get_credentials_context(db, credentials_owner_id)
@@ -2729,7 +2744,9 @@ async def execute_workflow_stream(
             detail="Workflow has no nodes",
         )
 
-    workflow_cache = await collect_referenced_workflows(db, workflow.nodes)
+    workflow_cache = await collect_referenced_workflows(
+        db, workflow.nodes, actor_user_id=current_user.id if current_user else workflow.owner_id
+    )
 
     credentials_owner_id = current_user.id if current_user else workflow.owner_id
     credentials_context = await get_credentials_context(db, credentials_owner_id)
