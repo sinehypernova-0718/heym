@@ -75,6 +75,8 @@ export interface WorkflowNode {
   data: NodeData;
 }
 
+export type StickyNoteColor = "yellow" | "sky" | "emerald" | "rose" | "violet" | "zinc";
+
 export interface WorkflowEdge {
   id: string;
   source: string;
@@ -325,6 +327,8 @@ export interface NodeData {
   websocketMessage?: string;
   websocketTriggerEvents?: WebSocketTriggerEventName[];
   note?: string;
+  stickyTitle?: string;
+  stickyColor?: StickyNoteColor;
   stickyWidth?: number;
   stickyHeight?: number;
   status?: string;

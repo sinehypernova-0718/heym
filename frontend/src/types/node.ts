@@ -245,6 +245,8 @@ export const NODE_DEFINITIONS: Record<NodeType, NodeDefinition> = {
     outputs: 0,
     defaultData: {
       label: "stickyNote",
+      stickyTitle: "Sticky Note",
+      stickyColor: "yellow",
       note: "Double click to edit",
     },
   },

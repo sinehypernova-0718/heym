@@ -1,6 +1,6 @@
 # Sticky Note
 
-The **Sticky Note** node adds markdown notes to the canvas. It is not executedâ€”use it for documentation, instructions, or workflow notes.
+The **Sticky Note** node adds rich markdown notes to the canvas. It is not executedâ€”use it for documentation, instructions, reference images, or workflow notes.
 
 ## Overview
 
@@ -15,7 +15,9 @@ The **Sticky Note** node adds markdown notes to the canvas. It is not executedâ€
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `label` | string | Node identifier (camelCase) |
-| `note` | string | Markdown content. Double-click to edit on canvas. |
+| `stickyTitle` | string | Display title shown at the top of the sticky note. |
+| `stickyColor` | string | Background color: `yellow`, `sky`, `emerald`, `rose`, `violet`, or `zinc`. |
+| `note` | string | Markdown content. Double-click to edit on canvas. Supports links and image markdown such as `![Alt](https://example.com/image.png)`. |
 
 ## Example
 
@@ -24,7 +26,9 @@ The **Sticky Note** node adds markdown notes to the canvas. It is not executedâ€
   "type": "sticky",
   "data": {
     "label": "workflowNotes",
-    "note": "## Workflow Notes\n\nThis workflow processes user input and returns a summary."
+    "stickyTitle": "Launch Notes",
+    "stickyColor": "sky",
+    "note": "![Heym Logo](https://heym.run/og-image.png)\n\n[Heym.run](https://heym.run)"
   }
 }
 ```
