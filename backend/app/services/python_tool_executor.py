@@ -4,6 +4,7 @@ Execute user-defined Python tool code with blacklist and timeout.
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,21 @@ BLACKLIST_BUILTINS = frozenset(
         "staticmethod",
         "classmethod",
         "__build_class__",
+        "object",
+        "type",
+    }
+)
+
+FORBIDDEN_CODE_FRAGMENTS = frozenset(
+    {
+        "__",
+        "catch_warnings",
+        "_module",
+        "func_globals",
+        "f_globals",
+        "gi_frame",
+        "cr_frame",
+        "tb_frame",
     }
 )
 
@@ -87,7 +103,26 @@ import sys
 
 BLACKLIST_BUILTINS = set(json.loads("""__BLACKLIST_BUILTINS__"""))
 BLACKLIST_MODULES = set(json.loads("""__BLACKLIST_MODULES__"""))
+FORBIDDEN_CODE_FRAGMENTS = set(json.loads("""__FORBIDDEN_CODE_FRAGMENTS__"""))
 _real_import = __import__
+
+def _validate_code_safety(code):
+    import ast
+
+    for fragment in FORBIDDEN_CODE_FRAGMENTS:
+        if fragment in code:
+            raise ValueError("Tool code contains a restricted Python introspection primitive")
+
+    tree = ast.parse(code)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            raise ValueError("Tool code may not access private Python attributes")
+        if isinstance(node, ast.Name) and node.id in BLACKLIST_BUILTINS:
+            raise ValueError(f"Builtin '{node.id}' is not allowed")
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            for fragment in FORBIDDEN_CODE_FRAGMENTS:
+                if fragment in node.value:
+                    raise ValueError("Tool code contains a restricted Python introspection primitive")
 
 def _safe_import(name, *args, **kwargs):
     root = name.split(".")[0]
@@ -109,6 +144,8 @@ def main():
     code = data["code"]
     function_name = data["function_name"]
     arguments = data["arguments"]
+
+    _validate_code_safety(code)
 
     safe_builtins = _create_safe_builtins()
     namespace = {"__builtins__": safe_builtins}
@@ -133,8 +170,11 @@ if __name__ == "__main__":
 def _get_runner_script() -> str:
     bl_builtins = json.dumps(list(BLACKLIST_BUILTINS))
     bl_modules = json.dumps(list(BLACKLIST_MODULES))
-    return _RUNNER_SCRIPT.replace("__BLACKLIST_BUILTINS__", bl_builtins).replace(
-        "__BLACKLIST_MODULES__", bl_modules
+    forbidden_fragments = json.dumps(list(FORBIDDEN_CODE_FRAGMENTS))
+    return (
+        _RUNNER_SCRIPT.replace("__BLACKLIST_BUILTINS__", bl_builtins)
+        .replace("__BLACKLIST_MODULES__", bl_modules)
+        .replace("__FORBIDDEN_CODE_FRAGMENTS__", forbidden_fragments)
     )
 
 
@@ -176,35 +216,44 @@ def execute_tool(
         f.write(runner)
         runner_path = f.name
 
+    safe_env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONSAFEPATH": "1",
+    }
+
     try:
-        proc = subprocess.Popen(
-            [sys.executable, runner_path],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            stdout, stderr = proc.communicate(
-                input=payload_json,
-                timeout=timeout_seconds,
+        with tempfile.TemporaryDirectory() as execution_cwd:
+            proc = subprocess.Popen(
+                [sys.executable, runner_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=execution_cwd,
+                env=safe_env,
             )
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            raise TimeoutError(f"Tool execution timed out after {timeout_seconds} seconds")
+            try:
+                stdout, stderr = proc.communicate(
+                    input=payload_json,
+                    timeout=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                raise TimeoutError(f"Tool execution timed out after {timeout_seconds} seconds")
 
-        if stderr:
-            logger.warning("Tool stderr: %s", stderr)
+            if stderr:
+                logger.warning("Tool stderr: %s", stderr)
 
-        try:
-            out = json.loads(stdout.strip())
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Tool output invalid: {stdout[:200]}") from e
+            try:
+                out = json.loads(stdout.strip())
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Tool output invalid: {stdout[:200]}") from e
 
-        if not out.get("success") and "error" in out:
-            raise ValueError(f"Tool error: {out['error']}")
+            if not out.get("success") and "error" in out:
+                raise ValueError(f"Tool error: {out['error']}")
 
-        return out.get("result")
+            return out.get("result")
     finally:
         Path(runner_path).unlink(missing_ok=True)
