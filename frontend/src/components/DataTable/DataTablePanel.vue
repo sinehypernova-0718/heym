@@ -857,21 +857,26 @@ onMounted(async () => {
                 <!-- Inline editing -->
                 <template v-if="editingCell?.rowId === row.id && editingCell?.colName === col.name">
                   <div class="flex flex-col gap-0.5">
-                    <select
+                    <div
                       v-if="col.type === 'boolean'"
-                      v-model="editingValue"
-                      class="w-full rounded border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                      autofocus
-                      @change="saveEdit"
-                      @keydown.escape="cancelEdit"
+                      class="relative"
                     >
-                      <option value="true">
-                        true
-                      </option>
-                      <option value="false">
-                        false
-                      </option>
-                    </select>
+                      <select
+                        v-model="editingValue"
+                        class="w-full appearance-none rounded border bg-background pl-2 pr-7 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                        autofocus
+                        @change="saveEdit"
+                        @keydown.escape="cancelEdit"
+                      >
+                        <option value="true">
+                          true
+                        </option>
+                        <option value="false">
+                          false
+                        </option>
+                      </select>
+                      <ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    </div>
                     <textarea
                       v-else-if="col.type === 'string' || col.type === 'json'"
                       v-model="editingValue"
@@ -950,21 +955,26 @@ onMounted(async () => {
                 :key="col.id"
                 class="px-3 py-2"
               >
-                <select
+                <div
                   v-if="col.type === 'boolean'"
-                  v-model="newRowData[col.name]"
-                  class="w-full rounded border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  class="relative"
                 >
-                  <option value="">
-                    --
-                  </option>
-                  <option value="true">
-                    true
-                  </option>
-                  <option value="false">
-                    false
-                  </option>
-                </select>
+                  <select
+                    v-model="newRowData[col.name]"
+                    class="w-full appearance-none rounded border bg-background pl-2 pr-7 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">
+                      --
+                    </option>
+                    <option value="true">
+                      true
+                    </option>
+                    <option value="false">
+                      false
+                    </option>
+                  </select>
+                  <ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                </div>
                 <input
                   v-else
                   v-model="newRowData[col.name]"
