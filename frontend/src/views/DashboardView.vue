@@ -210,7 +210,7 @@ const recentTemplates = ref<WorkflowTemplate[]>([]);
 
 async function loadRecentTemplates(): Promise<void> {
   try {
-    const all = await templatesApi.list();
+    const all = await templatesApi.list({ type: "workflow" });
     recentTemplates.value = all.workflow_templates.slice(0, 4);
   } catch {
     recentTemplates.value = [];
@@ -369,7 +369,10 @@ function onNodeTemplateSelectFromPalette(template: NodeTemplate): void {
 onMounted(async () => {
   await authStore.fetchUser();
   quickDrawerStore.hydratePreferences();
-  await Promise.all([loadWorkflows(), folderStore.fetchFolderTree(), loadRecentTemplates()]);
+  await Promise.all([loadWorkflows(), folderStore.fetchFolderTree()]);
+  if (workflows.value.length === 0 && folderStore.folderTree.length === 0) {
+    await loadRecentTemplates();
+  }
   document.addEventListener("click", closeContextMenu);
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("storage", onQuickDrawerPreferencesStorage);
