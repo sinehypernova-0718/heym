@@ -62,6 +62,15 @@ The Command Palette is available from the editor, dashboard, docs, and evals vie
 | `Enter` | Open the selected item |
 | `Escape` | Close the palette |
 
+## Dashboard Shortcuts
+
+These shortcuts are active on the Workflows tab when no other text input is active.
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl + F` / `Cmd + F` | Focus workflow search |
+| `Escape` | Clear workflow search when it has text |
+
 ## Properties Panel Shortcuts
 
 These shortcuts are active while a node is selected and the properties panel is open.

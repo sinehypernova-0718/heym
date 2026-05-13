@@ -719,12 +719,6 @@ async function clearVersionHistory(): Promise<void> {
                       {{ edgeChange.old_edge?.target || edgeChange.new_edge?.target }}
                     </span>
                   </div>
-                  <span
-                    class="text-xs px-2 py-0.5 rounded-full font-medium"
-                    :class="getChangeColor(edgeChange.change_type)"
-                  >
-                    {{ edgeChange.change_type }}
-                  </span>
                 </div>
               </div>
             </div>

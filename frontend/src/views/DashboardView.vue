@@ -18,6 +18,7 @@ import {
   PinOff,
   Plus,
   RotateCcw,
+  Search,
   Settings,
   Trash2,
   Workflow,
@@ -143,6 +144,8 @@ function onDataTableNavigate(id: string | null): void {
 }
 
 const workflows = ref<WorkflowListItem[]>([]);
+const workflowSearchQuery = ref("");
+const workflowSearchInput = ref<HTMLInputElement | null>(null);
 const loading = ref(true);
 const showCreateDialog = ref(false);
 const newWorkflowName = ref("");
@@ -268,6 +271,121 @@ const scheduledWorkflows = computed(() => {
   return workflows.value.filter((w) => w.scheduled_for_deletion);
 });
 
+const normalizedWorkflowSearchQuery = computed((): string => workflowSearchQuery.value.trim().toLowerCase());
+const isWorkflowSearchActive = computed((): boolean => normalizedWorkflowSearchQuery.value.length > 0);
+
+function matchesWorkflowSearch(workflow: WorkflowListItem, normalizedQuery: string): boolean {
+  if (normalizedQuery.length === 0) {
+    return true;
+  }
+
+  return `${workflow.name} ${workflow.description ?? ""}`.toLowerCase().includes(normalizedQuery);
+}
+
+function filterFolderTreeByWorkflowSearch(
+  folders: FolderTree[],
+  normalizedQuery: string,
+): FolderTree[] {
+  return folders.flatMap((folder): FolderTree[] => {
+    const children = filterFolderTreeByWorkflowSearch(folder.children, normalizedQuery);
+    const folderWorkflows = folder.workflows.filter((workflow) =>
+      matchesWorkflowSearch(workflow, normalizedQuery),
+    );
+
+    if (children.length === 0 && folderWorkflows.length === 0) {
+      return [];
+    }
+
+    return [{
+      ...folder,
+      children,
+      workflows: folderWorkflows,
+    }];
+  });
+}
+
+function collectFolderIds(folders: FolderTree[], folderIds: Set<string>): void {
+  for (const folder of folders) {
+    folderIds.add(folder.id);
+    collectFolderIds(folder.children, folderIds);
+  }
+}
+
+const displayedRootWorkflows = computed<WorkflowListItem[]>(() => {
+  return rootWorkflows.value.filter((workflow) =>
+    matchesWorkflowSearch(workflow, normalizedWorkflowSearchQuery.value),
+  );
+});
+
+const displayedPinnedDrawerWorkflows = computed<WorkflowListItem[]>(() => {
+  return pinnedDrawerWorkflows.value.filter((workflow) =>
+    matchesWorkflowSearch(workflow, normalizedWorkflowSearchQuery.value),
+  );
+});
+
+const displayedScheduledWorkflows = computed<WorkflowListItem[]>(() => {
+  return scheduledWorkflows.value.filter((workflow) =>
+    matchesWorkflowSearch(workflow, normalizedWorkflowSearchQuery.value),
+  );
+});
+
+const displayedFolderTree = computed<FolderTree[]>(() => {
+  if (!isWorkflowSearchActive.value) {
+    return folderStore.folderTree;
+  }
+
+  return filterFolderTreeByWorkflowSearch(
+    folderStore.folderTree,
+    normalizedWorkflowSearchQuery.value,
+  );
+});
+
+const workflowSearchExpandedFolderIds = computed<Set<string>>(() => {
+  const folderIds = new Set<string>();
+  if (isWorkflowSearchActive.value) {
+    collectFolderIds(displayedFolderTree.value, folderIds);
+  }
+  return folderIds;
+});
+
+const workflowSearchMatchCount = computed((): number => {
+  if (!isWorkflowSearchActive.value) {
+    return workflows.value.length;
+  }
+
+  return workflows.value.filter((workflow) =>
+    matchesWorkflowSearch(workflow, normalizedWorkflowSearchQuery.value),
+  ).length;
+});
+
+const workflowCountLabel = computed((): string => {
+  if (!isWorkflowSearchActive.value) {
+    return String(workflows.value.length);
+  }
+
+  return `${workflowSearchMatchCount.value}/${workflows.value.length}`;
+});
+
+function isFolderExpandedForDisplay(folderId: string): boolean {
+  return workflowSearchExpandedFolderIds.value.has(folderId) || folderStore.isFolderExpanded(folderId);
+}
+
+function clearWorkflowSearch(): void {
+  workflowSearchQuery.value = "";
+  workflowSearchInput.value?.focus();
+}
+
+function focusWorkflowSearch(): void {
+  if (activeTab.value !== "workflows") {
+    activeTab.value = "workflows";
+  }
+
+  requestAnimationFrame(() => {
+    workflowSearchInput.value?.focus();
+    workflowSearchInput.value?.select();
+  });
+}
+
 function showToast(message: string, type: "error" | "success" = "error"): void {
   toastMessage.value = message;
   toastType.value = type;
@@ -296,8 +414,31 @@ function isTypingTarget(target: EventTarget | null): boolean {
 function handleKeyDown(event: KeyboardEvent): void {
   const isTyping = isTypingTarget(event.target);
   const isMeta = event.metaKey || event.ctrlKey;
+  const key = event.key.toLowerCase();
 
-  if (isMeta && event.key === "k" && !isTyping) {
+  if (
+    key === "escape" &&
+    activeTab.value === "workflows" &&
+    isWorkflowSearchActive.value &&
+    (!isTyping || event.target === workflowSearchInput.value)
+  ) {
+    event.preventDefault();
+    clearWorkflowSearch();
+    return;
+  }
+
+  if (
+    isMeta &&
+    key === "f" &&
+    activeTab.value === "workflows" &&
+    (!isTyping || event.target === workflowSearchInput.value)
+  ) {
+    event.preventDefault();
+    focusWorkflowSearch();
+    return;
+  }
+
+  if (isMeta && key === "k" && !isTyping) {
     event.preventDefault();
     showCommandPalette.value = true;
     pushOverlayState();
@@ -388,6 +529,7 @@ onMounted(async () => {
     showWorkflowActionSheet.value = false;
     workflowActionWorkflow.value = null;
     actionSheetConsumedId.value = null;
+    workflowSearchQuery.value = "";
   });
 });
 
@@ -696,7 +838,7 @@ async function onDropToRoot(event: DragEvent): Promise<void> {
 function openContextMenu(event: MouseEvent, folder: FolderTree): void {
   event.preventDefault();
   event.stopPropagation();
-  contextMenuFolder.value = folder;
+  contextMenuFolder.value = folderStore.findFolderById(folder.id) ?? folder;
 
   const menuWidth = 160;
   const menuHeight = 150;
@@ -1220,7 +1362,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
                     v-if="!loading && workflows.length > 0"
                     class="inline-flex items-center px-2 py-px rounded-full text-xs font-medium bg-primary/10 text-primary ring-1 ring-inset ring-primary/20 mt-0.5"
                   >
-                    {{ workflows.length }}
+                    {{ workflowCountLabel }}
                   </span>
                 </div>
                 <p class="text-muted-foreground mt-0.5 text-sm">
@@ -1228,7 +1370,32 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
                   <span class="sm:hidden"> · Long press for move/delete</span>
                 </p>
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex flex-wrap items-center justify-end gap-1.5 sm:flex-nowrap">
+                <div
+                  v-if="!loading && (workflows.length > 0 || folderStore.folderTree.length > 0)"
+                  class="relative w-full min-w-[220px] sm:w-72 md:w-80"
+                >
+                  <Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    id="workflow-search"
+                    ref="workflowSearchInput"
+                    v-model="workflowSearchQuery"
+                    type="text"
+                    autocomplete="off"
+                    class="h-11 min-h-[44px] md:h-9 w-full rounded-xl border border-border bg-background px-9 py-2 text-sm shadow-sm transition-all duration-200 placeholder:text-muted-foreground/60 hover:border-border/80 focus-visible:outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/15"
+                    placeholder="Search workflows"
+                    @keydown.esc.prevent.stop="clearWorkflowSearch"
+                  >
+                  <button
+                    v-if="isWorkflowSearchActive"
+                    type="button"
+                    title="Clear search"
+                    class="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                    @click="clearWorkflowSearch"
+                  >
+                    <X class="h-4 w-4" />
+                  </button>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1347,7 +1514,20 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
               class="relative z-10 space-y-1.5"
             >
               <div
-                v-if="pinnedDrawerWorkflows.length > 0"
+                v-if="isWorkflowSearchActive && workflowSearchMatchCount === 0"
+                class="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/10 px-4 py-16 text-center"
+              >
+                <Search class="mb-3 h-8 w-8 text-muted-foreground/60" />
+                <p class="text-sm font-medium text-foreground">
+                  No workflows found
+                </p>
+                <p class="mt-1 max-w-md text-xs text-muted-foreground">
+                  Try a different title or description.
+                </p>
+              </div>
+
+              <div
+                v-if="displayedPinnedDrawerWorkflows.length > 0"
                 class="mb-6 space-y-4"
               >
                 <div class="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -1358,7 +1538,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
                 <div class="px-3">
                   <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <Card
-                      v-for="(workflow, index) in pinnedDrawerWorkflows"
+                      v-for="(workflow, index) in displayedPinnedDrawerWorkflows"
                       :key="workflow.id"
                       variant="interactive"
                       :class="cn(
@@ -1458,13 +1638,14 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
               </div>
 
               <div
-                v-for="folder in folderStore.folderTree"
+                v-for="folder in displayedFolderTree"
                 :key="folder.id"
                 class="folder-item"
               >
                 <FolderTreeItem
                   :folder="folder"
-                  :is-expanded="folderStore.isFolderExpanded(folder.id)"
+                  :is-expanded="isFolderExpandedForDisplay(folder.id)"
+                  :force-expanded-folder-ids="workflowSearchExpandedFolderIds"
                   :drag-over-folder-id="dragOverFolderId"
                   :dragged-workflow-id="draggedWorkflowId"
                   :copying-id="copyingId"
@@ -1488,6 +1669,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
               </div>
 
               <div
+                v-if="!isWorkflowSearchActive || displayedRootWorkflows.length > 0 || draggedWorkflowId"
                 :class="cn(
                   'rounded-xl border-2 border-dashed p-3 transition-all',
                   dragOverRoot ? 'border-primary bg-primary/5' : 'border-transparent'
@@ -1506,7 +1688,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <Card
-                    v-for="(workflow, index) in rootWorkflows"
+                    v-for="(workflow, index) in displayedRootWorkflows"
                     :key="workflow.id"
                     variant="interactive"
                     :class="cn(
@@ -1611,6 +1793,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
               </div>
 
               <div
+                v-if="!isWorkflowSearchActive || displayedScheduledWorkflows.length > 0 || draggedWorkflowId"
                 :class="cn(
                   'mt-6 rounded-xl border-2 border-dashed p-3 transition-all duration-300',
                   dragOverTrash ? 'border-destructive bg-destructive/5' : 'border-border/40 bg-muted/5'
@@ -1622,7 +1805,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
               >
                 <div
                   class="flex items-center gap-2"
-                  :class="{ 'mb-3': scheduledWorkflows.length > 0 || draggedWorkflowId }"
+                  :class="{ 'mb-3': displayedScheduledWorkflows.length > 0 || draggedWorkflowId }"
                 >
                   <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-destructive/10 text-destructive">
                     <Trash2 class="w-4 h-4" />
@@ -1645,11 +1828,11 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
                 </div>
 
                 <div
-                  v-if="scheduledWorkflows.length > 0"
+                  v-if="displayedScheduledWorkflows.length > 0"
                   class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
                 >
                   <Card
-                    v-for="(workflow, index) in scheduledWorkflows"
+                    v-for="(workflow, index) in displayedScheduledWorkflows"
                     :key="workflow.id"
                     variant="interactive"
                     :class="cn(
