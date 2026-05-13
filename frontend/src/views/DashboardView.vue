@@ -529,6 +529,7 @@ onMounted(async () => {
     showWorkflowActionSheet.value = false;
     workflowActionWorkflow.value = null;
     actionSheetConsumedId.value = null;
+    workflowSearchQuery.value = "";
   });
 });
 
