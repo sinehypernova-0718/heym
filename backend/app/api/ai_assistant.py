@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.analytics import compute_analytics_stats, upsert_workflow_analytics_snapshot
@@ -43,6 +43,7 @@ from app.db.models import (
     Workflow,
     WorkflowShare,
     WorkflowTeamShare,
+    WorkflowVersion,
 )
 from app.db.session import get_db
 from app.services import template_service
@@ -1116,6 +1117,8 @@ async def edit_and_run_generated_workflow_tool(
             "nodes": workflow.nodes or [],
             "edges": workflow.edges or [],
         }
+        old_nodes = copy.deepcopy(workflow.nodes or [])
+        old_edges = copy.deepcopy(workflow.edges or [])
         system_prompt = build_assistant_prompt(
             current_workflow,
             available_workflows,
@@ -1158,6 +1161,14 @@ async def edit_and_run_generated_workflow_tool(
         workflow.description = workflow_config["description"]
         workflow.nodes = nodes
         workflow.edges = edges
+        if old_nodes != nodes or old_edges != edges:
+            await _record_chat_workflow_edit_version(
+                db=db,
+                workflow=workflow,
+                user_id=user.id,
+                old_nodes=old_nodes,
+                old_edges=old_edges,
+            )
         await db.flush()
 
         run_inputs = dict(inputs or {})
@@ -1195,6 +1206,41 @@ async def edit_and_run_generated_workflow_tool(
     except Exception as exc:
         logger.exception("Dashboard chat edit_and_run_workflow failed")
         return json.dumps({"status": "error", "error": str(exc)})
+
+
+async def _record_chat_workflow_edit_version(
+    *,
+    db: AsyncSession,
+    workflow: Workflow,
+    user_id: uuid.UUID,
+    old_nodes: list[dict[str, Any]],
+    old_edges: list[dict[str, Any]],
+) -> None:
+    """Store the pre-edit workflow snapshot so Chat edits appear in Edit History."""
+    max_version_result = await db.execute(
+        select(func.max(WorkflowVersion.version_number)).where(
+            WorkflowVersion.workflow_id == workflow.id
+        )
+    )
+    max_version = max_version_result.scalar() or 0
+    db.add(
+        WorkflowVersion(
+            workflow_id=workflow.id,
+            version_number=max_version + 1,
+            name=workflow.name,
+            description=workflow.description,
+            nodes=copy.deepcopy(old_nodes),
+            edges=copy.deepcopy(old_edges),
+            auth_type=workflow.auth_type,
+            auth_header_key=workflow.auth_header_key,
+            auth_header_value=workflow.auth_header_value,
+            webhook_body_mode=workflow.webhook_body_mode,
+            cache_ttl_seconds=workflow.cache_ttl_seconds,
+            rate_limit_requests=workflow.rate_limit_requests,
+            rate_limit_window_seconds=workflow.rate_limit_window_seconds,
+            created_by_id=user_id,
+        )
+    )
 
 
 async def run_execute_workflow_tool(

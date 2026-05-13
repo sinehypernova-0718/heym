@@ -17,7 +17,7 @@ from app.api.ai_assistant import (
     edit_and_run_generated_workflow_tool,
     stream_dashboard_chat,
 )
-from app.db.models import CredentialType
+from app.db.models import CredentialType, WebhookBodyMode, WorkflowAuthType, WorkflowVersion
 from app.services.llm_trace import LLMTraceContext
 
 
@@ -595,6 +595,13 @@ Here is the workflow:
             }
         ]
         workflow.edges = []
+        workflow.auth_type = WorkflowAuthType.anonymous
+        workflow.auth_header_key = None
+        workflow.auth_header_value = None
+        workflow.webhook_body_mode = WebhookBodyMode.generic
+        workflow.cache_ttl_seconds = None
+        workflow.rate_limit_requests = None
+        workflow.rate_limit_window_seconds = None
 
         builder_content = """
 ```json
@@ -627,7 +634,9 @@ Here is the workflow:
         db = MagicMock()
         credential_result = MagicMock()
         credential_result.scalars.return_value.all.return_value = [credential.id]
-        db.execute = AsyncMock(return_value=credential_result)
+        max_version_result = MagicMock()
+        max_version_result.scalar.return_value = 3
+        db.execute = AsyncMock(side_effect=[credential_result, max_version_result])
         db.flush = AsyncMock()
 
         with (
@@ -661,6 +670,22 @@ Here is the workflow:
         self.assertEqual(workflow.description, "Echoes text and formats it.")
         self.assertEqual(workflow.nodes[1]["id"], "output")
         self.assertEqual(workflow.edges[0]["target"], "output")
+        saved_version = db.add.call_args.args[0]
+        self.assertIsInstance(saved_version, WorkflowVersion)
+        self.assertEqual(saved_version.workflow_id, workflow.id)
+        self.assertEqual(saved_version.version_number, 4)
+        self.assertEqual(
+            saved_version.nodes,
+            [
+                {
+                    "id": "input",
+                    "type": "textInput",
+                    "position": {"x": 0, "y": 0},
+                    "data": {"label": "request", "inputFields": [{"key": "text"}]},
+                }
+            ],
+        )
+        self.assertEqual(saved_version.edges, [])
         run_tool.assert_awaited_once()
         self.assertEqual(run_tool.call_args.args[2], str(workflow.id))
 
