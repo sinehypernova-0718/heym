@@ -373,6 +373,11 @@ function isFolderExpandedForDisplay(folderId: string): boolean {
 
 function clearWorkflowSearch(): void {
   workflowSearchQuery.value = "";
+  workflowSearchInput.value?.blur();
+}
+
+function clearWorkflowSearchAndKeepFocus(): void {
+  workflowSearchQuery.value = "";
   workflowSearchInput.value?.focus();
 }
 
@@ -535,7 +540,7 @@ onMounted(async () => {
     showWorkflowActionSheet.value = false;
     workflowActionWorkflow.value = null;
     actionSheetConsumedId.value = null;
-    workflowSearchQuery.value = "";
+    clearWorkflowSearch();
   });
 });
 
@@ -1397,7 +1402,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
                     type="button"
                     title="Clear search"
                     class="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
-                    @click="clearWorkflowSearch"
+                    @click="clearWorkflowSearchAndKeepFocus"
                   >
                     <X class="h-4 w-4" />
                   </button>
