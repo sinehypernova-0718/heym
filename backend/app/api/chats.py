@@ -170,6 +170,12 @@ async def _process_chat(
                     + "\n\nAvailable workflows (always check these first when user asks for information):\n"
                     + workflows_block
                 )
+            if user.user_rules and user.user_rules.strip():
+                system_prompt = (
+                    system_prompt
+                    + "\n\nUser preferences / custom instructions (follow these when relevant):\n"
+                    + user.user_rules.strip()
+                )
             if attachment_data:
                 system_prompt = system_prompt + "\n\n" + _ATTACHMENT_ROUTING_INSTRUCTIONS
 

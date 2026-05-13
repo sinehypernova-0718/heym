@@ -1,6 +1,6 @@
 {
   "name": "heym-frontend",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {

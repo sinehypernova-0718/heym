@@ -76,11 +76,11 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  (e: "select", workflowId: string, event?: MouseEvent): void;
-  (e: "tabSelect", tabId: string, event?: MouseEvent): void;
-  (e: "docSelect", categoryId: string, slug: string, event?: MouseEvent): void;
-  (e: "templateSelect", templateId: string, event?: MouseEvent): void;
-  (e: "nodeTemplateSelect", template: NodeTemplate, event?: MouseEvent): void;
+  (e: "select", workflowId: string, event?: MouseEvent | KeyboardEvent): void;
+  (e: "tabSelect", tabId: string, event?: MouseEvent | KeyboardEvent): void;
+  (e: "docSelect", categoryId: string, slug: string, event?: MouseEvent | KeyboardEvent): void;
+  (e: "templateSelect", templateId: string, event?: MouseEvent | KeyboardEvent): void;
+  (e: "nodeTemplateSelect", template: NodeTemplate, event?: MouseEvent | KeyboardEvent): void;
   (e: "close"): void;
 }>();
 
@@ -392,7 +392,7 @@ function handleKeyDown(event: KeyboardEvent): void {
     event.preventDefault();
     const item = allItems.value[selectedIndex.value];
     if (item) {
-      handleSelectItem(item, selectedIndex.value, undefined);
+      handleSelectItem(item, selectedIndex.value, event);
     }
     return;
   }
@@ -413,7 +413,7 @@ function setItemRef(el: unknown, groupIdx: number, itemIdx: number): void {
 function handleSelectItem(
   item: PaletteItem,
   index: number,
-  event?: MouseEvent
+  event?: MouseEvent | KeyboardEvent
 ): void {
   selectedIndex.value = index;
   if (item.type === "tab") {
@@ -632,9 +632,15 @@ onUnmounted(() => {
                   <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Enter</kbd>
                   <span>Select</span>
                 </span>
-                <span class="hidden sm:flex items-center gap-1.5">
+                <span class="hidden sm:flex flex-wrap items-center gap-x-1 gap-y-0.5">
                   <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Ctrl</kbd>
-                  <span>+ click to open in new tab</span>
+                  <span>+</span>
+                  <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">click</kbd>
+                  <span class="text-muted-foreground/80">/</span>
+                  <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Ctrl</kbd>
+                  <span>+</span>
+                  <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Enter</kbd>
+                  <span class="ml-0.5">new tab</span>
                 </span>
               </div>
               <span>{{ allItems.length }} item{{ allItems.length !== 1 ? 's' : '' }}</span>

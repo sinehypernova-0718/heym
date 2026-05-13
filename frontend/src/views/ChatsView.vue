@@ -15,6 +15,7 @@ import { getDocPath } from "@/docs/manifest";
 import type { ShowcaseContext } from "@/features/showcase/showcase.types";
 import { hasShowcaseChatDraftPending } from "@/features/showcase/showcaseChatDraft";
 import { joinOriginAndPath } from "@/lib/appUrl";
+import { isPaletteOpenInNewTab } from "@/lib/paletteNavigate";
 import { useRecentWorkflows } from "@/composables/useRecentWorkflows";
 import { workflowApi } from "@/services/api";
 import { useChatStore } from "@/stores/chat";
@@ -29,28 +30,21 @@ const chatStore = useChatStore();
 const { addRecent } = useRecentWorkflows();
 
 const conversationId = computed(() => route.params.id as string | undefined);
-const isCreateNewCoolingDown = ref(false);
+const isCreatingConversation = ref(false);
 const isMobileViewport = ref(false);
 const showCommandPalette = ref(false);
 const workflows = ref<WorkflowListItem[]>([]);
 const previousDocumentTitle = ref(DEFAULT_APP_TITLE);
-let createNewCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
 let mobileSidebarMediaQuery: MediaQueryList | null = null;
 
 async function createNew(): Promise<void> {
-  if (isCreateNewCoolingDown.value) return;
-  isCreateNewCoolingDown.value = true;
-  createNewCooldownTimeout = setTimeout(() => {
-    isCreateNewCoolingDown.value = false;
-    createNewCooldownTimeout = null;
-  }, 2000);
+  if (isCreatingConversation.value) return;
+  isCreatingConversation.value = true;
   try {
     const conv = await chatStore.createConversation();
     await router.push(`/chats/${conv.id}`);
-  } catch {
-    if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
-    createNewCooldownTimeout = null;
-    isCreateNewCoolingDown.value = false;
+  } finally {
+    isCreatingConversation.value = false;
   }
 }
 
@@ -79,23 +73,23 @@ async function loadWorkflows(): Promise<void> {
   }
 }
 
-function openWorkflowFromPalette(workflowId: string, event?: MouseEvent): void {
+function openWorkflowFromPalette(workflowId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const workflow = workflows.value.find((w) => w.id === workflowId);
   if (workflow) {
     addRecent(workflowId, workflow.name);
   }
   const resolved = router.resolve({ name: "editor", params: { id: workflowId } });
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     window.open(resolved.href, "_blank", "noopener,noreferrer");
   } else {
     router.push({ name: "editor", params: { id: workflowId } });
   }
 }
 
-function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
+function handleTabSelectFromPalette(tabId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
-  const openInNewTab = event && (event.ctrlKey || event.metaKey);
+  const openInNewTab = isPaletteOpenInNewTab(event);
   const path = tabId === "evals"
     ? "/evals"
     : tabId === "chat"
@@ -112,10 +106,10 @@ function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
   }
 }
 
-function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent): void {
+function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const path = getDocPath(categoryId, slug);
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
   } else {
     router.push(path);
@@ -153,7 +147,6 @@ onUnmounted(() => {
   if (typeof window !== "undefined") {
     window.removeEventListener("keydown", handleKeyDown);
   }
-  if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
 });
 </script>
 
@@ -228,7 +221,7 @@ onUnmounted(() => {
                 </p>
                 <button
                   class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 transition-colors"
-                  :disabled="isCreateNewCoolingDown"
+                  :disabled="isCreatingConversation"
                   @click="createNew"
                 >
                   <SquarePen class="w-4 h-4" />

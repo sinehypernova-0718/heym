@@ -57,6 +57,7 @@ import { resolveShowcaseContext } from "@/features/showcase/showcaseResolver";
 import type { DashboardShowcaseTab } from "@/features/showcase/showcase.types";
 import { useRecentWorkflows } from "@/composables/useRecentWorkflows";
 import { joinOriginAndPath } from "@/lib/appUrl";
+import { isPaletteOpenInNewTab } from "@/lib/paletteNavigate";
 import { nodeIcons } from "@/lib/nodeIcons";
 import { cn, formatDate } from "@/lib/utils";
 import { normalizeWorkflowEdges } from "@/lib/workflowEdges";
@@ -449,18 +450,23 @@ function onQuickDrawerPreferencesStorage(): void {
   quickDrawerStore.syncPreferencesFromStorage();
 }
 
-function openWorkflowFromPalette(workflowId: string, event?: MouseEvent): void {
+function openWorkflowFromPalette(workflowId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const workflow = workflows.value.find((w) => w.id === workflowId);
   if (workflow) {
     addRecent(workflowId, workflow.name);
   }
-  openWorkflow(workflowId, event);
+  if (isPaletteOpenInNewTab(event)) {
+    const route = router.resolve({ name: "editor", params: { id: workflowId } });
+    window.open(route.href, "_blank");
+  } else {
+    router.push({ name: "editor", params: { id: workflowId } });
+  }
 }
 
-function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
+function handleTabSelectFromPalette(tabId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
-  const openInNewTab = event && (event.ctrlKey || event.metaKey);
+  const openInNewTab = isPaletteOpenInNewTab(event);
   if (tabId === "evals") {
     if (openInNewTab) {
       window.open(joinOriginAndPath(window.location.origin, "/evals"), "_blank", "noopener,noreferrer");
@@ -483,10 +489,10 @@ function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
   }
 }
 
-function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent): void {
+function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const path = getDocPath(categoryId, slug);
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
   } else {
     router.push(path);

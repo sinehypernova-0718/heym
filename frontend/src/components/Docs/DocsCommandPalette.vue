@@ -3,8 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { BookOpen, FileText, Search } from "lucide-vue-next";
 
-import { cn } from "@/lib/utils";
 import { getAllDocItems, getDocPath } from "@/docs/manifest";
+import { joinOriginAndPath } from "@/lib/appUrl";
+import { isPaletteOpenInNewTab } from "@/lib/paletteNavigate";
+import { cn } from "@/lib/utils";
 
 interface Props {
   open: boolean;
@@ -102,16 +104,24 @@ function handleKeyDown(event: KeyboardEvent): void {
     event.preventDefault();
     const item = filteredItems.value[selectedIndex.value];
     if (item) {
-      router.push(getDocPath(item.categoryId, item.slug));
-      emit("close");
+      navigateToDoc(item.categoryId, item.slug, event);
     }
     return;
   }
 }
 
-function selectItem(item: (typeof filteredItems.value)[number]): void {
-  router.push(getDocPath(item.categoryId, item.slug));
+function navigateToDoc(categoryId: string, slug: string, event?: MouseEvent | KeyboardEvent): void {
+  const path = getDocPath(categoryId, slug);
+  if (isPaletteOpenInNewTab(event)) {
+    window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
+  } else {
+    router.push(path);
+  }
   emit("close");
+}
+
+function selectItem(item: (typeof filteredItems.value)[number], event?: MouseEvent): void {
+  navigateToDoc(item.categoryId, item.slug, event);
 }
 
 function handleBackdropClick(): void {
@@ -179,7 +189,7 @@ onUnmounted(() => {
                   'flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors',
                   idx === selectedIndex ? 'bg-primary/15 text-primary' : 'hover:bg-muted/50'
                 )"
-                @click="selectItem(item)"
+                @click="selectItem(item, $event)"
               >
                 <FileText
                   v-if="item.categoryId === 'reference'"
@@ -202,6 +212,25 @@ onUnmounted(() => {
               >
                 No results found
               </div>
+            </div>
+            <div
+              v-if="filteredItems.length > 0"
+              class="px-4 py-2 border-t border-border/40 text-xs text-muted-foreground flex flex-wrap items-center gap-3 shrink-0"
+            >
+              <span class="flex items-center gap-1.5">
+                <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Enter</kbd>
+                <span>open</span>
+              </span>
+              <span class="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Ctrl</kbd>
+                <span>+</span>
+                <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">click</kbd>
+                <span class="text-muted-foreground/80">/</span>
+                <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Ctrl</kbd>
+                <span>+</span>
+                <kbd class="px-1.5 py-0.5 rounded bg-muted font-mono text-[10px]">Enter</kbd>
+                <span class="ml-0.5">new tab</span>
+              </span>
             </div>
           </div>
         </div>

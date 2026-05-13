@@ -17,6 +17,7 @@ import { useRoute, useRouter } from "vue-router";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { getDocPath } from "@/docs/manifest";
 import { joinOriginAndPath } from "@/lib/appUrl";
+import { isPaletteOpenInNewTab } from "@/lib/paletteNavigate";
 import { useRecentWorkflows } from "@/composables/useRecentWorkflows";
 import { evalsApi, workflowApi } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
@@ -72,13 +73,13 @@ function handleKeyDown(event: KeyboardEvent): void {
   }
 }
 
-function openWorkflowFromPalette(workflowId: string, event?: MouseEvent): void {
+function openWorkflowFromPalette(workflowId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const workflow = workflows.value.find((w) => w.id === workflowId);
   if (workflow) {
     addRecent(workflowId, workflow.name);
   }
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     const resolved = router.resolve({ name: "editor", params: { id: workflowId } });
     window.open(resolved.href, "_blank");
   } else {
@@ -86,9 +87,9 @@ function openWorkflowFromPalette(workflowId: string, event?: MouseEvent): void {
   }
 }
 
-function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
+function handleTabSelectFromPalette(tabId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
-  const openInNewTab = event && (event.ctrlKey || event.metaKey);
+  const openInNewTab = isPaletteOpenInNewTab(event);
   if (tabId === "evals") {
     if (openInNewTab) {
       window.open(joinOriginAndPath(window.location.origin, "/evals"), "_blank", "noopener,noreferrer");
@@ -113,10 +114,10 @@ function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
   }
 }
 
-function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent): void {
+function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const path = getDocPath(categoryId, slug);
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
   } else {
     router.push(path);

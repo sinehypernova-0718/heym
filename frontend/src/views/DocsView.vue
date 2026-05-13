@@ -18,6 +18,7 @@ import Button from "@/components/ui/Button.vue";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { getDocPath } from "@/docs/manifest";
 import { joinOriginAndPath } from "@/lib/appUrl";
+import { isPaletteOpenInNewTab } from "@/lib/paletteNavigate";
 import { resolveShowcaseContext } from "@/features/showcase/showcaseResolver";
 import { workflowApi } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
@@ -81,9 +82,9 @@ watch(docPath, async () => {
   contentScrollRef.value?.scrollTo({ top: 0, behavior: "auto" });
 });
 
-function onPaletteSelect(workflowId: string, event?: MouseEvent): void {
+function onPaletteSelect(workflowId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     const resolved = router.resolve({ name: "editor", params: { id: workflowId } });
     window.open(resolved.href, "_blank", "noopener,noreferrer");
   } else {
@@ -91,9 +92,9 @@ function onPaletteSelect(workflowId: string, event?: MouseEvent): void {
   }
 }
 
-function onPaletteTabSelect(tabId: string, event?: MouseEvent): void {
+function onPaletteTabSelect(tabId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
-  const openInNewTab = event && (event.ctrlKey || event.metaKey);
+  const openInNewTab = isPaletteOpenInNewTab(event);
   if (openInNewTab) {
     const path =
       tabId === "evals"
@@ -115,10 +116,10 @@ function onPaletteTabSelect(tabId: string, event?: MouseEvent): void {
   }
 }
 
-function onDocSelect(categoryId: string, slug: string, event?: MouseEvent): void {
+function onDocSelect(categoryId: string, slug: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const path = getDocPath(categoryId, slug);
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
   } else {
     router.push(path);

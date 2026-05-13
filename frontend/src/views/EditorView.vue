@@ -37,6 +37,7 @@ import Textarea from "@/components/ui/Textarea.vue";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { getDocPath } from "@/docs/manifest";
 import { joinOriginAndPath } from "@/lib/appUrl";
+import { isPaletteOpenInNewTab } from "@/lib/paletteNavigate";
 import { parseWebhookJson, stringifyWebhookJson } from "@/lib/webhookBody";
 import { useRecentWorkflows } from "@/composables/useRecentWorkflows";
 import { templatesApi, teamsApi, workflowApi } from "@/services/api";
@@ -373,6 +374,9 @@ async function handleKeyDown(event: KeyboardEvent): Promise<void> {
 
   // Run Workflow: Ctrl+Enter — works even when an input/textarea is focused
   if (isMeta && event.key === "Enter") {
+    if (showCommandPalette.value) {
+      return;
+    }
     event.preventDefault();
     if (!workflowStore.isExecuting && workflowStore.nodes.length > 0) {
       const validation = workflowStore.validateWorkflow();
@@ -999,13 +1003,13 @@ function selectNodeFromError(nodeId: string): void {
   closeValidationDialog();
 }
 
-function openWorkflowFromPalette(workflowId: string, event?: MouseEvent): void {
+function openWorkflowFromPalette(workflowId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const workflow = paletteWorkflows.value.find((w) => w.id === workflowId);
   if (workflow) {
     addRecent(workflowId, workflow.name);
   }
-  if (event?.ctrlKey || event?.metaKey) {
+  if (isPaletteOpenInNewTab(event)) {
     const resolved = router.resolve({ name: "editor", params: { id: workflowId } });
     window.open(resolved.href, "_blank", "noopener,noreferrer");
   } else {
@@ -1013,9 +1017,9 @@ function openWorkflowFromPalette(workflowId: string, event?: MouseEvent): void {
   }
 }
 
-function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
+function handleTabSelectFromPalette(tabId: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
-  const openInNewTab = event && (event.ctrlKey || event.metaKey);
+  const openInNewTab = isPaletteOpenInNewTab(event);
   if (tabId === "evals") {
     if (openInNewTab) {
       window.open(joinOriginAndPath(window.location.origin, "/evals"), "_blank", "noopener,noreferrer");
@@ -1038,10 +1042,10 @@ function handleTabSelectFromPalette(tabId: string, event?: MouseEvent): void {
   }
 }
 
-function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent): void {
+function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseEvent | KeyboardEvent): void {
   showCommandPalette.value = false;
   const path = getDocPath(categoryId, slug);
-  if (event && (event.ctrlKey || event.metaKey)) {
+  if (isPaletteOpenInNewTab(event)) {
     window.open(joinOriginAndPath(window.location.origin, path), "_blank", "noopener,noreferrer");
   } else {
     router.push(path);

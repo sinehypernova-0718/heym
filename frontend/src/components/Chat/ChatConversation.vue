@@ -164,9 +164,8 @@ const conversationTitle = computed(() =>
   chatStore.activeConversation?.title ?? "",
 );
 const canSendMessage = computed(() => isShowingConversation.value && !isConversationTransitioning.value);
-const isThisConvStreaming = computed(
-  () => chatStore.isStreaming && chatStore.streamingConversationId === props.conversationId,
-);
+const streamState = computed(() => chatStore.getStreamState(props.conversationId));
+const isThisConvStreaming = computed(() => streamState.value.isStreaming);
 const canFocusInput = computed(
   () =>
     canSendMessage.value &&
@@ -208,7 +207,7 @@ watch(messages, () => {
 });
 
 watch(
-  () => chatStore.streamingContent,
+  () => streamState.value.content,
   () => {
     if (!isThisConvStreaming.value) return;
     nextTick(() => {
@@ -663,7 +662,7 @@ function onKeydown(e: KeyboardEvent): void {
 }
 
 function stopStreaming(): void {
-  chatStore.cancelStreaming();
+  chatStore.cancelStreaming(props.conversationId);
   nextTick(() => {
     chatInputRef.value?.focus();
   });
@@ -977,20 +976,20 @@ onUnmounted(() => {
           <div
             :class="[
               'rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed bg-muted text-foreground break-words',
-              chatStore.streamingWorkflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
+              streamState.workflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
             ]"
           >
             <div
-              v-if="chatStore.streamingSteps.length > 0"
+              v-if="streamState.steps.length > 0"
               class="mb-3 space-y-1.5"
             >
               <div
-                v-for="(step, index) in chatStore.streamingSteps"
+                v-for="(step, index) in streamState.steps"
                 :key="`${step}-${index}`"
                 class="flex items-center gap-2 text-xs text-muted-foreground"
               >
                 <Loader2
-                  v-if="index === chatStore.streamingSteps.length - 1 && !chatStore.streamingContent"
+                  v-if="index === streamState.steps.length - 1 && !streamState.content"
                   class="w-3.5 h-3.5 shrink-0 animate-spin"
                 />
                 <span
@@ -1004,24 +1003,24 @@ onUnmounted(() => {
             </div>
             <!-- eslint-disable vue/no-v-html -->
             <div
-              v-if="chatStore.streamingContent"
+              v-if="streamState.content"
               class="chat-markdown"
               @click="handleMarkdownImageClick"
-              v-html="renderMarkdown(chatStore.streamingContent)"
+              v-html="renderMarkdown(streamState.content)"
             />
             <!-- eslint-enable vue/no-v-html -->
             <div
-              v-if="!chatStore.streamingContent && chatStore.streamingImages.length === 0"
+              v-if="!streamState.content && streamState.images.length === 0"
               class="flex items-center gap-2 text-muted-foreground"
             >
-              <span>{{ chatStore.streamingSteps.length > 0 ? "Preparing response..." : "Heyming..." }}</span>
+              <span>{{ streamState.steps.length > 0 ? "Preparing response..." : "Heyming..." }}</span>
             </div>
             <div
-              v-if="chatStore.streamingImages.length > 0"
+              v-if="streamState.images.length > 0"
               class="mt-2 flex flex-wrap gap-2"
             >
               <img
-                v-for="(imgSrc, index) in chatStore.streamingImages"
+                v-for="(imgSrc, index) in streamState.images"
                 :key="`streaming-${index}`"
                 :src="imgSrc"
                 alt="Generated image"
@@ -1030,23 +1029,23 @@ onUnmounted(() => {
               >
             </div>
             <div
-              v-if="chatStore.streamingWorkflowPreview"
+              v-if="streamState.workflowPreview"
               class="mt-3 overflow-hidden rounded-xl border border-border/50 bg-background/70"
             >
               <div class="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <div class="min-w-0">
                   <p class="truncate text-sm font-semibold">
-                    {{ chatStore.streamingWorkflowPreview.name }}
+                    {{ streamState.workflowPreview.name }}
                   </p>
                   <p
-                    v-if="chatStore.streamingWorkflowPreview.description"
+                    v-if="streamState.workflowPreview.description"
                     class="line-clamp-2 text-xs text-muted-foreground"
                   >
-                    {{ chatStore.streamingWorkflowPreview.description }}
+                    {{ streamState.workflowPreview.description }}
                   </p>
                 </div>
                 <a
-                  :href="chatStore.streamingWorkflowPreview.url"
+                  :href="streamState.workflowPreview.url"
                   target="_blank"
                   rel="noopener noreferrer"
                   class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
@@ -1058,21 +1057,21 @@ onUnmounted(() => {
               <div
                 :class="[
                   'min-h-0 w-full transition-[height] duration-200',
-                  hasWorkflowPreviewSelection(chatStore.streamingWorkflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
+                  hasWorkflowPreviewSelection(streamState.workflowPreview) ? 'h-[30rem] lg:h-64' : 'h-64',
                 ]"
               >
                 <ReadonlyCanvasPreview
-                  :nodes="chatStore.streamingWorkflowPreview.nodes"
-                  :edges="chatStore.streamingWorkflowPreview.edges"
-                  :flow-key="chatStore.streamingWorkflowPreview.id"
-                  :selected-node="selectedWorkflowPreviewNodes[chatStore.streamingWorkflowPreview.id] ?? null"
+                  :nodes="streamState.workflowPreview.nodes"
+                  :edges="streamState.workflowPreview.edges"
+                  :flow-key="streamState.workflowPreview.id"
+                  :selected-node="selectedWorkflowPreviewNodes[streamState.workflowPreview.id] ?? null"
                   empty-message="No workflow preview"
                   :show-mini-map="false"
                   :show-controls="false"
                   :max-zoom="1.1"
                   :background-gap="28"
                   :framed="false"
-                  @update:selected-node="(node) => setWorkflowPreviewSelection(chatStore.streamingWorkflowPreview!.id, node)"
+                  @update:selected-node="(node) => setWorkflowPreviewSelection(streamState.workflowPreview!.id, node)"
                 />
               </div>
             </div>

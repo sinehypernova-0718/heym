@@ -6,6 +6,7 @@ import type { FileAttachmentPayload } from "@/services/api";
 import { chatApi } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 
+const DEFAULT_CONVERSATION_TITLE = "New Chat";
 const SIDEBAR_OPEN_KEY = "heym-chat-sidebar-open";
 const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 767px)";
 const CHAT_CACHE_KEY_PREFIX = "heym-chat-cache";
@@ -32,16 +33,52 @@ export const useChatStore = defineStore("chat", () => {
   const isSidebarOpen = ref(getInitialSidebarOpen());
   const isLoadingConversations = ref(false);
   const isLoadingMessages = ref(false);
-  const isStreaming = ref(false);
-  const streamingConversationId = ref<string | null>(null);
-  const streamingContent = ref("");
-  const streamingImages = ref<string[]>([]);
-  const streamingSteps = ref<string[]>([]);
-  const streamingWorkflowPreview = ref<WorkflowPreview | null>(null);
-  const activeAbortController = ref<AbortController | null>(null);
+  interface StreamState {
+    content: string;
+    images: string[];
+    steps: string[];
+    workflowPreview: WorkflowPreview | null;
+    isStreaming: boolean;
+  }
+  const EMPTY_STREAM_STATE: StreamState = Object.freeze({
+    content: "",
+    images: [],
+    steps: [],
+    workflowPreview: null,
+    isStreaming: false,
+  }) as StreamState;
+  const streamStatesByConv = ref<Record<string, StreamState>>({});
+  const activeControllersByConv = new Map<string, AbortController>();
   const quickPrompts = ref<string[]>([]);
   let latestConversationLoadId: string | null = null;
   const backgroundSubscribedConvIds = new Set<string>();
+  const foregroundSubscribedConvIds = new Set<string>();
+
+  function getStreamState(conversationId: string | null | undefined): StreamState {
+    if (!conversationId) return EMPTY_STREAM_STATE;
+    return streamStatesByConv.value[conversationId] ?? EMPTY_STREAM_STATE;
+  }
+
+  function _setStreamState(conversationId: string, patch: Partial<StreamState>): void {
+    const current = streamStatesByConv.value[conversationId] ?? {
+      content: "",
+      images: [],
+      steps: [],
+      workflowPreview: null,
+      isStreaming: false,
+    };
+    streamStatesByConv.value = {
+      ...streamStatesByConv.value,
+      [conversationId]: { ...current, ...patch },
+    };
+  }
+
+  function _clearStreamState(conversationId: string): void {
+    if (!(conversationId in streamStatesByConv.value)) return;
+    const next = { ...streamStatesByConv.value };
+    delete next[conversationId];
+    streamStatesByConv.value = next;
+  }
 
   const sortedConversations = computed<Conversation[]>(() =>
     [...conversations.value].sort((a, b) => {
@@ -133,17 +170,26 @@ export const useChatStore = defineStore("chat", () => {
 
       const fetched = await chatApi.getConversation(id);
       if (latestConversationLoadId !== id) return "error";
+      const existingListTitle = conversations.value.find((c) => c.id === id)?.title;
+      const reconciledFetched: ConversationDetail = _preserveTitleOverDefault(
+        fetched,
+        activeConversation.value?.id === id ? activeConversation.value.title : undefined,
+        existingListTitle,
+      );
       if (activeConversation.value?.id === id) {
-        activeConversation.value = _mergeConversationDetails(activeConversation.value, fetched);
+        activeConversation.value = _mergeConversationDetails(
+          activeConversation.value,
+          reconciledFetched,
+        );
       } else {
-        activeConversation.value = fetched;
+        activeConversation.value = reconciledFetched;
       }
-      _patchConversation(fetched);
+      _patchConversation(reconciledFetched);
       void _writeCachedConversation(activeConversation.value);
       if (fetched.has_unread) {
         void markConversationRead(id);
       }
-      if (fetched.is_running && !isStreaming.value) {
+      if (fetched.is_running && !foregroundSubscribedConvIds.has(id)) {
         void _subscribeToStream(id);
       }
       return "loaded";
@@ -194,7 +240,17 @@ export const useChatStore = defineStore("chat", () => {
     const conv = conversations.value.find((c) => c.id === id);
     if (!conv) return;
     const updated = await chatApi.updateConversation(id, { is_pinned: !conv.is_pinned });
-    _patchConversation(updated);
+    // Backend may return a stale "New Chat" title if the conversation is mid-stream
+    // (the title commit happens at the end of _process_chat). Preserve the better
+    // in-memory title in that case.
+    const preserved: Conversation =
+      updated.title === DEFAULT_CONVERSATION_TITLE && conv.title !== DEFAULT_CONVERSATION_TITLE
+        ? { ...updated, title: conv.title }
+        : updated;
+    _patchConversation(preserved);
+    if (activeConversation.value?.id === id && preserved.title !== updated.title) {
+      activeConversation.value = { ...activeConversation.value, title: preserved.title };
+    }
   }
 
   async function deleteConversation(id: string): Promise<void> {
@@ -236,111 +292,117 @@ export const useChatStore = defineStore("chat", () => {
     };
     void _writeCachedConversation(activeConversation.value);
 
-    if (isFirstMessage && activeConversation.value.title === "New Chat") {
+    if (isFirstMessage && activeConversation.value.title === DEFAULT_CONVERSATION_TITLE) {
       const immediateTitle = _titleFromContent(content);
       _patchConversationTitle(conversationId, immediateTitle);
     }
 
-    isStreaming.value = true;
-    streamingConversationId.value = conversationId;
-    streamingContent.value = "";
-    streamingImages.value = [];
-    streamingSteps.value = [];
-    streamingWorkflowPreview.value = null;
+    _setStreamState(conversationId, {
+      content: "",
+      images: [],
+      steps: [],
+      workflowPreview: null,
+      isStreaming: true,
+    });
 
     try {
       await chatApi.sendMessage(conversationId, content, credentialId, model, attachment);
       _patchConversationFlag(conversationId, "is_running", true);
       void _subscribeToStream(conversationId);
     } catch {
-      isStreaming.value = false;
-      streamingConversationId.value = null;
-      streamingContent.value = "";
-      streamingImages.value = [];
-      streamingSteps.value = [];
-      streamingWorkflowPreview.value = null;
+      _clearStreamState(conversationId);
     }
   }
 
   async function _subscribeToStream(conversationId: string): Promise<void> {
-    if (activeAbortController.value) {
-      activeAbortController.value.abort();
-    }
-    const controller = new AbortController();
-    activeAbortController.value = controller;
-    isStreaming.value = true;
-    streamingConversationId.value = conversationId;
+    // Avoid double-subscribing for the same conversation. This prevents a
+    // race where loadConversation sees a stale `fetched.is_running=true`
+    // shortly after the stream has finished locally — without this guard,
+    // the resulting re-subscription would reset streamingSteps/Content and
+    // make the UI look empty until the backend returns its (immediate) done.
+    if (foregroundSubscribedConvIds.has(conversationId)) return;
+    foregroundSubscribedConvIds.add(conversationId);
 
-    function clearForegroundStreamState(): void {
-      if (activeAbortController.value !== controller) return;
-      streamingContent.value = "";
-      streamingImages.value = [];
-      streamingSteps.value = [];
-      streamingWorkflowPreview.value = null;
-      isStreaming.value = false;
-      streamingConversationId.value = null;
-      activeAbortController.value = null;
+    const controller = new AbortController();
+    activeControllersByConv.set(conversationId, controller);
+
+    _setStreamState(conversationId, {
+      content: "",
+      images: [],
+      steps: [],
+      workflowPreview: null,
+      isStreaming: true,
+    });
+
+    function clearStreamingFlag(): void {
+      _setStreamState(conversationId, { isStreaming: false });
     }
 
     try {
       await chatApi.subscribeStream(
         conversationId,
         (text) => {
-          if (activeAbortController.value !== controller) return;
-          streamingContent.value += text;
+          const current = getStreamState(conversationId);
+          _setStreamState(conversationId, { content: current.content + text });
         },
         () => {
-          if (activeAbortController.value !== controller) return;
-          const assistantMessage: Message = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: streamingContent.value,
-            ...(streamingImages.value.length > 0 ? { images: [...streamingImages.value] } : {}),
-            ...(streamingWorkflowPreview.value
-              ? { workflowPreview: streamingWorkflowPreview.value }
-              : {}),
-            created_at: new Date().toISOString(),
-          };
-          if (activeConversation.value?.id === conversationId) {
+          const final = getStreamState(conversationId);
+          const hasContent =
+            final.content.length > 0 ||
+            final.images.length > 0 ||
+            final.workflowPreview !== null;
+          if (hasContent && activeConversation.value?.id === conversationId) {
+            const assistantMessage: Message = {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: final.content,
+              ...(final.images.length > 0 ? { images: [...final.images] } : {}),
+              ...(final.workflowPreview ? { workflowPreview: final.workflowPreview } : {}),
+              created_at: new Date().toISOString(),
+            };
             activeConversation.value = {
               ...activeConversation.value,
               messages: [...activeConversation.value.messages, assistantMessage],
             };
             void _writeCachedConversation(activeConversation.value);
           }
-          clearForegroundStreamState();
+          _clearStreamState(conversationId);
           _patchConversationFlag(conversationId, "is_running", false);
           if (activeConversation.value?.id !== conversationId) {
             _patchConversationFlag(conversationId, "has_unread", true);
           }
           _refreshConversationTimestamp(conversationId);
-          _playDing();
+          if (hasContent) _playDing();
         },
         (_err) => {
-          clearForegroundStreamState();
+          clearStreamingFlag();
           _patchConversationFlag(conversationId, "is_running", false);
         },
         (label) => {
-          if (activeAbortController.value !== controller) return;
-          streamingSteps.value = [...streamingSteps.value, label];
+          const current = getStreamState(conversationId);
+          _setStreamState(conversationId, { steps: [...current.steps, label] });
         },
         (images) => {
-          if (activeAbortController.value !== controller) return;
-          streamingImages.value = [...streamingImages.value, ...images];
+          const current = getStreamState(conversationId);
+          _setStreamState(conversationId, { images: [...current.images, ...images] });
         },
         (title) => {
           _patchConversationTitle(conversationId, title);
         },
         (workflow) => {
-          if (activeAbortController.value !== controller) return;
-          streamingWorkflowPreview.value = workflow;
+          _setStreamState(conversationId, { workflowPreview: workflow });
         },
         controller.signal,
       );
     } catch {
-      clearForegroundStreamState();
+      clearStreamingFlag();
       if (!controller.signal.aborted) {
         _patchConversationFlag(conversationId, "is_running", false);
+      }
+    } finally {
+      foregroundSubscribedConvIds.delete(conversationId);
+      if (activeControllersByConv.get(conversationId) === controller) {
+        activeControllersByConv.delete(conversationId);
       }
     }
   }
@@ -363,15 +425,12 @@ export const useChatStore = defineStore("chat", () => {
     quickPrompts.value = saved;
   }
 
-  function cancelStreaming(): void {
-    activeAbortController.value?.abort();
-    activeAbortController.value = null;
-    streamingContent.value = "";
-    streamingImages.value = [];
-    streamingSteps.value = [];
-    streamingWorkflowPreview.value = null;
-    isStreaming.value = false;
-    streamingConversationId.value = null;
+  function cancelStreaming(conversationId: string): void {
+    const controller = activeControllersByConv.get(conversationId);
+    controller?.abort();
+    activeControllersByConv.delete(conversationId);
+    _clearStreamState(conversationId);
+    _patchConversationFlag(conversationId, "is_running", false);
   }
 
   function _patchConversation(updated: Conversation): void {
@@ -408,7 +467,7 @@ export const useChatStore = defineStore("chat", () => {
   function _titleFromContent(content: string): string {
     const attachmentIdx = content.indexOf("\n\n[ATTACHED FILE:");
     const cleaned = (attachmentIdx !== -1 ? content.slice(0, attachmentIdx) : content).trim().replace(/^["'`“‘”’]+|["'`“‘”’]+$/g, "");
-    if (!cleaned) return "New Chat";
+    if (!cleaned) return DEFAULT_CONVERSATION_TITLE;
     if (cleaned.length > 50) {
       const boundary = cleaned.indexOf(" ", 50);
       const cut = boundary !== -1 ? cleaned.slice(0, boundary) : cleaned.slice(0, 50);
@@ -430,6 +489,18 @@ export const useChatStore = defineStore("chat", () => {
       };
       void _writeCachedConversation(activeConversation.value);
     }
+  }
+
+  function _preserveTitleOverDefault(
+    fetched: ConversationDetail,
+    activeTitle: string | undefined,
+    listTitle: string | undefined,
+  ): ConversationDetail {
+    if (fetched.title !== DEFAULT_CONVERSATION_TITLE) return fetched;
+    const candidate = [activeTitle, listTitle].find(
+      (t): t is string => typeof t === "string" && t !== DEFAULT_CONVERSATION_TITLE,
+    );
+    return candidate ? { ...fetched, title: candidate } : fetched;
   }
 
   function _mergeConversationDetails(
@@ -596,12 +667,8 @@ export const useChatStore = defineStore("chat", () => {
     isSidebarOpen,
     isLoadingConversations,
     isLoadingMessages,
-    isStreaming,
-    streamingConversationId,
-    streamingContent,
-    streamingImages,
-    streamingSteps,
-    streamingWorkflowPreview,
+    streamStatesByConv,
+    getStreamState,
     quickPrompts,
     toggleSidebar,
     openSidebar,

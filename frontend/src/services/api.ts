@@ -152,10 +152,38 @@ function buildWorkflowExecuteRequest(
 let _isRefreshing = false;
 let _refreshQueue: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
 
+const CHAT_RATE_LIMIT_MAX_RETRIES = 3;
+
+function _getRetryAfterMs(error: { response?: { headers?: Record<string, unknown> } }): number | null {
+  const headers = error.response?.headers;
+  if (!headers) return null;
+  const raw = headers["retry-after"] ?? headers["Retry-After"];
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 30_000);
+  const date = Date.parse(raw);
+  if (Number.isFinite(date)) return Math.max(0, Math.min(date - Date.now(), 30_000));
+  return null;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    if (
+      error.response?.status === 429 &&
+      typeof originalRequest?.url === "string" &&
+      originalRequest.url.includes("/chats")
+    ) {
+      const attempts = (originalRequest._chatRateLimitRetries as number | undefined) ?? 0;
+      if (attempts < CHAT_RATE_LIMIT_MAX_RETRIES) {
+        originalRequest._chatRateLimitRetries = attempts + 1;
+        const backoff = _getRetryAfterMs(error) ?? Math.min(500 * 2 ** attempts, 4_000);
+        await new Promise<void>((resolve) => setTimeout(resolve, backoff));
+        return api(originalRequest);
+      }
+    }
 
     // Only skip automatic token refresh for endpoints where retrying after a
     // refresh would be wrong or cause an infinite loop:
