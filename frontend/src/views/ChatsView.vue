@@ -21,6 +21,7 @@ import { useChatStore } from "@/stores/chat";
 
 const chatsShowcaseContext: ShowcaseContext = "dashboard:chat";
 const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 767px)";
+const DEFAULT_APP_TITLE = "Heym - AI Workflow Automation";
 
 const route = useRoute();
 const router = useRouter();
@@ -32,6 +33,7 @@ const isCreateNewCoolingDown = ref(false);
 const isMobileViewport = ref(false);
 const showCommandPalette = ref(false);
 const workflows = ref<WorkflowListItem[]>([]);
+const previousDocumentTitle = ref(DEFAULT_APP_TITLE);
 let createNewCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
 let mobileSidebarMediaQuery: MediaQueryList | null = null;
 
@@ -122,6 +124,9 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
 
 onMounted(() => {
   if (typeof window !== "undefined") {
+    previousDocumentTitle.value = document.title.includes("Heym Chat Assistant")
+      ? DEFAULT_APP_TITLE
+      : document.title;
     mobileSidebarMediaQuery = window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY);
     syncMobileSidebarState();
     mobileSidebarMediaQuery.addEventListener("change", syncMobileSidebarState);
@@ -143,7 +148,7 @@ watchEffect(() => {
 });
 
 onUnmounted(() => {
-  document.title = "Heym Chat Assistant";
+  document.title = previousDocumentTitle.value;
   mobileSidebarMediaQuery?.removeEventListener("change", syncMobileSidebarState);
   if (typeof window !== "undefined") {
     window.removeEventListener("keydown", handleKeyDown);
