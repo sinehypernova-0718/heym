@@ -3,6 +3,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 
+import sqlalchemy as sa
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -45,6 +46,7 @@ from app.api import (
 )
 from app.api.deps import get_client_ip
 from app.config import settings
+from app.db.session import async_session_maker
 from app.http_identity import HEYM_SERVER_AGENT
 from app.services.cron_scheduler import cron_scheduler
 from app.services.distributed_lock import lock_service
@@ -95,6 +97,12 @@ def _ensure_playwright_browsers() -> None:
 async def lifespan(app: FastAPI):
     logger.info("Starting Heym AI Workflow Platform v%s", settings.resolved_version)
     await lock_service.start()
+
+    async with async_session_maker() as _startup_db:
+        await _startup_db.execute(
+            sa.text("UPDATE dashboard_conversations SET is_running = false WHERE is_running = true")
+        )
+        await _startup_db.commit()
 
     _ensure_playwright_browsers()
 

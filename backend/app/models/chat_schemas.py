@@ -20,6 +20,8 @@ class ConversationResponse(BaseModel):
     id: uuid.UUID
     title: str
     is_pinned: bool
+    is_running: bool
+    has_unread: bool
     created_at: datetime
     updated_at: datetime
 
@@ -43,6 +45,10 @@ class ConversationDetailResponse(BaseModel):
     id: uuid.UUID
     title: str
     is_pinned: bool
+    is_running: bool
+    has_unread: bool
+    last_credential_id: uuid.UUID | None = None
+    last_model: str | None = None
     created_at: datetime
     updated_at: datetime
     messages: list[MessageResponse]
@@ -66,3 +72,15 @@ class MessageCreate(BaseModel):
 class ConversationTitleGenerate(BaseModel):
     credential_id: str
     model: str
+
+
+class SendMessageResponse(BaseModel):
+    conversation_id: uuid.UUID
+
+
+class QuickPromptsResponse(BaseModel):
+    prompts: list[str]
+
+
+class QuickPromptsUpdate(BaseModel):
+    prompts: list[str]

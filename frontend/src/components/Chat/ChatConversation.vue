@@ -14,6 +14,7 @@ import {
   Mic,
   MicOff,
   Paperclip,
+  Pencil,
   X,
 } from "lucide-vue-next";
 import { marked } from "marked";
@@ -27,6 +28,7 @@ import ImageLightbox from "@/components/ui/ImageLightbox.vue";
 import { aiApi, credentialsApi } from "@/services/api";
 import { useFileAttachment } from "@/composables/useFileAttachment";
 import type { AttachedFile } from "@/composables/useFileAttachment";
+import { useQuickPrompts } from "@/composables/useQuickPrompts";
 import {
   consumeShowcaseChatDraft,
   SHOWCASE_CHAT_DRAFT_EVENT,
@@ -113,6 +115,42 @@ interface SpeechRecognitionWindow extends Window {
 
 const { attachedFile, attachmentError, attachmentLoading, processFile, clearAttachment } =
   useFileAttachment();
+const { editingIndex: qpEditingIndex, editingValue: qpEditingValue, startEdit: qpStartEdit, commitEdit: qpCommitEdit, onEditKeydown: qpOnEditKeydown } =
+  useQuickPrompts();
+
+const isDraggingFile = ref(false);
+let dragCounter = 0;
+
+function handleDragEnter(event: DragEvent): void {
+  if (!event.dataTransfer?.types.includes("Files")) return;
+  event.preventDefault();
+  dragCounter++;
+  isDraggingFile.value = true;
+}
+
+function handleDragOver(event: DragEvent): void {
+  if (!event.dataTransfer?.types.includes("Files")) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+}
+
+function handleDragLeave(): void {
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    isDraggingFile.value = false;
+  }
+}
+
+function handleDrop(event: DragEvent): void {
+  event.preventDefault();
+  dragCounter = 0;
+  isDraggingFile.value = false;
+  const file = event.dataTransfer?.files[0];
+  if (file) {
+    void processFile(file);
+  }
+}
 
 const isShowingConversation = computed(
   () => chatStore.activeConversation?.id === props.conversationId,
@@ -126,10 +164,13 @@ const conversationTitle = computed(() =>
   chatStore.activeConversation?.title ?? "",
 );
 const canSendMessage = computed(() => isShowingConversation.value && !isConversationTransitioning.value);
+const isThisConvStreaming = computed(
+  () => chatStore.isStreaming && chatStore.streamingConversationId === props.conversationId,
+);
 const canFocusInput = computed(
   () =>
     canSendMessage.value &&
-    !chatStore.isStreaming &&
+    !isThisConvStreaming.value &&
     !isLoadingModels.value &&
     !modelsLoadFailed.value &&
     Boolean(selectedCredentialId.value) &&
@@ -169,12 +210,20 @@ watch(messages, () => {
 watch(
   () => chatStore.streamingContent,
   () => {
+    if (!isThisConvStreaming.value) return;
     nextTick(() => {
       scrollToBottom();
       updateMessageScrollbar();
     });
   },
 );
+
+watch(qpEditingIndex, (index) => {
+  if (index === null) return;
+  nextTick(() => {
+    (chatRootRef.value?.querySelector("[data-qp-edit]") as HTMLInputElement | null)?.focus();
+  });
+});
 
 watch(
   canFocusInput,
@@ -319,6 +368,8 @@ function applyShowcaseDraft(): void {
   focusInputWhenReady();
 }
 
+let _credentialsReady = false;
+
 async function loadConversationForRoute(id: string): Promise<void> {
   if (!UUID_PATTERN.test(id)) {
     await router.replace("/chats");
@@ -328,6 +379,10 @@ async function loadConversationForRoute(id: string): Promise<void> {
   const result = await chatStore.loadConversation(id);
   if (result === "not_found" && props.conversationId === id) {
     await router.replace("/chats");
+    return;
+  }
+  if (result === "loaded" && _credentialsReady) {
+    _applyConversationSession();
   }
 }
 
@@ -335,6 +390,7 @@ onMounted(() => {
   setupSpeechRecognition();
   void loadConversationForRoute(props.conversationId);
   void loadCredentials();
+  void chatStore.loadQuickPrompts();
   window.addEventListener(SHOWCASE_CHAT_DRAFT_EVENT, applyShowcaseDraft);
   window.addEventListener("resize", updateMessageScrollbar);
   if (typeof ResizeObserver !== "undefined" && messagesScrollRef.value) {
@@ -497,19 +553,43 @@ function toggleSpeechInput(): void {
   speechRecognition.value.start();
 }
 
+function _applyConversationSession(): void {
+  const conv = chatStore.activeConversation;
+  if (!conv || !credentials.value.length) return;
+  const savedCredId = conv.last_credential_id;
+  const savedModel = conv.last_model;
+  if (savedCredId) {
+    const credMatch = credentials.value.find((c) => c.id === savedCredId);
+    if (credMatch) {
+      selectedCredentialId.value = credMatch.id;
+      void loadModels(credMatch.id, savedModel ?? undefined);
+      return;
+    }
+  }
+  if (!selectedCredentialId.value) {
+    selectedCredentialId.value = credentials.value[0].id;
+    void loadModels(credentials.value[0].id);
+  }
+}
+
 async function loadCredentials(): Promise<void> {
   try {
     credentials.value = await credentialsApi.listLLM();
-    if (credentials.value.length > 0 && !selectedCredentialId.value) {
-      selectedCredentialId.value = credentials.value[0].id;
-      await loadModels(selectedCredentialId.value);
+    _credentialsReady = true;
+    if (credentials.value.length > 0) {
+      if (chatStore.activeConversation) {
+        _applyConversationSession();
+      } else if (!selectedCredentialId.value) {
+        selectedCredentialId.value = credentials.value[0].id;
+        await loadModels(credentials.value[0].id);
+      }
     }
   } catch {
     credentialError.value = "Failed to load credentials";
   }
 }
 
-async function loadModels(credId: string): Promise<void> {
+async function loadModels(credId: string, preferredModelId?: string): Promise<void> {
   if (!credId) return;
   isLoadingModels.value = true;
   modelsLoadFailed.value = false;
@@ -518,7 +598,10 @@ async function loadModels(credId: string): Promise<void> {
   try {
     models.value = await credentialsApi.getModels(credId);
     if (models.value.length > 0) {
-      selectedModel.value = models.value[models.value.length - 1].id;
+      const match = preferredModelId
+        ? models.value.find((m) => m.id === preferredModelId)
+        : null;
+      selectedModel.value = match ? match.id : models.value[models.value.length - 1].id;
     }
   } catch {
     modelsLoadFailed.value = true;
@@ -532,11 +615,17 @@ async function onCredentialChange(): Promise<void> {
   await loadModels(selectedCredentialId.value);
 }
 
+function sendQuickPrompt(text: string): void {
+  if (isThisConvStreaming.value) return;
+  input.value = text;
+  void send();
+}
+
 async function send(): Promise<void> {
   const text = input.value.trim();
   if (
     !text ||
-    chatStore.isStreaming ||
+    isThisConvStreaming.value ||
     !canSendMessage.value ||
     !selectedCredentialId.value ||
     !selectedModel.value ||
@@ -594,11 +683,28 @@ onUnmounted(() => {
 <template>
   <div
     ref="chatRootRef"
-    class="flex flex-col h-full outline-none"
+    class="flex flex-col h-full outline-none relative"
     tabindex="-1"
     @keydown.capture="handleChatKeydown"
     @keyup.capture="handleChatKeydown"
+    @dragenter="handleDragEnter"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
   >
+    <Transition name="drag-overlay">
+      <div
+        v-if="isDraggingFile"
+        class="absolute inset-0 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-primary/5 pointer-events-none"
+      >
+        <div class="flex flex-col items-center gap-2 text-primary/70">
+          <Paperclip class="w-10 h-10" />
+          <p class="text-sm font-medium">
+            Drop file to attach
+          </p>
+        </div>
+      </div>
+    </Transition>
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 p-3 sm:p-4 border-b border-border/50 shrink-0">
       <div class="flex items-center gap-2 min-w-0 shrink-0">
         <button
@@ -702,13 +808,43 @@ onUnmounted(() => {
         @scroll="updateMessageScrollbar"
       >
         <div
-          v-if="isShowingConversation && messages.length === 0 && !chatStore.isStreaming"
-          class="mx-auto flex flex-1 w-full flex-col items-center justify-center self-center text-center text-muted-foreground px-2 py-6 sm:py-8 gap-4"
+          v-if="isShowingConversation && messages.length === 0 && !isThisConvStreaming && !chatStore.isLoadingMessages"
+          class="mx-auto flex flex-1 w-full flex-col items-center justify-center self-center px-4 py-6 gap-3 max-w-lg"
         >
-          <Send class="w-10 h-10 sm:w-12 sm:h-12 opacity-50" />
-          <p class="text-xs sm:text-sm max-w-[280px] sm:max-w-none">
+          <Bot class="w-10 h-10 sm:w-12 sm:h-12 text-primary opacity-50" />
+          <p class="text-xs sm:text-sm text-muted-foreground text-center max-w-[280px] sm:max-w-none">
             Ask to run a workflow, list workflows, or ask about your data.
           </p>
+          <div class="w-full flex flex-col gap-1.5 mt-2">
+            <div
+              v-for="(prompt, index) in chatStore.quickPrompts"
+              :key="index"
+              class="group flex items-center gap-2 rounded-xl border border-border/40 bg-muted/30 hover:bg-muted/60 hover:border-border/60 transition-colors cursor-pointer px-3.5 py-2.5"
+              @click="qpEditingIndex !== index && sendQuickPrompt(prompt)"
+            >
+              <template v-if="qpEditingIndex === index">
+                <input
+                  v-model="qpEditingValue"
+                  data-qp-edit
+                  class="flex-1 text-sm bg-transparent border-0 outline-none"
+                  @keydown="qpOnEditKeydown"
+                  @blur="void qpCommitEdit()"
+                  @click.stop
+                >
+              </template>
+              <template v-else>
+                <span class="flex-1 text-sm text-foreground/80 truncate">{{ prompt }}</span>
+                <button
+                  type="button"
+                  class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                  title="Edit prompt"
+                  @click.stop="qpStartEdit(index)"
+                >
+                  <Pencil class="w-3.5 h-3.5" />
+                </button>
+              </template>
+            </div>
+          </div>
         </div>
         <div
           v-for="msg in messages"
@@ -832,7 +968,7 @@ onUnmounted(() => {
         </div>
 
         <div
-          v-if="chatStore.isStreaming"
+          v-if="isThisConvStreaming"
           class="flex gap-3 justify-start"
         >
           <div class="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
@@ -1013,7 +1149,7 @@ onUnmounted(() => {
         <button
           type="button"
           class="shrink-0 h-9 w-9 min-h-[36px] min-w-[36px] rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/80 disabled:opacity-50 disabled:pointer-events-none touch-manipulation transition-colors"
-          :disabled="chatStore.isStreaming || attachmentLoading"
+          :disabled="isThisConvStreaming || attachmentLoading"
           title="Attach file"
           aria-label="Attach file"
           @click="openFilePicker"
@@ -1033,7 +1169,7 @@ onUnmounted(() => {
           rows="1"
           placeholder="Type a message..."
           class="chat-input flex-1 min-h-[44px] max-h-40 resize-none bg-transparent border-0 px-1 py-3 text-sm text-left focus:outline-none focus:ring-0 disabled:opacity-50 touch-manipulation placeholder:text-muted-foreground leading-5"
-          :disabled="chatStore.isStreaming || !canSendMessage || !selectedCredentialId || !selectedModel || modelsLoadFailed"
+          :disabled="isThisConvStreaming || !canSendMessage || !selectedCredentialId || !selectedModel || modelsLoadFailed"
           @keydown="onKeydown"
           @input="resizeChatInput"
         />
@@ -1041,7 +1177,7 @@ onUnmounted(() => {
           v-if="isSpeechSupported"
           type="button"
           class="shrink-0 h-9 w-9 min-h-[36px] min-w-[36px] rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/80 disabled:opacity-50 disabled:pointer-events-none touch-manipulation transition-colors"
-          :disabled="chatStore.isStreaming || !canSendMessage || isFixingTranscription || !selectedCredentialId || !selectedModel || modelsLoadFailed"
+          :disabled="isThisConvStreaming || !canSendMessage || isFixingTranscription || !selectedCredentialId || !selectedModel || modelsLoadFailed"
           :title="isListening ? 'Stop voice input' : isFixingTranscription ? 'Fixing...' : 'Voice input'"
           @click="toggleSpeechInput"
         >
@@ -1056,7 +1192,7 @@ onUnmounted(() => {
           />
         </button>
         <Button
-          v-if="!chatStore.isStreaming"
+          v-if="!isThisConvStreaming"
           type="submit"
           variant="gradient"
           size="icon"
@@ -1085,6 +1221,7 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
 
 <style scoped>
 .chat-markdown :deep(p) {
@@ -1188,5 +1325,15 @@ onUnmounted(() => {
   max-height: 12rem;
   max-width: 100%;
   object-fit: contain;
+}
+
+.drag-overlay-enter-active,
+.drag-overlay-leave-active {
+  transition: opacity 150ms ease;
+}
+
+.drag-overlay-enter-from,
+.drag-overlay-leave-to {
+  opacity: 0;
 }
 </style>

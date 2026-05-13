@@ -1998,7 +1998,7 @@ async def stream_dashboard_chat(
             }
             last_trace_request = {**kwargs, "messages": kwargs["messages"]}
             round_start = time.time()
-            response = client.chat.completions.create(**kwargs)
+            response = await asyncio.to_thread(client.chat.completions.create, **kwargs)
             round_elapsed_ms = (time.time() - round_start) * 1000
             choice = response.choices[0] if response.choices else None
             if not choice:
