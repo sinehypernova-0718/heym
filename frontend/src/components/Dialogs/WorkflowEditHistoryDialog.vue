@@ -34,6 +34,18 @@ interface Props {
   workflowId: string;
 }
 
+interface VersionSnapshot {
+  nodes: WorkflowVersion["nodes"];
+  edges: WorkflowVersion["edges"];
+  auth_type: WorkflowVersion["auth_type"];
+  auth_header_key: WorkflowVersion["auth_header_key"];
+  auth_header_value: WorkflowVersion["auth_header_value"];
+  webhook_body_mode: WorkflowVersion["webhook_body_mode"];
+  cache_ttl_seconds: WorkflowVersion["cache_ttl_seconds"];
+  rate_limit_requests: WorkflowVersion["rate_limit_requests"];
+  rate_limit_window_seconds: WorkflowVersion["rate_limit_window_seconds"];
+}
+
 const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: "close"): void;
@@ -120,7 +132,7 @@ const allVersions = computed(() => {
   return [currentVersion, ...versionsWithChanges.value];
 });
 
-function _areVersionsIdentical(v1: WorkflowVersion, v2: WorkflowVersion): boolean {
+function _areVersionsIdentical(v1: VersionSnapshot, v2: VersionSnapshot): boolean {
   return (
     JSON.stringify(v1.nodes) === JSON.stringify(v2.nodes) &&
     JSON.stringify(v1.edges) === JSON.stringify(v2.edges) &&
@@ -132,6 +144,23 @@ function _areVersionsIdentical(v1: WorkflowVersion, v2: WorkflowVersion): boolea
     v1.rate_limit_requests === v2.rate_limit_requests &&
     v1.rate_limit_window_seconds === v2.rate_limit_window_seconds
   );
+}
+
+function getCurrentVersionSnapshot(): VersionSnapshot | null {
+  const current = workflowStore.currentWorkflow;
+  if (!current) return null;
+
+  return {
+    nodes: current.nodes,
+    edges: current.edges,
+    auth_type: current.auth_type,
+    auth_header_key: current.auth_header_key,
+    auth_header_value: current.auth_header_value,
+    webhook_body_mode: current.webhook_body_mode,
+    cache_ttl_seconds: current.cache_ttl_seconds,
+    rate_limit_requests: current.rate_limit_requests,
+    rate_limit_window_seconds: current.rate_limit_window_seconds,
+  };
 }
 
 const selectedVersion = computed<WorkflowVersion | null>(() => {
@@ -173,10 +202,15 @@ async function loadVersions(): Promise<void> {
     versions.value = await workflowApi.getVersions(props.workflowId);
 
     checkingChanges.value = true;
+    const currentVersion = getCurrentVersionSnapshot();
     const filteredVersions: WorkflowVersion[] = [];
 
     for (let i = 0; i < versions.value.length; i++) {
       const version = versions.value[i];
+
+      if (currentVersion && _areVersionsIdentical(version, currentVersion)) {
+        continue;
+      }
 
       if (i > 0) {
         const prevVersion = versions.value[i - 1];
@@ -185,21 +219,7 @@ async function loadVersions(): Promise<void> {
         }
       }
 
-      try {
-        const versionDiff = await workflowApi.getVersionDiff(props.workflowId, version.id);
-        const hasChanges =
-          versionDiff.node_changes.length > 0 ||
-          versionDiff.edge_changes.length > 0 ||
-          versionDiff.config_changes.length > 0;
-
-        if (!hasChanges) {
-          continue;
-        }
-
-        filteredVersions.push(version);
-      } catch {
-        continue;
-      }
+      filteredVersions.push(version);
     }
 
     versionsWithChanges.value = filteredVersions;
