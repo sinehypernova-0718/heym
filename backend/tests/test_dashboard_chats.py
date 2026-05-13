@@ -325,6 +325,7 @@ class TestSendMessageAuth(unittest.IsolatedAsyncioTestCase):
                 return_value={"role": "user", "content": "hello"},
             ),
             patch("app.api.chats.build_public_base_url", return_value="http://testserver"),
+            patch("app.api.chats.registry.create_task", new_callable=AsyncMock),
             patch("asyncio.create_task", side_effect=_close_created_task),
         ):
             result = await send_message(
@@ -373,6 +374,7 @@ class TestSendMessageAuth(unittest.IsolatedAsyncioTestCase):
                 return_value={"role": "user", "content": "hello"},
             ),
             patch("app.api.chats.build_public_base_url", return_value="http://testserver"),
+            patch("app.api.chats.registry.create_task", new_callable=AsyncMock),
             patch("asyncio.create_task", side_effect=_close_created_task),
         ):
             await send_message(

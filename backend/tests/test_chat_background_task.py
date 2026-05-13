@@ -8,7 +8,6 @@ from fastapi import HTTPException
 from app.api.chats import mark_conversation_read, send_message
 from app.db.models import CredentialType, DashboardConversation
 from app.models.chat_schemas import MessageCreate
-from app.services import chat_task_registry as registry
 
 
 def _make_user(user_id: uuid.UUID | None = None) -> MagicMock:
@@ -82,6 +81,10 @@ class TestSendMessage(unittest.IsolatedAsyncioTestCase):
                 return_value={"role": "user", "content": "Hello"},
             ),
             patch("app.api.chats.build_public_base_url", return_value="http://localhost"),
+            patch(
+                "app.api.chats.registry.create_task",
+                new_callable=AsyncMock,
+            ),
             patch("asyncio.create_task", side_effect=_close_created_task) as mock_create_task,
         ):
             result = await send_message(
@@ -189,61 +192,6 @@ class TestMarkConversationRead(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
 
-class TestChatTaskRegistry(unittest.IsolatedAsyncioTestCase):
-    def setUp(self) -> None:
-        registry._tasks.clear()
-
-    def test_create_and_has_task(self) -> None:
-        registry.create_task("conv-1")
-        self.assertTrue(registry.has_task("conv-1"))
-
-    def test_has_task_returns_false_when_absent(self) -> None:
-        self.assertFalse(registry.has_task("missing"))
-
-    def test_remove_task(self) -> None:
-        registry.create_task("conv-2")
-        registry.remove_task("conv-2")
-        self.assertFalse(registry.has_task("conv-2"))
-
-    async def test_publish_replays_to_late_subscriber(self) -> None:
-        registry.create_task("conv-3")
-        await registry.publish("conv-3", 'data: {"type": "content", "text": "Hi"}\n\n')
-
-        async with registry.subscribe("conv-3") as queue:
-            self.assertIsNotNone(queue)
-            assert queue is not None
-            self.assertEqual(
-                await queue.get(),
-                'data: {"type": "content", "text": "Hi"}\n\n',
-            )
-            self.assertEqual(registry.subscriber_count("conv-3"), 1)
-
-        self.assertEqual(registry.subscriber_count("conv-3"), 0)
-        self.assertTrue(registry.has_task("conv-3"))
-
-    async def test_publish_broadcasts_to_multiple_subscribers(self) -> None:
-        registry.create_task("conv-4")
-
-        async with (
-            registry.subscribe("conv-4") as queue_one,
-            registry.subscribe("conv-4") as queue_two,
-        ):
-            self.assertIsNotNone(queue_one)
-            self.assertIsNotNone(queue_two)
-            assert queue_one is not None
-            assert queue_two is not None
-            await registry.publish("conv-4", {"type": "content", "text": "Hi"})
-            self.assertEqual(await queue_one.get(), {"type": "content", "text": "Hi"})
-            self.assertEqual(await queue_two.get(), {"type": "content", "text": "Hi"})
-
-    async def test_finish_removes_done_task_after_last_subscriber_leaves(self) -> None:
-        registry.create_task("conv-5")
-
-        async with registry.subscribe("conv-5") as queue:
-            self.assertIsNotNone(queue)
-            assert queue is not None
-            await registry.finish("conv-5")
-            self.assertIsNone(await queue.get())
-            self.assertTrue(registry.has_task("conv-5"))
-
-        self.assertFalse(registry.has_task("conv-5"))
+# The chat task registry is now backed by Postgres LISTEN/NOTIFY plus a
+# chat_stream_events table; its behavior is exercised end-to-end through the
+# chat endpoints rather than via white-box tests against the old in-memory dict.

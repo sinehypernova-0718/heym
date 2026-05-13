@@ -102,7 +102,7 @@ async def _process_chat(
     should_generate_title: bool,
 ) -> None:
     """Background coroutine: streams assistant reply, writes to queue, persists to DB."""
-    if not registry.has_task(conv_id):
+    if not await registry.has_task(conv_id):
         return
 
     async with async_session_maker() as db:
@@ -234,7 +234,12 @@ async def _process_chat(
             conversation = conv_result.scalar_one_or_none()
             if conversation is not None:
                 conversation.is_running = False
-                conversation.has_unread = registry.subscriber_count(conv_id) == 0
+                # Subscriber count isn't tracked across workers under the
+                # Postgres-backed registry. Mark as unread so the conversation
+                # list reflects the new message; the frontend's
+                # markConversationRead path clears this immediately when the
+                # user is viewing the conversation.
+                conversation.has_unread = True
                 if should_generate_title and conversation.title == DEFAULT_CONVERSATION_TITLE:
                     conversation.title = _fallback_title_from_content(content)
                     await registry.publish(
@@ -523,7 +528,7 @@ async def send_message(
         len(existing_messages) == 0 and conversation.title == DEFAULT_CONVERSATION_TITLE
     )
     conv_id_str = str(conversation_id)
-    registry.create_task(conv_id_str)
+    await registry.create_task(conv_id_str)
     public_base_url = build_public_base_url(http_request)
 
     asyncio.create_task(
@@ -551,7 +556,7 @@ async def stream_conversation(
     """SSE endpoint: subscribe to in-progress or already-finished background task."""
     conversation = await _get_conversation_or_404(conversation_id, current_user.id, db)
     conv_id_str = str(conversation_id)
-    if conversation.is_running and not registry.has_task(conv_id_str):
+    if conversation.is_running and not await registry.has_task(conv_id_str):
         conversation.is_running = False
         await db.commit()
 

@@ -1,90 +1,222 @@
-"""In-memory broadcast registry for background dashboard chat streams."""
+"""Postgres-backed broadcast registry for background dashboard chat streams.
+
+The previous implementation kept conversation streams in a per-process dict,
+which broke under `uvicorn --workers N` (the POST that started the task and the
+GET that subscribed to it could land on different workers). This implementation
+uses a `chat_stream_events` table for durable replay plus Postgres
+`LISTEN`/`NOTIFY` to wake up subscribers in any worker.
+
+Wire-format compatibility: events are serialized to SSE-formatted strings at
+publish time, so consumers receive `str` payloads (already `data: ...\\n\\n`)
+or `None` to signal stream completion.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 from typing import Any
 
+import asyncpg
+import sqlalchemy as sa
+
+from app.config import settings
+from app.db.session import async_session_maker
+
 ChatEvent = str | dict[str, Any]
+logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ChatTaskState:
-    events: list[ChatEvent] = field(default_factory=list)
-    subscribers: set[asyncio.Queue[ChatEvent | None]] = field(default_factory=set)
-    done: bool = False
+def _channel_name(conv_id: str) -> str:
+    """Build a Postgres NOTIFY channel name for a conversation.
+
+    Channel names are limited to NAMEDATALEN (63 chars). `chat_stream_` (12) +
+    UUID hex without hyphens (32) = 44 chars, well under the limit.
+    """
+    return f"chat_stream_{conv_id.replace('-', '_').replace('+', '_')}"
 
 
-_tasks: dict[str, ChatTaskState] = {}
+def _asyncpg_dsn() -> str:
+    return settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
 
 
-def create_task(conv_id: str) -> None:
-    """Create and register a fresh stream state for a conversation."""
-    _tasks[conv_id] = ChatTaskState()
+def _serialize_event(event: ChatEvent) -> str:
+    if isinstance(event, str):
+        return event
+    return f"data: {json.dumps(event)}\n\n"
 
 
-def has_task(conv_id: str) -> bool:
-    """Return whether a stream state exists for a conversation."""
-    return conv_id in _tasks
+async def create_task(conv_id: str) -> None:
+    """Wipe any previous events for this conversation; start a fresh slot.
+
+    Bounds per-conversation storage to at most one stream's worth of events.
+    """
+    async with async_session_maker() as session:
+        await session.execute(
+            sa.text("DELETE FROM chat_stream_events WHERE conversation_id = CAST(:cid AS uuid)"),
+            {"cid": conv_id},
+        )
+        await session.commit()
 
 
-def remove_task(conv_id: str) -> None:
-    """Remove a stream state."""
-    _tasks.pop(conv_id, None)
+async def has_task(conv_id: str) -> bool:
+    """Return True if a chat task is currently active for this conversation.
+
+    "Active" means either:
+      - the conversation row's `is_running` flag is true (a task was just
+        created and may not have published its first event yet), or
+      - there are still events in the stream table that no consumer has
+        observed and acknowledged (we don't delete on consume, so this is
+        any rows at all).
+    """
+    async with async_session_maker() as session:
+        result = await session.execute(
+            sa.text(
+                "SELECT "
+                "  COALESCE((SELECT is_running FROM dashboard_conversations "
+                "            WHERE id = CAST(:cid AS uuid)), FALSE) "
+                "  OR EXISTS (SELECT 1 FROM chat_stream_events "
+                "             WHERE conversation_id = CAST(:cid AS uuid))"
+            ),
+            {"cid": conv_id},
+        )
+        return bool(result.scalar())
+
+
+async def remove_task(conv_id: str) -> None:
+    async with async_session_maker() as session:
+        await session.execute(
+            sa.text("DELETE FROM chat_stream_events WHERE conversation_id = CAST(:cid AS uuid)"),
+            {"cid": conv_id},
+        )
+        await session.commit()
 
 
 async def publish(conv_id: str, event: ChatEvent) -> None:
-    """Broadcast an event to all current subscribers and keep it for replay."""
-    state = _tasks.get(conv_id)
-    if state is None:
-        return
-    state.events.append(event)
-    for queue in list(state.subscribers):
-        await queue.put(event)
+    payload = _serialize_event(event)
+    channel = _channel_name(conv_id)
+    async with async_session_maker() as session:
+        await session.execute(
+            sa.text(
+                "INSERT INTO chat_stream_events (conversation_id, payload, is_done) "
+                "VALUES (CAST(:cid AS uuid), :payload, FALSE)"
+            ),
+            {"cid": conv_id, "payload": payload},
+        )
+        # NOTIFY is delivered when the transaction commits.
+        await session.execute(sa.text(f'NOTIFY "{channel}"'))
+        await session.commit()
 
 
 async def finish(conv_id: str) -> None:
-    """Mark a stream as complete and wake all current subscribers."""
-    state = _tasks.get(conv_id)
-    if state is None:
-        return
-    state.done = True
-    for queue in list(state.subscribers):
-        await queue.put(None)
-    _remove_if_idle(conv_id)
+    channel = _channel_name(conv_id)
+    async with async_session_maker() as session:
+        await session.execute(
+            sa.text(
+                "INSERT INTO chat_stream_events (conversation_id, payload, is_done) "
+                "VALUES (CAST(:cid AS uuid), '', TRUE)"
+            ),
+            {"cid": conv_id},
+        )
+        await session.execute(sa.text(f'NOTIFY "{channel}"'))
+        await session.commit()
 
 
-def subscriber_count(conv_id: str) -> int:
-    """Return the current number of active SSE subscribers."""
-    state = _tasks.get(conv_id)
-    return len(state.subscribers) if state is not None else 0
+async def subscriber_count(conv_id: str) -> int:
+    """Not tracked across workers under the Postgres-backed registry.
 
-
-def _remove_if_idle(conv_id: str) -> None:
-    state = _tasks.get(conv_id)
-    if state is not None and state.done and not state.subscribers:
-        remove_task(conv_id)
+    Callers used this to set `has_unread = (count == 0)`; we now always mark
+    such conversations as unread on finish, and rely on the frontend's
+    markConversationRead path to clear it when the user views the chat.
+    """
+    return 0
 
 
 @asynccontextmanager
-async def subscribe(conv_id: str) -> AsyncGenerator[asyncio.Queue[ChatEvent | None] | None, None]:
-    """Subscribe to a stream, replaying events that were emitted before connection."""
-    state = _tasks.get(conv_id)
-    if state is None:
+async def subscribe(
+    conv_id: str,
+) -> AsyncGenerator[asyncio.Queue[ChatEvent | None] | None, None]:
+    """Subscribe to a conversation stream.
+
+    Yields a `Queue[str | None]` that emits SSE-formatted strings and a final
+    `None` to signal completion. Yields `None` (instead of a queue) when no
+    task ever existed for this conversation, matching the previous semantics.
+    """
+    if not await has_task(conv_id):
         yield None
         return
 
     queue: asyncio.Queue[ChatEvent | None] = asyncio.Queue()
-    for event in state.events:
-        await queue.put(event)
-    if state.done:
-        await queue.put(None)
-    state.subscribers.add(queue)
+    channel = _channel_name(conv_id)
+    listen_conn: asyncpg.Connection | None = None
+    listener_task: asyncio.Task[None] | None = None
+    last_seq = 0
+    notify_wakeup = asyncio.Event()
+
+    async def fetch_new_events() -> bool:
+        """Push newly-arrived events to the queue. Return True after `done`."""
+        nonlocal last_seq
+        async with async_session_maker() as session:
+            result = await session.execute(
+                sa.text(
+                    "SELECT sequence, payload, is_done FROM chat_stream_events "
+                    "WHERE conversation_id = CAST(:cid AS uuid) AND sequence > :last "
+                    "ORDER BY sequence"
+                ),
+                {"cid": conv_id, "last": last_seq},
+            )
+            rows = result.all()
+        saw_done = False
+        for row in rows:
+            last_seq = row.sequence
+            if row.is_done:
+                await queue.put(None)
+                saw_done = True
+            else:
+                await queue.put(row.payload)
+        return saw_done
+
+    async def listener() -> None:
+        try:
+            while True:
+                await notify_wakeup.wait()
+                notify_wakeup.clear()
+                if await fetch_new_events():
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Chat stream listener crashed for conv_id=%s", conv_id)
+            with contextlib.suppress(Exception):
+                await queue.put(None)
+
+    def on_notify(*_args: Any) -> None:
+        notify_wakeup.set()
+
     try:
+        listen_conn = await asyncpg.connect(_asyncpg_dsn())
+        await listen_conn.add_listener(channel, on_notify)
+        # Drain whatever already exists before yielding the queue so the consumer
+        # never misses early events that arrived before LISTEN was attached.
+        if await fetch_new_events():
+            yield queue
+            return
+        # Schedule another drain in case a NOTIFY fired between the initial
+        # fetch and add_listener — set the wakeup so the listener picks it up.
+        notify_wakeup.set()
+        listener_task = asyncio.create_task(listener())
         yield queue
     finally:
-        state.subscribers.discard(queue)
-        _remove_if_idle(conv_id)
+        if listener_task is not None:
+            listener_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await listener_task
+        if listen_conn is not None:
+            with contextlib.suppress(Exception):
+                await listen_conn.remove_listener(channel, on_notify)
+            with contextlib.suppress(Exception):
+                await listen_conn.close()
