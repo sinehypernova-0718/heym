@@ -26,6 +26,7 @@ interface Props {
   dragOverFolderId: string | null;
   draggedWorkflowId: string | null;
   copyingId: string | null;
+  forceExpandedFolderIds?: ReadonlySet<string>;
   depth?: number;
   isMobile?: boolean;
   onWorkflowTouchStart?: (e: TouchEvent, workflow: WorkflowListItem) => void;
@@ -34,6 +35,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  forceExpandedFolderIds: undefined,
   depth: 0,
   isMobile: false,
   onWorkflowTouchStart: undefined,
@@ -63,6 +65,10 @@ const hasContent = computed(() => props.folder.children.length > 0 || props.fold
 function handleToggle(event: MouseEvent): void {
   event.stopPropagation();
   emit("toggle", props.folder.id);
+}
+
+function isFolderExpandedForView(folderId: string): boolean {
+  return props.forceExpandedFolderIds?.has(folderId) === true || folderStore.isFolderExpanded(folderId);
 }
 
 function handleFolderClick(): void {
@@ -185,7 +191,8 @@ function handleContentDrop(event: DragEvent): void {
         v-for="child in folder.children"
         :key="child.id"
         :folder="child"
-        :is-expanded="folderStore.isFolderExpanded(child.id)"
+        :is-expanded="isFolderExpandedForView(child.id)"
+        :force-expanded-folder-ids="forceExpandedFolderIds"
         :drag-over-folder-id="dragOverFolderId"
         :dragged-workflow-id="draggedWorkflowId"
         :copying-id="copyingId"

@@ -13,6 +13,10 @@ The **Workflows** tab is the default dashboard view. It shows your workflow list
 - Use **Ctrl+click** (or **Cmd+click**) to open in a new tab
 - Pin frequently used workflows in the [Quick Drawer](../reference/quick-drawer.md) so you can run them quickly from the Workflows tab and other internal pages
 
+## Search
+
+Use the workflow search field beside **New Folder**, or press **Ctrl+F** (or **Cmd+F**), to filter workflows by title or description. Matching workflows inside folders are shown with their folder branches expanded. Press **Escape** to clear the search.
+
 ## Folders
 
 - Organize workflows into [folders and sub-folders](../reference/workflow-organization.md)
