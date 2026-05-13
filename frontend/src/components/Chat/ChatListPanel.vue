@@ -32,7 +32,7 @@ async function createNew(): Promise<void> {
   }, 2000);
   try {
     const conv = await chatStore.createConversation();
-    router.push(`/chats/${conv.id}`);
+    await router.push(`/chats/${conv.id}`);
   } catch {
     if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
     createNewCooldownTimeout = null;
@@ -41,6 +41,7 @@ async function createNew(): Promise<void> {
 }
 
 function select(id: string): void {
+  void chatStore.markConversationRead(id);
   router.push(`/chats/${id}`);
 }
 

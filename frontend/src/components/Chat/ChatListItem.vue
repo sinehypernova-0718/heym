@@ -66,18 +66,27 @@ function doDelete(): void {
 function cancelDelete(): void {
   isConfirmingDelete.value = false;
 }
+
+function handleSelect(): void {
+  emit("select", props.conversation.id);
+}
 </script>
 
 <template>
   <div
     :class="cn(
-      'group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors',
+      'group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors overflow-hidden',
       isActive
         ? 'bg-primary/10 text-primary'
         : 'hover:bg-muted/60 text-foreground'
     )"
-    @click="emit('select', conversation.id)"
+    @click="handleSelect"
   >
+    <div
+      class="chat-item-bar absolute left-0 top-0 bottom-0 w-[3px]"
+      :class="{ 'chat-item-bar--running': conversation.is_running }"
+    />
+
     <Pin
       v-if="conversation.is_pinned"
       class="w-3 h-3 shrink-0 text-primary opacity-60"
@@ -105,8 +114,14 @@ function cancelDelete(): void {
     </div>
 
     <div
+      v-if="conversation.has_unread && !isActive && !isEditing && !isConfirmingDelete"
+      class="w-2 h-2 rounded-full bg-primary shrink-0 shadow-[0_0_6px_rgba(99,102,241,0.6)]"
+      aria-label="Unread message"
+    />
+
+    <div
       v-if="!isEditing && !isConfirmingDelete"
-      class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+      class="hidden items-center gap-0.5 group-hover:flex group-focus-within:flex"
       @click.stop
     >
       <button
@@ -163,3 +178,30 @@ function cancelDelete(): void {
     </div>
   </div>
 </template>
+
+<style scoped>
+.chat-item-bar {
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+  transition: background 200ms ease;
+}
+
+.chat-item-bar--running {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    hsl(var(--primary)) 30%,
+    hsl(var(--primary) / 0.7) 50%,
+    hsl(var(--primary)) 70%,
+    transparent 100%
+  );
+  background-size: 100% 300%;
+  animation: chat-bar-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes chat-bar-shimmer {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 0% 100%; }
+  100% { background-position: 0% 0%; }
+}
+</style>

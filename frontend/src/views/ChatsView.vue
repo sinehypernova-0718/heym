@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { SquarePen, ChevronRight, Send } from "lucide-vue-next";
 
@@ -44,7 +44,7 @@ async function createNew(): Promise<void> {
   }, 2000);
   try {
     const conv = await chatStore.createConversation();
-    router.push(`/chats/${conv.id}`);
+    await router.push(`/chats/${conv.id}`);
   } catch {
     if (createNewCooldownTimeout) clearTimeout(createNewCooldownTimeout);
     createNewCooldownTimeout = null;
@@ -137,7 +137,13 @@ onMounted(() => {
   }
 });
 
+watchEffect(() => {
+  const count = chatStore.conversations.filter((c) => c.has_unread).length;
+  document.title = count > 0 ? `(${count}) Heym Chat Assistant` : "Heym Chat Assistant";
+});
+
 onUnmounted(() => {
+  document.title = "Heym Chat Assistant";
   mobileSidebarMediaQuery?.removeEventListener("change", syncMobileSidebarState);
   if (typeof window !== "undefined") {
     window.removeEventListener("keydown", handleKeyDown);

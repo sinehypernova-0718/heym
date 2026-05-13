@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
 from threading import Event
 
+import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, select
@@ -25,7 +27,14 @@ from app.api.ai_assistant import (
     stream_dashboard_chat,
 )
 from app.api.deps import get_current_user, get_db
-from app.db.models import CredentialType, DashboardConversation, DashboardMessage, User
+from app.db.models import (
+    CredentialType,
+    DashboardChatQuickPrompts,
+    DashboardConversation,
+    DashboardMessage,
+    User,
+)
+from app.db.session import async_session_maker
 from app.models.chat_schemas import (
     ConversationCreate,
     ConversationDetailResponse,
@@ -35,7 +44,11 @@ from app.models.chat_schemas import (
     ConversationUpdate,
     MessageCreate,
     MessageResponse,
+    QuickPromptsResponse,
+    QuickPromptsUpdate,
+    SendMessageResponse,
 )
+from app.services import chat_task_registry as registry
 from app.services.credential_access import get_accessible_credential
 from app.services.encryption import decrypt_config
 from app.services.hitl_service import build_public_base_url
@@ -45,6 +58,17 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONVERSATION_TITLE = "New Chat"
+DEFAULT_QUICK_PROMPTS: list[str] = [
+    "List my workflows",
+    "Show recent runs",
+    "Show analytics today",
+    "What's on my schedule?",
+    "Run a workflow",
+    "Show my teams",
+    "Create a workflow",
+]
+MAX_QUICK_PROMPTS = 7
+MAX_PROMPT_LENGTH = 200
 
 
 def _build_hidden_workflow_context_marker(workflow_id: str, workflow_name: str) -> str:
@@ -65,6 +89,167 @@ async def _get_conversation_or_404(
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     return conversation
+
+
+async def _process_chat(
+    conv_id: str,
+    user_id: uuid.UUID,
+    content: str,
+    credential_id: uuid.UUID,
+    model: str,
+    attachment_data: dict | None,
+    public_base_url: str,
+    should_generate_title: bool,
+) -> None:
+    """Background coroutine: streams assistant reply, writes to queue, persists to DB."""
+    if not registry.has_task(conv_id):
+        return
+
+    async with async_session_maker() as db:
+        try:
+            user_result = await db.execute(select(User).where(User.id == user_id))
+            user = user_result.scalar_one_or_none()
+            if user is None:
+                await registry.publish(conv_id, {"type": "error", "text": "User not found"})
+                await registry.finish(conv_id)
+                return
+
+            credential = await get_accessible_credential(db, credential_id, user_id)
+            if credential is None:
+                await registry.publish(conv_id, {"type": "error", "text": "Credential not found"})
+                await registry.finish(conv_id)
+                return
+
+            config = decrypt_config(credential.encrypted_config)
+            client, provider = get_openai_client(credential.type, config)
+
+            attachment = (
+                FileAttachment(
+                    name=attachment_data["name"],
+                    kind=attachment_data["kind"],
+                    content=attachment_data["content"],
+                )
+                if attachment_data
+                else None
+            )
+
+            msg_result = await db.execute(
+                select(DashboardMessage)
+                .where(DashboardMessage.conversation_id == uuid.UUID(conv_id))
+                .order_by(DashboardMessage.created_at)
+            )
+            all_messages = msg_result.scalars().all()
+            history = [{"role": m.role, "content": m.content} for m in all_messages]
+            if len(history) > MAX_DASHBOARD_CHAT_HISTORY:
+                history = history[-MAX_DASHBOARD_CHAT_HISTORY:]
+
+            messages = list(history)
+
+            trace_context = LLMTraceContext(
+                user_id=user_id,
+                credential_id=credential.id,
+                workflow_id=None,
+                node_label="Dashboard Chat",
+                source="dashboard_chat",
+            )
+            workflows = await get_workflows_for_user_with_inputs(db, user_id)
+            workflows_block = _format_workflows_for_prompt(workflows)
+            agents_md = _load_agents_md_content()
+            system_prompt = DASHBOARD_CHAT_SYSTEM_PROMPT
+            if agents_md:
+                system_prompt = (
+                    "## Heym Platform Context\n\n"
+                    "Use the following Heym platform documentation to answer questions about the platform, structure, commands, code style, and conventions:\n\n"
+                    + agents_md
+                    + "\n\n---\n\n"
+                    + system_prompt
+                )
+            if workflows_block:
+                system_prompt = (
+                    system_prompt
+                    + "\n\nAvailable workflows (always check these first when user asks for information):\n"
+                    + workflows_block
+                )
+            if attachment_data:
+                system_prompt = system_prompt + "\n\n" + _ATTACHMENT_ROUTING_INSTRUCTIONS
+
+            cancel_event = Event()
+            assistant_chunks: list[str] = []
+            workflow_context_markers: list[str] = []
+            workflow_note_ids: set[str] = set()
+
+            async for chunk in stream_dashboard_chat(
+                client,
+                model,
+                system_prompt,
+                messages,
+                db,
+                user,
+                provider,
+                public_base_url,
+                trace_context,
+                cancel_event,
+                attachment,
+                credential,
+            ):
+                if chunk.startswith("data: "):
+                    try:
+                        payload = json.loads(chunk[6:].strip())
+                    except json.JSONDecodeError:
+                        payload = {}
+                    if payload.get("type") == "content":
+                        assistant_chunks.append(str(payload.get("text") or ""))
+                    elif payload.get("type") == "workflow_created":
+                        w_id = str(payload.get("workflow_id") or "").strip()
+                        w_name = str(payload.get("workflow_name") or "").strip()
+                        if w_id and w_id not in workflow_note_ids:
+                            workflow_note_ids.add(w_id)
+                            workflow_context_markers.append(
+                                _build_hidden_workflow_context_marker(w_id, w_name or "Workflow")
+                            )
+                await registry.publish(conv_id, chunk)
+
+            assistant_content = "".join(assistant_chunks)
+            for marker in workflow_context_markers:
+                if marker and marker not in assistant_content:
+                    assistant_content += marker
+            if assistant_content:
+                db.add(
+                    DashboardMessage(
+                        conversation_id=uuid.UUID(conv_id),
+                        role="assistant",
+                        content=assistant_content,
+                    )
+                )
+
+            conv_result = await db.execute(
+                select(DashboardConversation).where(DashboardConversation.id == uuid.UUID(conv_id))
+            )
+            conversation = conv_result.scalar_one_or_none()
+            if conversation is not None:
+                conversation.is_running = False
+                conversation.has_unread = registry.subscriber_count(conv_id) == 0
+                if should_generate_title and conversation.title == DEFAULT_CONVERSATION_TITLE:
+                    conversation.title = _fallback_title_from_content(content)
+                    await registry.publish(
+                        conv_id,
+                        f"data: {json.dumps({'type': 'title', 'title': conversation.title})}\n\n",
+                    )
+            await db.commit()
+            await registry.finish(conv_id)
+
+        except Exception:
+            logger.exception("Background chat task failed for conv_id=%s", conv_id)
+            async with async_session_maker() as err_db:
+                await err_db.execute(
+                    sa.text("UPDATE dashboard_conversations SET is_running = false WHERE id = :id"),
+                    {"id": conv_id},
+                )
+                await err_db.commit()
+            await registry.publish(
+                conv_id, f"data: {json.dumps({'type': 'error', 'text': 'Processing failed'})}\n\n"
+            )
+            await registry.finish(conv_id)
 
 
 @router.get("", response_model=ConversationListResponse)
@@ -116,6 +301,57 @@ async def clear_conversations(
     await db.commit()
 
 
+@router.get("/quick-prompts", response_model=QuickPromptsResponse)
+async def get_quick_prompts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> QuickPromptsResponse:
+    """Return the current user's quick prompts, or defaults if none saved."""
+    result = await db.execute(
+        select(DashboardChatQuickPrompts).where(
+            DashboardChatQuickPrompts.user_id == current_user.id
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return QuickPromptsResponse(prompts=DEFAULT_QUICK_PROMPTS)
+    return QuickPromptsResponse(prompts=list(row.prompts))
+
+
+@router.put("/quick-prompts", response_model=QuickPromptsResponse)
+async def save_quick_prompts(
+    body: QuickPromptsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> QuickPromptsResponse:
+    """Replace the current user's quick prompts list (max 7 items)."""
+    cleaned = [p.strip() for p in body.prompts if p.strip()]
+    if len(cleaned) > MAX_QUICK_PROMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Maximum {MAX_QUICK_PROMPTS} prompts allowed",
+        )
+    for p in cleaned:
+        if len(p) > MAX_PROMPT_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Each prompt must be at most {MAX_PROMPT_LENGTH} characters",
+            )
+
+    result = await db.execute(
+        select(DashboardChatQuickPrompts).where(
+            DashboardChatQuickPrompts.user_id == current_user.id
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        db.add(DashboardChatQuickPrompts(user_id=current_user.id, prompts=cleaned))
+    else:
+        row.prompts = cleaned
+    await db.commit()
+    return QuickPromptsResponse(prompts=cleaned)
+
+
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
 async def get_conversation(
     conversation_id: uuid.UUID,
@@ -139,6 +375,10 @@ async def get_conversation(
         id=conversation.id,
         title=conversation.title,
         is_pinned=conversation.is_pinned,
+        is_running=conversation.is_running,
+        has_unread=conversation.has_unread,
+        last_credential_id=conversation.last_credential_id,
+        last_model=conversation.last_model,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
         messages=[MessageResponse.model_validate(m) for m in sorted_messages],
@@ -218,15 +458,19 @@ async def generate_conversation_title(
     return ConversationResponse.model_validate(conversation)
 
 
-@router.post("/{conversation_id}/messages")
-async def stream_message(
+@router.post(
+    "/{conversation_id}/messages",
+    response_model=SendMessageResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def send_message(
     http_request: Request,
     conversation_id: uuid.UUID,
     body: MessageCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> StreamingResponse:
-    """Send a user message and stream the assistant reply via SSE."""
+) -> SendMessageResponse:
+    """Accept a user message, launch background task, return 202."""
     conversation = await _get_conversation_or_404(conversation_id, current_user.id, db)
 
     msg_result = await db.execute(
@@ -235,13 +479,8 @@ async def stream_message(
         .order_by(DashboardMessage.created_at)
     )
     existing_messages = msg_result.scalars().all()
-    history = [{"role": m.role, "content": m.content} for m in existing_messages[-25:]]
 
-    credential = await get_accessible_credential(
-        db,
-        uuid.UUID(body.credential_id),
-        current_user.id,
-    )
+    credential = await get_accessible_credential(db, uuid.UUID(body.credential_id), current_user.id)
     if credential is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
     if credential.type not in (CredentialType.openai, CredentialType.google, CredentialType.custom):
@@ -250,8 +489,6 @@ async def stream_message(
             detail="Credential must be an LLM type (OpenAI, Google, or Custom)",
         )
 
-    config = decrypt_config(credential.encrypted_config)
-    client, provider = get_openai_client(credential.type, config)
     attachment = (
         FileAttachment(
             name=body.attachment.name,
@@ -262,40 +499,6 @@ async def stream_message(
         else None
     )
     user_message = _build_user_message(body.content, attachment)
-    if len(history) > MAX_DASHBOARD_CHAT_HISTORY:
-        history = history[-MAX_DASHBOARD_CHAT_HISTORY:]
-    messages = list(history)
-    messages.append(user_message)
-
-    trace_context = LLMTraceContext(
-        user_id=current_user.id,
-        credential_id=credential.id,
-        workflow_id=None,
-        node_label="Dashboard Chat",
-        source="dashboard_chat",
-    )
-    workflows = await get_workflows_for_user_with_inputs(db, current_user.id)
-    workflows_block = _format_workflows_for_prompt(workflows)
-    agents_md = _load_agents_md_content()
-    system_prompt = DASHBOARD_CHAT_SYSTEM_PROMPT
-    if agents_md:
-        system_prompt = (
-            "## Heym Platform Context\n\n"
-            "Use the following Heym platform documentation to answer questions about the platform, structure, commands, code style, and conventions:\n\n"
-            + agents_md
-            + "\n\n---\n\n"
-            + system_prompt
-        )
-    if workflows_block:
-        system_prompt = (
-            system_prompt
-            + "\n\nAvailable workflows (always check these first when user asks for information):\n"
-            + workflows_block
-        )
-    if body.attachment:
-        system_prompt = system_prompt + "\n\n" + _ATTACHMENT_ROUTING_INSTRUCTIONS
-    public_base_url = build_public_base_url(http_request)
-    cancel_event = Event()
 
     db.add(
         DashboardMessage(
@@ -304,76 +507,77 @@ async def stream_message(
             content=user_message["content"],
         )
     )
+    conversation.is_running = True
+    conversation.has_unread = False
+    conversation.last_credential_id = credential.id
+    conversation.last_model = body.model
     await db.commit()
+
     should_generate_title = (
         len(existing_messages) == 0 and conversation.title == DEFAULT_CONVERSATION_TITLE
     )
+    conv_id_str = str(conversation_id)
+    registry.create_task(conv_id_str)
+    public_base_url = build_public_base_url(http_request)
+
+    asyncio.create_task(
+        _process_chat(
+            conv_id=conv_id_str,
+            user_id=current_user.id,
+            content=body.content,
+            credential_id=credential.id,
+            model=body.model,
+            attachment_data=body.attachment.model_dump() if body.attachment else None,
+            public_base_url=public_base_url,
+            should_generate_title=should_generate_title,
+        )
+    )
+
+    return SendMessageResponse(conversation_id=conversation_id)
+
+
+@router.get("/{conversation_id}/stream")
+async def stream_conversation(
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """SSE endpoint: subscribe to in-progress or already-finished background task."""
+    conversation = await _get_conversation_or_404(conversation_id, current_user.id, db)
+    conv_id_str = str(conversation_id)
+    if conversation.is_running and not registry.has_task(conv_id_str):
+        conversation.is_running = False
+        await db.commit()
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        assistant_chunks: list[str] = []
-        workflow_context_markers: list[str] = []
-        workflow_note_ids: set[str] = set()
-        try:
-            async for chunk in stream_dashboard_chat(
-                client,
-                body.model,
-                system_prompt,
-                messages,
-                db,
-                current_user,
-                provider,
-                public_base_url,
-                trace_context,
-                cancel_event,
-                attachment,
-                credential,
-            ):
-                if cancel_event.is_set():
+        async with registry.subscribe(conv_id_str) as queue:
+            if queue is None:
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
+            while True:
+                item = await queue.get()
+                if item is None:
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     break
-                if chunk.startswith("data: "):
-                    try:
-                        payload = json.loads(chunk[6:].strip())
-                    except json.JSONDecodeError:
-                        payload = {}
-                    if payload.get("type") == "content":
-                        assistant_chunks.append(str(payload.get("text") or ""))
-                    elif payload.get("type") == "workflow_created":
-                        workflow_id = str(payload.get("workflow_id") or "").strip()
-                        workflow_name = str(payload.get("workflow_name") or "").strip()
-                        if workflow_id and workflow_id not in workflow_note_ids:
-                            workflow_note_ids.add(workflow_id)
-                            workflow_context_markers.append(
-                                _build_hidden_workflow_context_marker(
-                                    workflow_id,
-                                    workflow_name or "Workflow",
-                                )
-                            )
-                    elif payload.get("type") == "done":
-                        assistant_content = "".join(assistant_chunks)
-                        for marker in workflow_context_markers:
-                            if marker and marker not in assistant_content:
-                                assistant_content += marker
-                        if assistant_content:
-                            db.add(
-                                DashboardMessage(
-                                    conversation_id=conversation_id,
-                                    role="assistant",
-                                    content=assistant_content,
-                                )
-                            )
-                        if should_generate_title:
-                            title = _fallback_title_from_content(body.content)
-                            conversation.title = title
-                            await db.commit()
-                            yield f"data: {json.dumps({'type': 'title', 'title': title})}\n\n"
-                        elif assistant_content:
-                            await db.commit()
-                yield chunk
-        finally:
-            cancel_event.set()
+                if isinstance(item, str):
+                    yield item
+                else:
+                    yield f"data: {json.dumps(item)}\n\n"
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.patch("/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+async def mark_conversation_read(
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Clear the has_unread flag for a conversation."""
+    conversation = await _get_conversation_or_404(conversation_id, current_user.id, db)
+    conversation.has_unread = False
+    await db.commit()

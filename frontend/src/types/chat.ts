@@ -13,6 +13,8 @@ export interface Conversation {
   id: string
   title: string
   is_pinned: boolean
+  is_running: boolean
+  has_unread: boolean
   created_at: string
   updated_at: string
 }
@@ -28,6 +30,8 @@ export interface Message {
 }
 
 export interface ConversationDetail extends Conversation {
+  last_credential_id: string | null
+  last_model: string | null
   messages: Message[]
 }
 

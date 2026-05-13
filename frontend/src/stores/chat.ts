@@ -8,7 +8,6 @@ import { useAuthStore } from "@/stores/auth";
 
 const SIDEBAR_OPEN_KEY = "heym-chat-sidebar-open";
 const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 767px)";
-const CREATE_CONVERSATION_COOLDOWN_MS = 2000;
 const CHAT_CACHE_KEY_PREFIX = "heym-chat-cache";
 const CHAT_CACHE_CRYPTO_CONTEXT = "heym-chat-cache-v1";
 
@@ -34,14 +33,15 @@ export const useChatStore = defineStore("chat", () => {
   const isLoadingConversations = ref(false);
   const isLoadingMessages = ref(false);
   const isStreaming = ref(false);
+  const streamingConversationId = ref<string | null>(null);
   const streamingContent = ref("");
   const streamingImages = ref<string[]>([]);
   const streamingSteps = ref<string[]>([]);
   const streamingWorkflowPreview = ref<WorkflowPreview | null>(null);
   const activeAbortController = ref<AbortController | null>(null);
-  let createConversationStartedAt = 0;
-  let createConversationPromise: Promise<Conversation> | null = null;
+  const quickPrompts = ref<string[]>([]);
   let latestConversationLoadId: string | null = null;
+  const backgroundSubscribedConvIds = new Set<string>();
 
   const sortedConversations = computed<Conversation[]>(() =>
     [...conversations.value].sort((a, b) => {
@@ -73,8 +73,47 @@ export const useChatStore = defineStore("chat", () => {
     isLoadingConversations.value = true;
     try {
       conversations.value = await chatApi.listConversations();
+      for (const conv of conversations.value) {
+        if (conv.is_running && !backgroundSubscribedConvIds.has(conv.id)) {
+          void _subscribeToBackgroundStream(conv.id);
+        }
+      }
     } finally {
       isLoadingConversations.value = false;
+    }
+  }
+
+  async function _subscribeToBackgroundStream(conversationId: string): Promise<void> {
+    if (backgroundSubscribedConvIds.has(conversationId)) return;
+    backgroundSubscribedConvIds.add(conversationId);
+    const controller = new AbortController();
+    try {
+      await chatApi.subscribeStream(
+        conversationId,
+        () => {},
+        () => {
+          backgroundSubscribedConvIds.delete(conversationId);
+          _patchConversationFlag(conversationId, "is_running", false);
+          const isActive = activeConversation.value?.id === conversationId;
+          if (!isActive) {
+            _patchConversationFlag(conversationId, "has_unread", true);
+            _playDing();
+          }
+          _refreshConversationTimestamp(conversationId);
+        },
+        () => {
+          backgroundSubscribedConvIds.delete(conversationId);
+          _patchConversationFlag(conversationId, "is_running", false);
+        },
+        undefined,
+        undefined,
+        (title) => { _patchConversationTitle(conversationId, title); },
+        undefined,
+        controller.signal,
+      );
+    } catch {
+      backgroundSubscribedConvIds.delete(conversationId);
+      _patchConversationFlag(conversationId, "is_running", false);
     }
   }
 
@@ -99,7 +138,14 @@ export const useChatStore = defineStore("chat", () => {
       } else {
         activeConversation.value = fetched;
       }
+      _patchConversation(fetched);
       void _writeCachedConversation(activeConversation.value);
+      if (fetched.has_unread) {
+        void markConversationRead(id);
+      }
+      if (fetched.is_running && !isStreaming.value) {
+        void _subscribeToStream(id);
+      }
       return "loaded";
     } catch (error) {
       const status = _getHttpStatus(error);
@@ -120,40 +166,20 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   async function createConversation(title?: string): Promise<Conversation> {
-    const now = Date.now();
-    if (
-      createConversationPromise &&
-      now - createConversationStartedAt < CREATE_CONVERSATION_COOLDOWN_MS
-    ) {
-      return createConversationPromise;
+    const conv = await chatApi.createConversation(title ? { title } : {});
+    latestConversationLoadId = conv.id;
+    if (!conversations.value.some((existing) => existing.id === conv.id)) {
+      conversations.value = [conv, ...conversations.value];
     }
-
-    createConversationStartedAt = now;
-    const createPromise = chatApi.createConversation(title ? { title } : {});
-    createConversationPromise = createPromise;
-
-    try {
-      const conv = await createPromise;
-      if (!conversations.value.some((existing) => existing.id === conv.id)) {
-        conversations.value = [conv, ...conversations.value];
-      }
-      activeConversation.value = { ...conv, messages: [] };
-      void _writeCachedConversation(activeConversation.value);
-      return conv;
-    } catch (error) {
-      createConversationPromise = null;
-      throw error;
-    } finally {
-      const elapsed = Date.now() - createConversationStartedAt;
-      setTimeout(
-        () => {
-          if (createConversationPromise === createPromise) {
-            createConversationPromise = null;
-          }
-        },
-        Math.max(0, CREATE_CONVERSATION_COOLDOWN_MS - elapsed),
-      );
-    }
+    const detail: ConversationDetail = {
+      ...conv,
+      last_credential_id: null,
+      last_model: null,
+      messages: [],
+    };
+    activeConversation.value = detail;
+    void _writeCachedConversation(detail);
+    return conv;
   }
 
   async function renameConversation(id: string, title: string): Promise<void> {
@@ -203,30 +229,68 @@ export const useChatStore = defineStore("chat", () => {
       ...(attachment ? { attachmentName: attachment.name } : {}),
       created_at: new Date().toISOString(),
     };
+    const isFirstMessage = activeConversation.value.messages.length === 0;
     activeConversation.value = {
       ...activeConversation.value,
       messages: [...activeConversation.value.messages, userMessage],
     };
     void _writeCachedConversation(activeConversation.value);
 
+    if (isFirstMessage && activeConversation.value.title === "New Chat") {
+      const immediateTitle = _titleFromContent(content);
+      _patchConversationTitle(conversationId, immediateTitle);
+    }
+
     isStreaming.value = true;
+    streamingConversationId.value = conversationId;
     streamingContent.value = "";
     streamingImages.value = [];
     streamingSteps.value = [];
     streamingWorkflowPreview.value = null;
-    activeAbortController.value = new AbortController();
 
     try {
-      await chatApi.streamMessagePost(
+      await chatApi.sendMessage(conversationId, content, credentialId, model, attachment);
+      _patchConversationFlag(conversationId, "is_running", true);
+      void _subscribeToStream(conversationId);
+    } catch {
+      isStreaming.value = false;
+      streamingConversationId.value = null;
+      streamingContent.value = "";
+      streamingImages.value = [];
+      streamingSteps.value = [];
+      streamingWorkflowPreview.value = null;
+    }
+  }
+
+  async function _subscribeToStream(conversationId: string): Promise<void> {
+    if (activeAbortController.value) {
+      activeAbortController.value.abort();
+    }
+    const controller = new AbortController();
+    activeAbortController.value = controller;
+    isStreaming.value = true;
+    streamingConversationId.value = conversationId;
+
+    function clearForegroundStreamState(): void {
+      if (activeAbortController.value !== controller) return;
+      streamingContent.value = "";
+      streamingImages.value = [];
+      streamingSteps.value = [];
+      streamingWorkflowPreview.value = null;
+      isStreaming.value = false;
+      streamingConversationId.value = null;
+      activeAbortController.value = null;
+    }
+
+    try {
+      await chatApi.subscribeStream(
         conversationId,
-        content,
-        credentialId,
-        model,
-        attachment,
         (text) => {
+          if (activeAbortController.value !== controller) return;
           streamingContent.value += text;
         },
         () => {
+          if (activeAbortController.value !== controller) return;
           const assistantMessage: Message = {
             id: crypto.randomUUID(),
             role: "assistant",
@@ -237,51 +301,66 @@ export const useChatStore = defineStore("chat", () => {
               : {}),
             created_at: new Date().toISOString(),
           };
-          if (activeConversation.value) {
+          if (activeConversation.value?.id === conversationId) {
             activeConversation.value = {
               ...activeConversation.value,
               messages: [...activeConversation.value.messages, assistantMessage],
             };
             void _writeCachedConversation(activeConversation.value);
           }
-          streamingContent.value = "";
-          streamingImages.value = [];
-          streamingSteps.value = [];
-          streamingWorkflowPreview.value = null;
-          isStreaming.value = false;
-          activeAbortController.value = null;
+          clearForegroundStreamState();
+          _patchConversationFlag(conversationId, "is_running", false);
+          if (activeConversation.value?.id !== conversationId) {
+            _patchConversationFlag(conversationId, "has_unread", true);
+          }
           _refreshConversationTimestamp(conversationId);
+          _playDing();
         },
         (_err) => {
-          isStreaming.value = false;
-          streamingContent.value = "";
-          streamingImages.value = [];
-          streamingSteps.value = [];
-          streamingWorkflowPreview.value = null;
-          activeAbortController.value = null;
+          clearForegroundStreamState();
+          _patchConversationFlag(conversationId, "is_running", false);
         },
         (label) => {
+          if (activeAbortController.value !== controller) return;
           streamingSteps.value = [...streamingSteps.value, label];
         },
         (images) => {
+          if (activeAbortController.value !== controller) return;
           streamingImages.value = [...streamingImages.value, ...images];
         },
         (title) => {
           _patchConversationTitle(conversationId, title);
         },
         (workflow) => {
+          if (activeAbortController.value !== controller) return;
           streamingWorkflowPreview.value = workflow;
         },
-        activeAbortController.value.signal,
+        controller.signal,
       );
     } catch {
-      isStreaming.value = false;
-      streamingContent.value = "";
-      streamingImages.value = [];
-      streamingSteps.value = [];
-      streamingWorkflowPreview.value = null;
-      activeAbortController.value = null;
+      clearForegroundStreamState();
+      if (!controller.signal.aborted) {
+        _patchConversationFlag(conversationId, "is_running", false);
+      }
     }
+  }
+
+  async function markConversationRead(id: string): Promise<void> {
+    _patchConversationFlag(id, "has_unread", false);
+    await chatApi.markConversationRead(id);
+  }
+
+  async function loadQuickPrompts(): Promise<void> {
+    try {
+      quickPrompts.value = await chatApi.getQuickPrompts();
+    } catch {
+      // Keep empty; UI falls back to defaults
+    }
+  }
+
+  async function saveQuickPrompts(prompts: string[]): Promise<void> {
+    const saved = await chatApi.saveQuickPrompts(prompts);
+    quickPrompts.value = saved;
   }
 
   function cancelStreaming(): void {
@@ -292,10 +371,50 @@ export const useChatStore = defineStore("chat", () => {
     streamingSteps.value = [];
     streamingWorkflowPreview.value = null;
     isStreaming.value = false;
+    streamingConversationId.value = null;
   }
 
   function _patchConversation(updated: Conversation): void {
     conversations.value = conversations.value.map((c) => (c.id === updated.id ? updated : c));
+  }
+
+  function _patchConversationFlag(
+    id: string,
+    flag: "is_running" | "has_unread",
+    value: boolean,
+  ): void {
+    conversations.value = conversations.value.map((c) =>
+      c.id === id ? { ...c, [flag]: value } : c,
+    );
+  }
+
+  function _playDing(): void {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } catch {
+      // AudioContext unavailable — silent fail
+    }
+  }
+
+  function _titleFromContent(content: string): string {
+    const attachmentIdx = content.indexOf("\n\n[ATTACHED FILE:");
+    const cleaned = (attachmentIdx !== -1 ? content.slice(0, attachmentIdx) : content).trim().replace(/^["'`“‘”’]+|["'`“‘”’]+$/g, "");
+    if (!cleaned) return "New Chat";
+    if (cleaned.length > 50) {
+      const boundary = cleaned.indexOf(" ", 50);
+      const cut = boundary !== -1 ? cleaned.slice(0, boundary) : cleaned.slice(0, 50);
+      return `${cut.replace(/[.,:;!?]+$/, "")}...`;
+    }
+    return `${cleaned.replace(/[.,:;!?]+$/, "")}...`;
   }
 
   function _patchConversationTitle(id: string, title: string): void {
@@ -478,10 +597,12 @@ export const useChatStore = defineStore("chat", () => {
     isLoadingConversations,
     isLoadingMessages,
     isStreaming,
+    streamingConversationId,
     streamingContent,
     streamingImages,
     streamingSteps,
     streamingWorkflowPreview,
+    quickPrompts,
     toggleSidebar,
     openSidebar,
     closeSidebar,
@@ -494,5 +615,8 @@ export const useChatStore = defineStore("chat", () => {
     clearConversations,
     sendMessage,
     cancelStreaming,
+    markConversationRead,
+    loadQuickPrompts,
+    saveQuickPrompts,
   };
 });

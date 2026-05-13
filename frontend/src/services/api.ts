@@ -2334,19 +2334,23 @@ export const chatApi = {
     await api.delete("/chats");
   },
 
-  streamMessage: (id: string, content: string, credentialId: string, model: string): EventSource => {
-    const base = import.meta.env.VITE_API_URL || "";
-    const url = `${base}/api/chats/${id}/messages`;
-    const params = new URLSearchParams({ content, credential_id: credentialId, model });
-    return new EventSource(`${url}?${params}`);
-  },
-
-  streamMessagePost: async (
+  sendMessage: async (
     id: string,
     content: string,
     credentialId: string,
     model: string,
     attachment: FileAttachmentPayload | null,
+  ): Promise<void> => {
+    await api.post(`/chats/${id}/messages`, {
+      content,
+      credential_id: credentialId,
+      model,
+      ...(attachment ? { attachment } : {}),
+    });
+  },
+
+  subscribeStream: async (
+    id: string,
     onChunk: (text: string) => void,
     onDone: () => void,
     onError: (msg: string) => void,
@@ -2357,17 +2361,11 @@ export const chatApi = {
     signal?: AbortSignal,
   ): Promise<void> => {
     const base = import.meta.env.VITE_API_URL || "";
-    const url = `${base}/api/chats/${id}/messages`;
+    const url = `${base}/api/chats/${id}/stream`;
     const response = await fetch(url, {
-      method: "POST",
+      method: "GET",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        content,
-        credential_id: credentialId,
-        model,
-        ...(attachment ? { attachment } : {}),
-      }),
+      headers: { Accept: "text/event-stream" },
       signal,
     });
     if (!response.ok || !response.body) {
@@ -2378,10 +2376,15 @@ export const chatApi = {
     const decoder = new TextDecoder();
     let buffer = "";
     let reading = true;
+    let yieldCounter = 0;
     while (reading) {
       const { done, value } = await reader.read();
       if (done) { reading = false; break; }
       buffer += decoder.decode(value, { stream: true });
+      yieldCounter++;
+      if (yieldCounter % 20 === 0) {
+        await new Promise<void>((r) => setTimeout(r, 0));
+      }
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
@@ -2389,22 +2392,19 @@ export const chatApi = {
         try {
           const parsed = JSON.parse(line.slice(6));
           if (parsed.type === "content") onChunk(parsed.text);
-          else if (parsed.type === "done") onDone();
+          else if (parsed.type === "done") { onDone(); reading = false; break; }
           else if (parsed.type === "error") onError(parsed.text);
           else if (parsed.type === "step" && typeof parsed.label === "string") {
             onStep?.(parsed.label);
-          }
-          else if (
+          } else if (
             parsed.type === "tool_output" &&
             Array.isArray(parsed.images) &&
             parsed.images.length > 0
           ) {
             onToolOutput?.(parsed.images);
-          }
-          else if (parsed.type === "title" && typeof parsed.title === "string") {
+          } else if (parsed.type === "title" && typeof parsed.title === "string") {
             onTitle?.(parsed.title);
-          }
-          else if (
+          } else if (
             parsed.type === "workflow_created" &&
             typeof parsed.workflow_id === "string" &&
             typeof parsed.workflow_name === "string" &&
@@ -2428,6 +2428,20 @@ export const chatApi = {
         }
       }
     }
+  },
+
+  markConversationRead: async (id: string): Promise<void> => {
+    await api.patch(`/chats/${id}/read`);
+  },
+
+  getQuickPrompts: async (): Promise<string[]> => {
+    const response = await api.get<{ prompts: string[] }>("/chats/quick-prompts");
+    return response.data.prompts;
+  },
+
+  saveQuickPrompts: async (prompts: string[]): Promise<string[]> => {
+    const response = await api.put<{ prompts: string[] }>("/chats/quick-prompts", { prompts });
+    return response.data.prompts;
   },
 };
 
