@@ -108,6 +108,18 @@ const api = axios.create({
   withCredentials: true,
 });
 
+export interface AppVersionInfo {
+  version: string;
+  latest_version: string | null;
+  update_available: boolean;
+  release_url: string | null;
+  compare_url: string | null;
+  compare_label: string | null;
+  source: string;
+  checked_at: string | null;
+  error: string | null;
+}
+
 export interface WorkflowExecuteOptions {
   bodyMode?: WebhookBodyMode;
   testRun?: boolean;
@@ -270,6 +282,15 @@ export const authApi = {
       current_password: data.currentPassword,
       new_password: data.newPassword,
     });
+  },
+};
+
+export const versionApi = {
+  getInfo: async (): Promise<AppVersionInfo> => {
+    const response = await api.get<AppVersionInfo>("/version", {
+      params: { t: Date.now() },
+    });
+    return response.data;
   },
 };
 

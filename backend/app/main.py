@@ -48,6 +48,7 @@ from app.api.deps import get_client_ip
 from app.config import settings
 from app.db.session import async_session_maker
 from app.http_identity import HEYM_SERVER_AGENT
+from app.models.schemas import AppVersionResponse
 from app.services.cron_scheduler import cron_scheduler
 from app.services.distributed_lock import lock_service
 from app.services.grist_pool import close_all_clients as close_grist_clients
@@ -60,6 +61,7 @@ from app.services.rabbitmq_consumer import rabbitmq_consumer_manager
 from app.services.rabbitmq_pool import RabbitMQPool
 from app.services.redis_pool import close_all_pools as close_redis_pools
 from app.services.redis_pool import warm_up_pools as warm_up_redis_pools
+from app.services.version_check import get_version_status
 from app.services.websocket_trigger_service import websocket_trigger_manager
 from app.services.workflow_executor import close_http_client
 
@@ -241,9 +243,22 @@ async def health_check() -> dict:
     return {"status": "healthy", "service": "heym-api", "version": settings.resolved_version}
 
 
-@app.get("/api/version")
-async def version_info() -> dict:
-    return {"version": settings.resolved_version}
+@app.get("/api/version", response_model=AppVersionResponse)
+async def version_info(response: Response) -> AppVersionResponse:
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    version_status = await get_version_status(settings.resolved_version)
+    return AppVersionResponse(
+        version=version_status.current_version,
+        latest_version=version_status.latest_version,
+        update_available=version_status.update_available,
+        release_url=version_status.release_url,
+        compare_url=version_status.compare_url,
+        compare_label=version_status.compare_label,
+        source=version_status.source,
+        checked_at=version_status.checked_at,
+        error=version_status.error,
+    )
 
 
 @app.get("/review/{token}", include_in_schema=False)

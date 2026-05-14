@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { BookOpen, LogOut, Moon, Search, Sun, User } from "lucide-vue-next";
+import { BookOpen, ExternalLink, LogOut, Moon, Search, Sun, User } from "lucide-vue-next";
 
 import UserSettingsDialog from "@/components/Layout/UserSettingsDialog.vue";
 import Button from "@/components/ui/Button.vue";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
+import { useVersionStore } from "@/stores/version";
 
 defineProps<{
   onOpenCommandPalette?: () => void;
@@ -17,14 +18,15 @@ defineProps<{
 const router = useRouter();
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
+const versionStore = useVersionStore();
 const showSettingsDialog = ref(false);
 
 const appVersion = computed(() => {
-  const version = import.meta.env.VITE_APP_VERSION;
-  return `v${version}`;
+  return versionStore.displayVersion;
 });
 
 onMounted(() => {
+  void versionStore.loadVersionInfo({ force: true });
   const unsub = onDismissOverlays(() => {
     showSettingsDialog.value = false;
   });
@@ -42,24 +44,46 @@ async function handleLogout(): Promise<void> {
     <div class="h-full px-4 md:px-6 flex items-center justify-between max-w-full overflow-x-hidden">
       <div class="flex items-center gap-1.5 sm:gap-2">
         <slot name="left-actions" />
-        <router-link
-          to="/"
-          class="logo-link flex items-center gap-3 font-semibold cursor-pointer group"
-        >
-          <div class="logo-icon flex items-center justify-center w-10 h-10">
+        <div class="logo-link flex items-center gap-3 font-semibold group">
+          <router-link
+            to="/"
+            class="logo-icon flex items-center justify-center w-10 h-10 cursor-pointer"
+          >
             <img
               src="/fav.svg"
               alt="Heym"
               class="w-10 h-10"
             >
-          </div>
+          </router-link>
           <div class="flex flex-col">
-            <span class="text-lg font-bold tracking-tight hidden sm:block group-hover:text-primary transition-colors duration-200">
+            <router-link
+              to="/"
+              class="text-lg font-bold tracking-tight hidden sm:block group-hover:text-primary transition-colors duration-200 cursor-pointer"
+            >
               Heym
+            </router-link>
+            <a
+              v-if="versionStore.updateHref"
+              :href="versionStore.updateHref"
+              target="_blank"
+              rel="noopener noreferrer"
+              :title="versionStore.updateTitle"
+              class="hidden md:flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <span>{{ appVersion }}</span>
+              <span class="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-violet-700 dark:text-violet-300">
+                Update
+                <ExternalLink class="h-2.5 w-2.5" />
+              </span>
+            </a>
+            <span
+              v-else
+              class="text-xs text-muted-foreground hidden md:block"
+            >
+              {{ appVersion }}
             </span>
-            <span class="text-xs text-muted-foreground hidden md:block">{{ appVersion }}</span>
           </div>
-        </router-link>
+        </div>
       </div>
 
       <div class="flex items-center gap-1.5 sm:gap-2">

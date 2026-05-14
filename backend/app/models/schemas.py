@@ -72,6 +72,18 @@ class TokenRefresh(BaseModel):
     refresh_token: str = ""
 
 
+class AppVersionResponse(BaseModel):
+    version: str
+    latest_version: str | None = None
+    update_available: bool = False
+    release_url: str | None = None
+    compare_url: str | None = None
+    compare_label: str | None = None
+    source: str = "github"
+    checked_at: datetime | None = None
+    error: str | None = None
+
+
 # Team schemas
 class TeamCreate(BaseModel):
     name: str

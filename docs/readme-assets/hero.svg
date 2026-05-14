@@ -103,10 +103,10 @@
     <g>
       <rect width="148" height="32" rx="16" fill="#7C3AED" fill-opacity="0.12" stroke="#7C3AED" stroke-opacity="0.4"></rect>
       <circle cx="14" cy="16" r="4" fill="#A78BFA" class="live-dot"></circle>
-      <text x="26" y="20" font-size="12" font-weight="600" fill="#A78BFA">SOURCE AVAILABLE</text>
+      <text x="22" y="20" font-size="12" font-weight="600" fill="#A78BFA">SOURCE AVAILABLE</text>
     </g>
     <g transform="translate(160, 0)"><rect width="124" height="32" rx="16" fill="#22D3EE" fill-opacity="0.1" stroke="#22D3EE" stroke-opacity="0.35"></rect><text x="62" y="20" text-anchor="middle" font-size="12" font-weight="600" fill="#22D3EE">SELF-HOSTED</text></g>
     <g transform="translate(296, 0)"><rect width="148" height="32" rx="16" fill="#10D9A0" fill-opacity="0.1" stroke="#10D9A0" stroke-opacity="0.35"></rect><text x="74" y="20" text-anchor="middle" font-size="12" font-weight="600" fill="#10D9A0">NO RUN LIMITS</text></g>
-    <g transform="translate(456, 0)"><rect width="180" height="32" rx="16" fill="#F59E0B" fill-opacity="0.1" stroke="#F59E0B" stroke-opacity="0.35"></rect><text x="90" y="20" text-anchor="middle" font-size="12" font-weight="600" fill="#F59E0B">30+ NODE TYPES · MCP</text></g>
+    <g transform="translate(456, 0)"><rect width="180" height="32" rx="16" fill="#F59E0B" fill-opacity="0.1" stroke="#F59E0B" stroke-opacity="0.35"></rect><text x="90" y="20" text-anchor="middle" font-size="12" font-weight="600" fill="#F59E0B">MANY NODE TYPES · MCP</text></g>
   </g>
 </svg>

@@ -112,6 +112,10 @@ The frontend container is exposed on `FRONTEND_PORT` (default: 4017). The backen
 | `heym-backend` | FastAPI API server (8 workers, built from `backend/Dockerfile`) |
 | `heym-frontend` | Frontend preview container serving the built Vue app (built from `frontend/Dockerfile`) |
 
+**Version update badge:**
+
+The app header shows the running Docker build version. When that version is behind the latest Heym GitHub release, a purple **Update** badge appears next to the version. Click the version or badge to open the Heym GitHub releases page.
+
 ---
 
 ## Prebuilt Image: `docker run`
