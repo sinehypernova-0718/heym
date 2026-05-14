@@ -287,7 +287,9 @@ export const authApi = {
 
 export const versionApi = {
   getInfo: async (): Promise<AppVersionInfo> => {
-    const response = await api.get<AppVersionInfo>("/version");
+    const response = await api.get<AppVersionInfo>("/version", {
+      params: { t: Date.now() },
+    });
     return response.data;
   },
 };

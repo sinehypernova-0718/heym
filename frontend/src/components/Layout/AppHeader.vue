@@ -26,7 +26,7 @@ const appVersion = computed(() => {
 });
 
 onMounted(() => {
-  void versionStore.loadVersionInfo();
+  void versionStore.loadVersionInfo({ force: true });
   const unsub = onDismissOverlays(() => {
     showSettingsDialog.value = false;
   });

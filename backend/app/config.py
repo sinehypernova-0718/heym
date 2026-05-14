@@ -51,13 +51,6 @@ class Settings(BaseSettings):
             return self.app_version
         return _read_version()
 
-    @field_validator("app_version", mode="before")
-    @classmethod
-    def validate_app_version(cls, v: str | None) -> str:
-        if v:
-            return v
-        return _read_version()
-
     @model_validator(mode="after")
     def ensure_database_url(self) -> "Settings":
         if self.database_url:

@@ -51,8 +51,8 @@ export const useVersionStore = defineStore("version", () => {
     return `Update available: ${latestVersion}`;
   });
 
-  async function loadVersionInfo(): Promise<void> {
-    if (loaded.value || loading.value) {
+  async function loadVersionInfo(options?: { force?: boolean }): Promise<void> {
+    if ((!options?.force && loaded.value) || loading.value) {
       return;
     }
 

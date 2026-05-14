@@ -244,7 +244,9 @@ async def health_check() -> dict:
 
 
 @app.get("/api/version", response_model=AppVersionResponse)
-async def version_info() -> AppVersionResponse:
+async def version_info(response: Response) -> AppVersionResponse:
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     version_status = await get_version_status(settings.resolved_version)
     return AppVersionResponse(
         version=version_status.current_version,
