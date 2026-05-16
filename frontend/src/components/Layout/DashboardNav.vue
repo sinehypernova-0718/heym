@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted } from "vue";
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Activity,
@@ -101,6 +101,17 @@ function goToTab(tabId: (typeof tabs)[number]["id"], event?: MouseEvent): void {
 }
 
 const tabContainerRef = ref<HTMLElement | null>(null);
+const showLeftShadow = ref(false);
+const showRightShadow = ref(false);
+
+function updateShadows(): void {
+  const container = tabContainerRef.value;
+  if (!container) return;
+  showLeftShadow.value = container.scrollLeft > 2;
+  showRightShadow.value = container.scrollLeft + container.clientWidth < container.scrollWidth - 2;
+}
+
+let resizeObserver: ResizeObserver | null = null;
 
 function isTabFullyVisible(container: HTMLElement, tabEl: HTMLElement): boolean {
   const containerRect = container.getBoundingClientRect();
@@ -118,6 +129,11 @@ onMounted(() => {
   nextTick(() => {
     const container = tabContainerRef.value;
     if (!container) return;
+
+    updateShadows();
+
+    resizeObserver = new ResizeObserver(() => updateShadows());
+    resizeObserver.observe(container);
 
     if (container.scrollWidth <= container.clientWidth + 4) return;
 
@@ -137,6 +153,10 @@ onMounted(() => {
   });
 });
 
+onUnmounted(() => {
+  resizeObserver?.disconnect();
+});
+
 watch(activeTab, () => {
   nextTick(() => {
     const container = tabContainerRef.value;
@@ -152,31 +172,59 @@ watch(activeTab, () => {
 </script>
 
 <template>
-  <div
-    ref="tabContainerRef"
-    :class="cn(
-      'tab-container flex items-center gap-5 p-2 sm:p-2.5 rounded-2xl bg-card/60 border border-border/50 overflow-x-auto backdrop-blur-md shadow-sm scrollbar-thin w-full shrink-0',
-      'mb-5'
-    )"
-  >
-    <button
-      v-for="tab in tabs"
-      :key="tab.id"
-      :data-tab-id="tab.id"
-      :title="`${tab.label} (Ctrl+click to open in new tab)`"
-      :class="cn(
-        'tab-item flex shrink-0 items-center justify-center gap-1.5 px-2 sm:px-2.5 py-1.5 min-h-[36px] rounded-lg text-sm font-medium transition-all duration-250 whitespace-nowrap',
-        activeTab === tab.id
-          ? 'bg-primary text-primary-foreground shadow-md'
-          : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
-      )"
-      @click="goToTab(tab.id, $event)"
-    >
-      <component
-        :is="tab.icon"
-        class="w-4 h-4"
+  <div class="relative mb-5 w-full shrink-0">
+    <Transition name="tab-fade">
+      <div
+        v-if="showLeftShadow"
+        class="pointer-events-none absolute left-0 top-0 bottom-0 w-10 z-10 rounded-l-2xl"
+        style="background: linear-gradient(to right, hsl(var(--background)) 0%, transparent 100%)"
       />
-      <span class="hidden sm:inline">{{ tab.label }}</span>
-    </button>
+    </Transition>
+    <Transition name="tab-fade">
+      <div
+        v-if="showRightShadow"
+        class="pointer-events-none absolute right-0 top-0 bottom-0 w-10 z-10 rounded-r-2xl"
+        style="background: linear-gradient(to left, hsl(var(--background)) 0%, transparent 100%)"
+      />
+    </Transition>
+
+    <div
+      ref="tabContainerRef"
+      :class="cn(
+        'tab-container flex items-center gap-5 p-2 sm:p-2.5 rounded-2xl bg-card/60 border border-border/50 overflow-x-auto backdrop-blur-md shadow-sm scrollbar-thin w-full',
+      )"
+      @scroll="updateShadows"
+    >
+      <button
+        v-for="tab in tabs"
+        :key="tab.id"
+        :data-tab-id="tab.id"
+        :title="`${tab.label} (Ctrl+click to open in new tab)`"
+        :class="cn(
+          'tab-item flex shrink-0 items-center justify-center gap-1.5 px-2 sm:px-2.5 py-1.5 min-h-[36px] rounded-lg text-sm font-medium transition-all duration-250 whitespace-nowrap',
+          activeTab === tab.id
+            ? 'bg-primary text-primary-foreground shadow-md'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+        )"
+        @click="goToTab(tab.id, $event)"
+      >
+        <component
+          :is="tab.icon"
+          class="w-4 h-4"
+        />
+        <span class="hidden sm:inline">{{ tab.label }}</span>
+      </button>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.tab-fade-enter-active,
+.tab-fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.tab-fade-enter-from,
+.tab-fade-leave-to {
+  opacity: 0;
+}
+</style>
