@@ -1,14 +1,24 @@
 import hashlib
 import json
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any
 
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
-class InMemoryCache:
-    def __init__(self) -> None:
-        self._cache: dict[str, tuple[Any, float]] = {}
-        self._lock = Lock()
+from app.db.models import WorkflowResponseCache
+
+
+class WorkflowResponseCacheStore:
+    """Postgres-backed cache for workflow HTTP/curl endpoint responses.
+
+    Shared across all uvicorn workers (an in-process dict only hit when the
+    repeat request happened to land on the same worker).
+    """
 
     def _generate_key(self, workflow_id: str, body: dict, query: dict) -> str:
         data = json.dumps(
@@ -16,31 +26,63 @@ class InMemoryCache:
         )
         return hashlib.sha256(data.encode()).hexdigest()
 
-    def get(self, workflow_id: str, body: dict, query: dict) -> tuple[bool, Any]:
+    async def get(
+        self, db: AsyncSession, workflow_id: str, body: dict, query: dict
+    ) -> tuple[bool, Any]:
         key = self._generate_key(workflow_id, body, query)
-        with self._lock:
-            if key in self._cache:
-                value, expire_time = self._cache[key]
-                if time.time() < expire_time:
-                    return True, value
-                del self._cache[key]
-        return False, None
+        result = await db.execute(
+            select(WorkflowResponseCache).where(WorkflowResponseCache.cache_key == key)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return False, None
 
-    def set(self, workflow_id: str, body: dict, query: dict, value: Any, ttl_seconds: int) -> None:
+        expires_at = row.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            await db.delete(row)
+            return False, None
+
+        return True, row.outputs
+
+    async def set(
+        self,
+        db: AsyncSession,
+        workflow_id: str,
+        body: dict,
+        query: dict,
+        value: Any,
+        ttl_seconds: int,
+    ) -> None:
         key = self._generate_key(workflow_id, body, query)
-        expire_time = time.time() + ttl_seconds
-        with self._lock:
-            self._cache[key] = (value, expire_time)
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+        stmt = (
+            pg_insert(WorkflowResponseCache)
+            .values(
+                cache_key=key,
+                workflow_id=uuid.UUID(str(workflow_id)),
+                outputs=value,
+                expires_at=expires_at,
+            )
+            .on_conflict_do_update(
+                index_elements=["cache_key"],
+                set_={
+                    "outputs": value,
+                    "expires_at": expires_at,
+                    "workflow_id": uuid.UUID(str(workflow_id)),
+                },
+            )
+        )
+        await db.execute(stmt)
 
-    def cleanup_expired(self) -> int:
-        now = time.time()
-        removed = 0
-        with self._lock:
-            expired_keys = [k for k, (_, exp) in self._cache.items() if now >= exp]
-            for key in expired_keys:
-                del self._cache[key]
-                removed += 1
-        return removed
+    async def cleanup_expired(self, db: AsyncSession) -> int:
+        result = await db.execute(
+            delete(WorkflowResponseCache).where(
+                WorkflowResponseCache.expires_at < datetime.now(timezone.utc)
+            )
+        )
+        return result.rowcount or 0
 
 
 class InMemoryRateLimiter:
@@ -94,5 +136,5 @@ class InMemoryRateLimiter:
         return removed
 
 
-response_cache = InMemoryCache()
+response_cache = WorkflowResponseCacheStore()
 rate_limiter = InMemoryRateLimiter()
