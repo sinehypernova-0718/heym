@@ -1278,6 +1278,31 @@ class FileAccessToken(Base):
     file: Mapped["GeneratedFile"] = relationship("GeneratedFile", back_populates="access_tokens")
 
 
+class WorkflowResponseCache(Base):
+    """Cross-worker cache for workflow HTTP/curl endpoint responses.
+
+    Backed by Postgres so all uvicorn workers share the same cache; an
+    in-process dict would only hit when the request lands on the same worker.
+    """
+
+    __tablename__ = "workflow_response_cache"
+
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    outputs: Mapped[dict] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class AgentMemoryNode(Base):
     """Knowledge-graph entity for an agent node (canvas) within a workflow."""
 

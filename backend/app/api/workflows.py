@@ -2144,8 +2144,8 @@ async def execute_workflow_endpoint(
                 )
 
         if workflow.cache_ttl_seconds and workflow.cache_ttl_seconds > 0:
-            cache_hit, cached_response = response_cache.get(
-                workflow_id_str, raw_body, dict(request.query_params)
+            cache_hit, cached_response = await response_cache.get(
+                db, workflow_id_str, raw_body, dict(request.query_params)
             )
             if cache_hit:
                 history_entry = ExecutionHistory(
@@ -2274,7 +2274,8 @@ async def execute_workflow_endpoint(
         and workflow.cache_ttl_seconds > 0
         and execution_result.status == "success"
     ):
-        response_cache.set(
+        await response_cache.set(
+            db,
             workflow_id_str,
             raw_body,
             dict(request.query_params),
@@ -2691,8 +2692,8 @@ async def execute_workflow_stream(
                 )
 
         if workflow.cache_ttl_seconds and workflow.cache_ttl_seconds > 0:
-            cache_hit, cached_response = response_cache.get(
-                workflow_id_str, raw_body, dict(request.query_params)
+            cache_hit, cached_response = await response_cache.get(
+                db, workflow_id_str, raw_body, dict(request.query_params)
             )
             if cache_hit:
                 history_entry = ExecutionHistory(
@@ -2961,7 +2962,8 @@ async def execute_workflow_stream(
                     and workflow.cache_ttl_seconds > 0
                     and final_result.get("status") == "success"
                 ):
-                    response_cache.set(
+                    await response_cache.set(
+                        db,
                         workflow_id_str,
                         raw_body,
                         dict(request.query_params),

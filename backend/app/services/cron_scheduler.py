@@ -34,6 +34,7 @@ class CronScheduler:
         self._last_workflow_version_cleanup_date: str | None = None
         self._last_refresh_token_cleanup_date: str | None = None
         self._last_file_access_token_cleanup_date: str | None = None
+        self._last_response_cache_cleanup_date: str | None = None
 
     async def start(self) -> None:
         if self._running:
@@ -65,6 +66,7 @@ class CronScheduler:
                 await self._check_workflow_version_cleanup()
                 await self._check_refresh_token_cleanup()
                 await self._check_file_access_token_cleanup()
+                await self._check_response_cache_cleanup()
             except Exception as e:
                 logger.exception("Error in cron scheduler loop: %s", e)
             await asyncio.sleep(30)
@@ -467,6 +469,36 @@ class CronScheduler:
                 await db.commit()
                 logger.info(
                     "File access token cleanup completed: %d expired tokens deleted",
+                    deleted_count,
+                )
+
+    async def _check_response_cache_cleanup(self) -> None:
+        tz = get_configured_timezone()
+        now = datetime.now(tz)
+        current_date = now.strftime("%Y%m%d")
+
+        if now.hour == 4 and now.minute >= 0 and now.minute < 30:
+            if self._last_response_cache_cleanup_date != current_date:
+                can_cleanup = await lock_service.check_cron_execution(
+                    "response_cache_cleanup",
+                    "cleanup",
+                    current_date,
+                )
+                if can_cleanup:
+                    await self._cleanup_expired_response_cache()
+                    self._last_response_cache_cleanup_date = current_date
+                else:
+                    logger.debug("Response cache cleanup already handled by another worker")
+
+    async def _cleanup_expired_response_cache(self) -> None:
+        from app.services.cache_rate_limit import response_cache
+
+        async with async_session_maker() as db:
+            deleted_count = await response_cache.cleanup_expired(db)
+            if deleted_count > 0:
+                await db.commit()
+                logger.info(
+                    "Response cache cleanup completed: %d expired entries deleted",
                     deleted_count,
                 )
 

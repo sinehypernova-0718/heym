@@ -73,6 +73,16 @@ The demos below illustrate an **agent–subagent** layout instead of a purely st
 
 You can still answer with **two separate LLM calls** (one per question) or run **several calls in sequence** and merge the results in a final step—those patterns work—but for this kind of multi-part ask they are usually **slower** than parallel subagents behind an orchestrator.
 
+### Watch Heym Tutorials
+
+<div align="center">
+
+<a href="https://www.youtube.com/playlist?list=PLPXd_ZbA4wgEHP5PXoaRqbsDJdat7OSd4">
+  <img src="./docs/readme-assets/tutorial-videos-playlist.png" width="100%" alt="Watch Heym tutorial videos on YouTube"/>
+</a>
+
+</div>
+
 ### Generate Workflows from Natural Language
 
 Describe the agents, orchestration pattern, and user-facing result you want; Heym builds the workflow on the canvas.
