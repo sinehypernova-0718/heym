@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useMediaQuery } from "@vueuse/core";
 import { useRoute, useRouter } from "vue-router";
-import { AlertTriangle, ChevronLeft, ChevronRight, Compass, Copy, Download, Globe, GitBranch, History, LayoutTemplate, Moon, Pencil, Save, Search, Share2, Sun, TerminalSquare, Trash2, Users, X, XCircle } from "lucide-vue-next";
+import { AlertTriangle, ChevronLeft, ChevronRight, Compass, Copy, Download, Globe, GitBranch, History, LayoutTemplate, Moon, Pencil, RefreshCw, Save, Search, Share2, Sun, TerminalSquare, Trash2, Users, X, XCircle } from "lucide-vue-next";
 import axios from "axios";
 
 import type {
@@ -40,6 +40,7 @@ import { joinOriginAndPath } from "@/lib/appUrl";
 import { isPaletteOpenInNewTab } from "@/lib/paletteNavigate";
 import { parseWebhookJson, stringifyWebhookJson } from "@/lib/webhookBody";
 import { useRecentWorkflows } from "@/composables/useRecentWorkflows";
+import { useToast } from "@/composables/useToast";
 import { templatesApi, teamsApi, workflowApi } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 import { useShowcaseStore } from "@/stores/showcase";
@@ -53,6 +54,7 @@ const showcaseStore = useShowcaseStore();
 const themeStore = useThemeStore();
 const workflowStore = useWorkflowStore();
 const { addRecent } = useRecentWorkflows();
+const { showToast } = useToast();
 const { activeContext, isDesktopPanelOpen, isMobileSheetOpen } = storeToRefs(showcaseStore);
 const HITL_RESOLUTION_STORAGE_KEY = "heym-hitl-resolution";
 const isMobile = useMediaQuery("(max-width: 767px)");
@@ -84,6 +86,7 @@ const sseNodeConfig = ref<Record<string, SseNodeConfig>>({});
 const editingNodeId = ref<string | null>(null);
 const editingNodeMessage = ref("");
 const cacheTtlMinutes = ref(0);
+const cacheEvicting = ref(false);
 const rateLimitRequests = ref(0);
 const rateLimitWindowSeconds = ref(60);
 const shareEmail = ref("");
@@ -690,6 +693,22 @@ async function saveCacheSettings(): Promise<void> {
   const ttlSeconds = cacheTtlMinutes.value > 0 ? cacheTtlMinutes.value * 60 : 0;
   await workflowApi.update(workflowId.value, { cache_ttl_seconds: ttlSeconds });
   workflowStore.currentWorkflow.cache_ttl_seconds = ttlSeconds > 0 ? ttlSeconds : null;
+}
+
+async function evictResponseCache(): Promise<void> {
+  if (cacheTtlMinutes.value <= 0 || cacheEvicting.value) return;
+  cacheEvicting.value = true;
+  try {
+    await workflowApi.clearResponseCache(workflowId.value);
+    showToast("Response cache cleared", "success", 2500);
+  } catch (error: unknown) {
+    const message = axios.isAxiosError(error)
+      ? error.response?.data?.detail || "Failed to clear response cache"
+      : "Failed to clear response cache";
+    showToast(message, "error");
+  } finally {
+    cacheEvicting.value = false;
+  }
 }
 
 async function saveRateLimitSettings(): Promise<void> {
@@ -1705,7 +1724,7 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
         <div class="border-t pt-4 space-y-3">
           <div class="space-y-2">
             <Label class="text-sm font-medium">Response Cache</Label>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <Input
                 v-model.number="cacheTtlMinutes"
                 type="number"
@@ -1715,6 +1734,19 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
                 @change="saveCacheSettings"
               />
               <span class="text-sm text-muted-foreground">minutes (0 = disabled)</span>
+              <Button
+                v-if="cacheTtlMinutes > 0"
+                variant="outline"
+                size="sm"
+                :loading="cacheEvicting"
+                @click="evictResponseCache"
+              >
+                <RefreshCw
+                  v-if="!cacheEvicting"
+                  class="w-3.5 h-3.5"
+                />
+                Clear cache
+              </Button>
             </div>
             <p class="text-xs text-muted-foreground">
               Cache response for identical requests (same body + query params).

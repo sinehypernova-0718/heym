@@ -4,8 +4,11 @@ import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
+
+from app.api.workflows import clear_workflow_response_cache
 from app.services.cache_rate_limit import WorkflowResponseCacheStore
 
 
@@ -101,6 +104,69 @@ class WorkflowResponseCacheCleanupTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(deleted, 4)
         db.execute.assert_awaited_once()
+
+
+class WorkflowResponseCacheClearTests(unittest.IsolatedAsyncioTestCase):
+    async def test_clear_workflow_deletes_rows_for_workflow(self) -> None:
+        store = WorkflowResponseCacheStore()
+        workflow_id = uuid.uuid4()
+        result = SimpleNamespace(rowcount=3)
+        db = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+        deleted = await store.clear_workflow(db, workflow_id)
+
+        self.assertEqual(deleted, 3)
+        db.execute.assert_awaited_once()
+        stmt = db.execute.await_args.args[0]
+        from sqlalchemy.dialects import postgresql
+
+        compiled = str(stmt.compile(dialect=postgresql.dialect()))
+        self.assertIn("DELETE FROM workflow_response_cache", compiled)
+        self.assertIn("workflow_id", compiled)
+
+
+class ClearWorkflowResponseCacheEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_clear_response_cache_requires_workflow_access(self) -> None:
+        workflow_id = uuid.uuid4()
+        current_user = SimpleNamespace(id=uuid.uuid4())
+        db = AsyncMock()
+
+        with patch(
+            "app.api.workflows.get_workflow_for_user",
+            AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                await clear_workflow_response_cache(
+                    workflow_id=workflow_id,
+                    current_user=current_user,
+                    db=db,
+                )
+
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    async def test_clear_response_cache_evicts_workflow_rows(self) -> None:
+        workflow_id = uuid.uuid4()
+        current_user = SimpleNamespace(id=uuid.uuid4())
+        workflow = SimpleNamespace(id=workflow_id)
+        db = AsyncMock()
+
+        with (
+            patch(
+                "app.api.workflows.get_workflow_for_user",
+                AsyncMock(return_value=workflow),
+            ),
+            patch(
+                "app.api.workflows.response_cache.clear_workflow",
+                AsyncMock(return_value=2),
+            ) as clear_mock,
+        ):
+            await clear_workflow_response_cache(
+                workflow_id=workflow_id,
+                current_user=current_user,
+                db=db,
+            )
+
+        clear_mock.assert_awaited_once_with(db, workflow_id)
 
 
 if __name__ == "__main__":
