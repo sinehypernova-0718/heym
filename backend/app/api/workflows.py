@@ -1140,6 +1140,23 @@ async def update_workflow(
     return _build_workflow_response(workflow)
 
 
+@router.delete("/{workflow_id}/cache", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_workflow_response_cache(
+    workflow_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    workflow = await get_workflow_for_user(db, workflow_id, current_user.id)
+
+    if workflow is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    await response_cache.clear_workflow(db, workflow_id)
+
+
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workflow(
     workflow_id: uuid.UUID,

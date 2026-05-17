@@ -57,7 +57,7 @@ Configure `cache_ttl_seconds` per workflow. When set and greater than 0:
 - **Cache key**: SHA256 hash of `workflow_id` + `body` + `query`
 - **Cache hit**: Returns immediately with `status: "cached"` and cached outputs
 - **Cache set**: Only after a successful execution (`status: "success"`)
-- **Storage**: In-memory; not distributed across multiple instances
+- **Storage**: Postgres-backed and shared across backend workers
 
 | Setting | Effect |
 |---------|--------|
@@ -65,6 +65,8 @@ Configure `cache_ttl_seconds` per workflow. When set and greater than 0:
 | `cache_ttl_seconds` > 0 | Responses cached for this many seconds |
 
 `test_run` requests bypass the cache (no read, no write).
+
+When response caching is enabled in the cURL dialog, **Clear cache** evicts the current workflow's cached responses immediately.
 
 ## Rate Limiting
 
@@ -114,7 +116,7 @@ The **Run with cURL** toolbar button (top-right of the editor, `cURL` icon) open
 | **Request Body Mode** | Choose **Defined** or **Generic**. Generic keeps the body as raw JSON instead of shaping it from Input fields. |
 | **Authentication** | Choose Anonymous, JWT Token, or Header Auth. Sets the correct auth header in the command. When JWT Token is selected, the dialog shows an [Execution Token](./execution-tokens.md) manager — create or select a token to embed it directly in the command. |
 | **Header Key / Value** | Visible when Header Auth is selected. Pre-filled from the workflow's auth settings. |
-| **Response Cache** | Minutes to cache identical responses (0 = disabled). Changes are saved to the workflow. |
+| **Response Cache** | Minutes to cache identical responses (0 = disabled). Changes are saved to the workflow. When enabled, **Clear cache** evicts cached responses immediately. |
 | **Rate Limit** | Max requests per time window. Changes are saved to the workflow. |
 | **SSE Streaming** | Switches the command to `/execute/stream`, adds `--no-buffer`, and exposes per-node `node_start` message settings. |
 | **Body** | JSON request body. In Defined mode it is pre-filled from [Input](../nodes/input-node.md) fields and keeps empty keys. In Generic mode it is a raw JSON editor. |

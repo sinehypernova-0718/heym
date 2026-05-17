@@ -84,6 +84,12 @@ class WorkflowResponseCacheStore:
         )
         return result.rowcount or 0
 
+    async def clear_workflow(self, db: AsyncSession, workflow_id: uuid.UUID) -> int:
+        result = await db.execute(
+            delete(WorkflowResponseCache).where(WorkflowResponseCache.workflow_id == workflow_id)
+        )
+        return result.rowcount or 0
+
 
 class InMemoryRateLimiter:
     def __init__(self) -> None:
