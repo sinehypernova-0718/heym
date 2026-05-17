@@ -22,6 +22,11 @@ interface Props {
   existingSkill?: AgentSkill | null;
 }
 
+interface CustomScrollbarState {
+  thumbHeight: number;
+  thumbTop: number;
+}
+
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
@@ -45,14 +50,22 @@ const inputText = ref("");
 const isDownloading = ref(false);
 const isSaving = ref(false);
 const localError = ref<string | null>(null);
+const fileListScrollContainer = ref<HTMLDivElement | null>(null);
+const filePreviewScrollContainer = ref<HTMLDivElement | null>(null);
 const modalContainer = ref<HTMLDivElement | null>(null);
 const messagesContainer = ref<HTMLDivElement | null>(null);
 const keydownCaptureOptions = { capture: true } as const;
+const customScrollbarTrackInset = 16;
+const customScrollbarMinThumbHeight = 24;
 const SKILL_BUILDER_MAX_FILE_BYTES = 75 * 1024;
 const SKILL_BUILDER_TEXT_EXTENSIONS = new Set([
   "md",
   "py",
 ]);
+const fileListScrollbar = ref<CustomScrollbarState>({ thumbHeight: 0, thumbTop: 0 });
+const filePreviewScrollbar = ref<CustomScrollbarState>({ thumbHeight: 0, thumbTop: 0 });
+let customScrollbarResizeObserver: ResizeObserver | null = null;
+let customScrollbarAnimationFrame: number | null = null;
 
 function getFileExtension(path: string): string {
   const normalizedPath = path.toLowerCase();
@@ -331,6 +344,70 @@ function renderMarkdown(content: string): string {
   });
 }
 
+function getCustomScrollbarState(element: HTMLDivElement | null): CustomScrollbarState {
+  if (!element) {
+    return { thumbHeight: 0, thumbTop: 0 };
+  }
+
+  const trackHeight = Math.max(element.clientHeight - customScrollbarTrackInset, 0);
+  if (trackHeight === 0) {
+    return { thumbHeight: 0, thumbTop: 0 };
+  }
+
+  if (element.scrollHeight <= element.clientHeight) {
+    return { thumbHeight: trackHeight, thumbTop: 0 };
+  }
+
+  const thumbHeight = Math.max(
+    customScrollbarMinThumbHeight,
+    Math.round((element.clientHeight / element.scrollHeight) * trackHeight),
+  );
+  const maxScrollTop = element.scrollHeight - element.clientHeight;
+  const maxThumbTop = Math.max(trackHeight - thumbHeight, 0);
+  const thumbTop = Math.round((element.scrollTop / maxScrollTop) * maxThumbTop);
+
+  return { thumbHeight, thumbTop };
+}
+
+function updateCustomScrollbars(): void {
+  fileListScrollbar.value = getCustomScrollbarState(fileListScrollContainer.value);
+  filePreviewScrollbar.value = getCustomScrollbarState(filePreviewScrollContainer.value);
+}
+
+function scheduleCustomScrollbarUpdate(): void {
+  if (customScrollbarAnimationFrame !== null) {
+    return;
+  }
+
+  customScrollbarAnimationFrame = window.requestAnimationFrame(() => {
+    customScrollbarAnimationFrame = null;
+    updateCustomScrollbars();
+  });
+}
+
+function observeCustomScrollbarTargets(): void {
+  customScrollbarResizeObserver?.disconnect();
+  customScrollbarResizeObserver = null;
+
+  if (typeof ResizeObserver === "undefined") {
+    scheduleCustomScrollbarUpdate();
+    return;
+  }
+
+  customScrollbarResizeObserver = new ResizeObserver(() => {
+    scheduleCustomScrollbarUpdate();
+  });
+
+  if (fileListScrollContainer.value) {
+    customScrollbarResizeObserver.observe(fileListScrollContainer.value);
+  }
+  if (filePreviewScrollContainer.value) {
+    customScrollbarResizeObserver.observe(filePreviewScrollContainer.value);
+  }
+
+  scheduleCustomScrollbarUpdate();
+}
+
 watch(
   () => props.open,
   (isOpen) => {
@@ -344,11 +421,14 @@ watch(
       focusPromptInput();
       nextTick(() => {
         messagesContainer.value?.scrollTo({ top: messagesContainer.value.scrollHeight });
+        observeCustomScrollbarTargets();
       });
       return;
     }
 
     window.removeEventListener("keydown", handleWindowKeydown, keydownCaptureOptions);
+    customScrollbarResizeObserver?.disconnect();
+    customScrollbarResizeObserver = null;
     reset();
     inputText.value = "";
     localError.value = null;
@@ -372,17 +452,27 @@ watch(
   (files) => {
     if (files.length === 0) {
       activeFileIndex.value = 0;
+      nextTick(scheduleCustomScrollbarUpdate);
       return;
     }
     if (activeFileIndex.value >= files.length) {
       activeFileIndex.value = files.length - 1;
     }
+    nextTick(scheduleCustomScrollbarUpdate);
   },
   { deep: true },
 );
 
+watch(activeFileIndex, () => {
+  nextTick(scheduleCustomScrollbarUpdate);
+});
+
 onUnmounted(() => {
   window.removeEventListener("keydown", handleWindowKeydown, keydownCaptureOptions);
+  customScrollbarResizeObserver?.disconnect();
+  if (customScrollbarAnimationFrame !== null) {
+    window.cancelAnimationFrame(customScrollbarAnimationFrame);
+  }
   reset();
 });
 </script>
@@ -493,7 +583,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <aside class="flex min-h-0 w-full shrink-0 flex-col md:w-[280px]">
+          <aside class="flex min-h-0 w-full shrink-0 flex-col overflow-hidden md:w-[280px]">
             <div class="border-b border-border/60 px-4 py-3">
               <p class="text-sm font-medium">
                 Files
@@ -503,41 +593,75 @@ onUnmounted(() => {
               </p>
             </div>
 
-            <div class="flex flex-col gap-2 border-b border-border/60 px-3 py-3">
-              <button
-                v-for="(file, index) in previewFiles"
-                :key="file.path"
-                type="button"
-                :class="[
-                  'flex w-full min-w-0 items-center justify-start gap-1.5 rounded-full border px-3 py-1.5 text-left text-xs transition-colors',
-                  index === activeFileIndex
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border/60 bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground',
-                ]"
-                @click="activeFileIndex = index"
-              >
-                <component
-                  :is="getFileIcon(file.path)"
-                  class="h-3.5 w-3.5 shrink-0"
-                />
-                <span class="min-w-0 break-all">{{ file.path }}</span>
-              </button>
+            <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div class="relative max-h-40 shrink-0 border-b border-border/60">
+                <div
+                  ref="fileListScrollContainer"
+                  class="skill-builder-native-scrollbar-hidden max-h-40 overflow-y-scroll px-3 py-3 pr-6"
+                  @scroll="scheduleCustomScrollbarUpdate"
+                >
+                  <div class="flex flex-col gap-2">
+                    <button
+                      v-for="(file, index) in previewFiles"
+                      :key="file.path"
+                      type="button"
+                      :class="[
+                        'flex w-full min-w-0 items-center justify-start gap-1.5 rounded-full border px-3 py-1.5 text-left text-xs transition-colors',
+                        index === activeFileIndex
+                          ? 'border-primary/40 bg-primary/10 text-primary'
+                          : 'border-border/60 bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                      ]"
+                      @click="activeFileIndex = index"
+                    >
+                      <component
+                        :is="getFileIcon(file.path)"
+                        class="h-3.5 w-3.5 shrink-0"
+                      />
+                      <span class="min-w-0 break-all">{{ file.path }}</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="skill-builder-custom-scrollbar-track">
+                  <div
+                    class="skill-builder-custom-scrollbar-thumb"
+                    :style="{
+                      height: `${fileListScrollbar.thumbHeight}px`,
+                      transform: `translateY(${fileListScrollbar.thumbTop}px)`,
+                    }"
+                  />
+                </div>
+              </div>
+
+              <div class="relative min-h-0 flex-1 bg-muted/10">
+                <div
+                  ref="filePreviewScrollContainer"
+                  class="skill-builder-native-scrollbar-hidden h-full overflow-y-scroll px-4 py-4 pr-7"
+                  @scroll="scheduleCustomScrollbarUpdate"
+                >
+                  <pre
+                    v-if="activeFile"
+                    class="whitespace-pre-wrap break-words text-xs leading-5 text-foreground"
+                  >{{ activeFile.content }}</pre>
+                  <p
+                    v-else
+                    class="text-xs text-muted-foreground"
+                  >
+                    Generated files will appear here after the assistant calls `set_skill_files`.
+                  </p>
+                </div>
+                <div class="skill-builder-custom-scrollbar-track">
+                  <div
+                    class="skill-builder-custom-scrollbar-thumb"
+                    :style="{
+                      height: `${filePreviewScrollbar.thumbHeight}px`,
+                      transform: `translateY(${filePreviewScrollbar.thumbTop}px)`,
+                    }"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto bg-muted/10 px-4 py-4">
-              <pre
-                v-if="activeFile"
-                class="whitespace-pre-wrap break-words text-xs leading-5 text-foreground"
-              >{{ activeFile.content }}</pre>
-              <p
-                v-else
-                class="text-xs text-muted-foreground"
-              >
-                Generated files will appear here after the assistant calls `set_skill_files`.
-              </p>
-            </div>
-
-            <div class="border-t border-border/60 p-4">
+            <div class="shrink-0 border-t border-border/60 p-4">
               <div class="grid gap-2">
                 <Button
                   variant="outline"
@@ -613,5 +737,32 @@ onUnmounted(() => {
 .markdown-content :deep(a) {
   color: hsl(var(--primary));
   text-decoration: underline;
+}
+
+.skill-builder-native-scrollbar-hidden {
+  scrollbar-width: none;
+}
+
+.skill-builder-native-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.skill-builder-custom-scrollbar-track {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  bottom: 8px;
+  width: 6px;
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.28);
+  pointer-events: none;
+}
+
+.skill-builder-custom-scrollbar-thumb {
+  width: 100%;
+  min-height: 24px;
+  border-radius: 999px;
+  background: hsl(var(--primary) / 0.75);
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.65);
 }
 </style>
