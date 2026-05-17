@@ -434,6 +434,10 @@ export const workflowApi = {
     return response.data;
   },
 
+  clearResponseCache: async (id: string): Promise<void> => {
+    await api.delete(`/workflows/${id}/cache`);
+  },
+
   delete: async (id: string): Promise<void> => {
     await api.delete(`/workflows/${id}`);
   },
