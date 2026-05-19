@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { SquarePen, ChevronRight, Send } from "lucide-vue-next";
+import { ChevronRight, History, Send, SquarePen } from "lucide-vue-next";
 
 import type { WorkflowListItem } from "@/types/workflow";
 import AppHeader from "@/components/Layout/AppHeader.vue";
@@ -10,6 +10,8 @@ import WorkspaceShell from "@/components/Layout/WorkspaceShell.vue";
 import ChatListPanel from "@/components/Chat/ChatListPanel.vue";
 import ChatConversation from "@/components/Chat/ChatConversation.vue";
 import WorkflowCommandPalette from "@/components/Dialogs/WorkflowCommandPalette.vue";
+import ExecutionHistoryAllDialog from "@/components/Panels/ExecutionHistoryAllDialog.vue";
+import Button from "@/components/ui/Button.vue";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { getDocPath } from "@/docs/manifest";
 import type { ShowcaseContext } from "@/features/showcase/showcase.types";
@@ -33,6 +35,7 @@ const conversationId = computed(() => route.params.id as string | undefined);
 const isCreatingConversation = ref(false);
 const isMobileViewport = ref(false);
 const showCommandPalette = ref(false);
+const historyOpen = ref(false);
 const workflows = ref<WorkflowListItem[]>([]);
 const previousDocumentTitle = ref(DEFAULT_APP_TITLE);
 let mobileSidebarMediaQuery: MediaQueryList | null = null;
@@ -129,6 +132,7 @@ onMounted(() => {
   void loadWorkflows();
   const unsub = onDismissOverlays(() => {
     showCommandPalette.value = false;
+    historyOpen.value = false;
   });
   onUnmounted(() => unsub());
   if (!conversationId.value && hasShowcaseChatDraftPending()) {
@@ -153,8 +157,17 @@ onUnmounted(() => {
 <template>
   <WorkspaceShell :showcase-context="chatsShowcaseContext">
     <div class="h-screen flex flex-col bg-background overflow-hidden">
-      <AppHeader>
+      <AppHeader :on-open-command-palette="() => { showCommandPalette = true; pushOverlayState(); }">
         <template #actions>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="gap-2 min-h-[44px] min-w-[44px] sm:min-w-auto text-foreground"
+            @click="historyOpen = true; pushOverlayState()"
+          >
+            <History class="w-4 h-4" />
+            <span class="hidden sm:inline">History</span>
+          </Button>
           <button
             v-if="!chatStore.isSidebarOpen"
             class="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
@@ -242,6 +255,11 @@ onUnmounted(() => {
         @tab-select="handleTabSelectFromPalette"
         @doc-select="onDocSelectFromPalette"
         @close="showCommandPalette = false"
+      />
+
+      <ExecutionHistoryAllDialog
+        :open="historyOpen"
+        @close="historyOpen = false"
       />
     </div>
   </WorkspaceShell>
