@@ -19,7 +19,8 @@
 
 <br/>
 
-[![License: Commons Clause](https://img.shields.io/badge/License-Commons%20Clause-orange.svg?style=flat-square)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![Commons Clause](https://img.shields.io/badge/Condition-Commons%20Clause-orange.svg?style=flat-square)](COMMONS-CLAUSE.md)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?style=flat-square&logo=vue.js&logoColor=white)](https://vuejs.org)
@@ -217,7 +218,7 @@ For a complete list of all features with short descriptions, see **[Full Feature
 | LLM trace inspection | ✅ | limited⁴ | ❌ | ✅ |
 | Built-in evals for AI workflows | ✅ | ✅ | ❌ | ❌ |
 | Parallel DAG execution | ✅ | limited⁹ | ❌ | ❌ |
-| Self-hostable, source-available | ✅ CC+MIT | ✅ fair-code¹⁰ | ❌ | ❌ |
+| Self-hostable, source-available | ✅ MIT + Commons Clause | ✅ fair-code¹⁰ | ❌ | ❌ |
 | Expression DSL for dynamic data | ✅ | ✅ | limited | ✅ |
 
 <details>
@@ -582,7 +583,7 @@ cd backend  && uv run ruff check . && uv run ruff format .
 
 ## 📄 License
 
-This project is licensed under the **[Commons Clause](https://commonsclause.com/)** applied to the **MIT License**. In other words, Heym is **source-available** rather than OSI-open-source. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the **[MIT License](LICENSE)** with the **[Commons Clause](COMMONS-CLAUSE.md)** condition applied. In other words, Heym is **source-available** rather than OSI-open-source. See both files for details.
 
 **TL;DR:** You are free to use, modify, distribute, and self-host this software — but you may **not sell** it or offer it as a paid service. Commercial licensing is available for teams that need those rights.
 

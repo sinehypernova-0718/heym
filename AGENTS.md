@@ -123,7 +123,7 @@ Use `sequentialthinking` for complex planning, `shadcn` for UI components. Alway
 Medium/large features (new UI, node types, APIs, UX) must update docs via `heym-documentation` skill. Small bug fixes/refactors do not require doc updates.
 
 ## Licensing
-Commons Clause + MIT - open for use, not for commercial resale. See LICENSE file.
+MIT with Commons Clause condition - open for use, not for commercial resale. See LICENSE and COMMONS-CLAUSE.md.
 
 ## Critical Notes
 - **Git workflow:** Work directly on `main` branch — no worktrees, no feature branches. Commit and push to main.
