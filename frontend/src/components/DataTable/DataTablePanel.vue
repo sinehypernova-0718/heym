@@ -73,6 +73,8 @@ const rowPageSizeOptions: Array<{ value: RowPageSize; label: string }> = [
   { value: 100, label: "100" },
   { value: "all", label: "All" },
 ];
+const DATA_GRID_COLUMN_WIDTH_REM = 12;
+const DATA_GRID_META_WIDTH_REM = 33;
 
 // ── Create dialog ──
 const showCreateDialog = ref(false);
@@ -503,6 +505,10 @@ const sortedColumns = computed(() => {
   return [...(selectedTable.value.columns || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 });
 
+const dataGridMinWidth = computed(
+  () => `${sortedColumns.value.length * DATA_GRID_COLUMN_WIDTH_REM + DATA_GRID_META_WIDTH_REM}rem`,
+);
+
 watch(
   () => route.query.tab,
   async (tab) => {
@@ -693,30 +699,32 @@ onMounted(async () => {
     <!-- ════════ DETAIL VIEW ════════ -->
     <template v-else>
       <!-- Header -->
-      <div class="flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex min-w-0 items-center gap-2">
           <Button
             size="sm"
             variant="ghost"
+            class="shrink-0"
             @click="goBack"
           >
             <ArrowLeft class="h-4 w-4" />
           </Button>
-          <h2 class="text-lg font-semibold">
+          <h2 class="min-w-0 text-lg font-semibold leading-tight">
             {{ selectedTable.name }}
           </h2>
-          <span class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+          <span class="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
             {{ rowTotal }} rows
           </span>
           <span
             v-if="selectedTable.description"
-            class="text-sm text-muted-foreground"
+            class="hidden min-w-0 truncate text-sm text-muted-foreground md:inline"
           >{{ selectedTable.description }}</span>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex max-w-full items-center gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch] sm:overflow-visible sm:pb-0">
           <Button
             size="sm"
             variant="outline"
+            class="shrink-0"
             :disabled="rowsLoading"
             @click="refreshSelectedTable"
           >
@@ -728,6 +736,7 @@ onMounted(async () => {
           <Button
             size="sm"
             variant="outline"
+            class="shrink-0"
             @click="showShareDialog = true"
           >
             <Share2 class="mr-1 h-4 w-4" /> Share
@@ -735,6 +744,7 @@ onMounted(async () => {
           <Button
             size="sm"
             variant="outline"
+            class="shrink-0"
             @click="showImportDialog = true"
           >
             <Upload class="mr-1 h-4 w-4" /> Import
@@ -742,6 +752,7 @@ onMounted(async () => {
           <Button
             size="sm"
             variant="outline"
+            class="shrink-0"
             @click="handleExport"
           >
             <Download class="mr-1 h-4 w-4" /> Export
@@ -750,7 +761,7 @@ onMounted(async () => {
             v-if="rowTotal > 0"
             size="sm"
             variant="outline"
-            class="text-destructive hover:bg-destructive/10"
+            class="shrink-0 text-destructive hover:bg-destructive/10"
             @click="handleClearRows"
           >
             <Trash2 class="mr-1 h-4 w-4" /> Clear
@@ -790,20 +801,39 @@ onMounted(async () => {
       </div>
 
       <!-- Data grid -->
-      <div class="overflow-x-auto rounded-lg border">
-        <table class="w-full text-sm table-fixed">
+      <div class="max-w-full overflow-x-auto rounded-lg border overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+        <table
+          class="w-full table-fixed text-sm"
+          :style="{ minWidth: dataGridMinWidth }"
+        >
+          <colgroup>
+            <col
+              v-for="col in sortedColumns"
+              :key="`width-${col.id}`"
+              class="w-48"
+            >
+            <col class="w-40">
+            <col class="w-40">
+            <col class="w-28">
+            <col class="w-24">
+          </colgroup>
           <thead>
             <tr class="border-b bg-muted/50">
               <th
                 v-for="col in sortedColumns"
                 :key="col.id"
-                class="px-3 py-2 text-left font-medium"
+                class="w-48 min-w-48 max-w-48 px-3 py-2 text-left font-medium"
               >
-                {{ col.name }}
+                <span
+                  class="block truncate"
+                  :title="col.name"
+                >
+                  {{ col.name }}
+                </span>
               </th>
-              <th class="w-36 px-3 py-2 text-right font-medium text-muted-foreground text-xs">
+              <th class="w-40 min-w-40 px-3 py-2 text-right text-xs font-medium text-muted-foreground">
                 <button
-                  class="inline-flex items-center justify-end gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+                  class="inline-flex items-center justify-end gap-1 rounded px-1 py-0.5 whitespace-nowrap hover:bg-accent hover:text-foreground"
                   @click="toggleRowSort('created_at')"
                 >
                   Created
@@ -817,9 +847,9 @@ onMounted(async () => {
                   />
                 </button>
               </th>
-              <th class="w-36 px-3 py-2 text-right font-medium text-muted-foreground text-xs">
+              <th class="w-40 min-w-40 px-3 py-2 text-right text-xs font-medium text-muted-foreground">
                 <button
-                  class="inline-flex items-center justify-end gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+                  class="inline-flex items-center justify-end gap-1 rounded px-1 py-0.5 whitespace-nowrap hover:bg-accent hover:text-foreground"
                   @click="toggleRowSort('updated_at')"
                 >
                   Updated
@@ -833,10 +863,10 @@ onMounted(async () => {
                   />
                 </button>
               </th>
-              <th class="w-24 px-3 py-2 text-right font-medium text-muted-foreground">
+              <th class="w-28 min-w-28 px-3 py-2 text-right font-medium text-muted-foreground">
                 ID
               </th>
-              <th class="w-20 px-3 py-2 text-right font-medium">
+              <th class="w-24 min-w-24 px-3 py-2 text-right font-medium">
                 Actions
               </th>
             </tr>
@@ -851,7 +881,7 @@ onMounted(async () => {
               <td
                 v-for="col in sortedColumns"
                 :key="col.id"
-                class="px-3 py-2 max-w-[300px]"
+                class="w-48 min-w-48 max-w-48 px-3 py-2"
                 @dblclick="startEdit(row.id, col.name, row.data[col.name])"
               >
                 <!-- Inline editing -->
@@ -914,13 +944,13 @@ onMounted(async () => {
                   >{{ row.data[col.name] ?? "" }}</span>
                 </template>
               </td>
-              <td class="px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">
+              <td class="w-40 min-w-40 px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">
                 {{ formatDate(row.created_at) }}
               </td>
-              <td class="px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">
+              <td class="w-40 min-w-40 px-3 py-2 text-right text-xs text-muted-foreground whitespace-nowrap">
                 {{ formatDate(row.updated_at) }}
               </td>
-              <td class="px-3 py-2 text-right">
+              <td class="w-28 min-w-28 px-3 py-2 text-right">
                 <button
                   class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-mono text-muted-foreground opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
                   :title="row.id"
@@ -935,7 +965,7 @@ onMounted(async () => {
                   {{ row.id.slice(0, 8) }}
                 </button>
               </td>
-              <td class="px-3 py-2 text-right">
+              <td class="w-24 min-w-24 px-3 py-2 text-right">
                 <button
                   class="rounded p-1 opacity-0 hover:bg-destructive/10 group-hover:opacity-100"
                   @click="handleDeleteRow(row.id)"
@@ -953,7 +983,7 @@ onMounted(async () => {
               <td
                 v-for="col in sortedColumns"
                 :key="col.id"
-                class="px-3 py-2"
+                class="w-48 min-w-48 max-w-48 px-3 py-2"
               >
                 <div
                   v-if="col.type === 'boolean'"
