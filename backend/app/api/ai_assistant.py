@@ -1692,9 +1692,41 @@ async def get_teams_tool(
     return json.dumps({"teams": out, "count": len(out)}, default=str)
 
 
-MAX_DASHBOARD_CHAT_TOOL_ROUNDS = 33
+MAX_DASHBOARD_CHAT_TOOL_ROUNDS = 66
 
 IMAGE_PLACEHOLDER = "[image omitted - see workflow execution in UI]"
+
+
+def _is_context_overflow_error(exc: Exception) -> bool:
+    """Return true for provider errors that indicate context/token overflow."""
+    code = str(getattr(exc, "code", "") or "").lower()
+    if "context_length" in code or "context" in code and "exceed" in code:
+        return True
+
+    message = str(exc).lower()
+    has_context_signal = any(
+        fragment in message
+        for fragment in (
+            "context",
+            "token",
+            "input length",
+            "maximum length",
+            "too long",
+        )
+    )
+    has_overflow_signal = any(
+        fragment in message
+        for fragment in (
+            "exceed",
+            "exceeded",
+            "maximum",
+            "too many",
+            "too large",
+            "length",
+            "limit",
+        )
+    )
+    return has_context_signal and has_overflow_signal
 
 
 def _is_base64_image(s: str) -> bool:
@@ -2061,9 +2093,14 @@ async def stream_dashboard_chat(
     last_user_message = messages[-1].get("content", "") if messages else ""
     last_trace_request: dict[str, Any] | None = None
 
-    from app.services.context_compressor import _estimate_tokens, get_context_limit
+    from app.services.context_compressor import (
+        _estimate_tokens,
+        get_context_limit,
+        hard_compression_target_tokens,
+    )
 
     _context_limit = get_context_limit(model, client)
+    _hard_compression_target = hard_compression_target_tokens(_context_limit)
 
     def _emit_context(used_tokens: int) -> str:
         if system_prompt_parts is None:
@@ -2097,6 +2134,21 @@ async def stream_dashboard_chat(
             + "\n\n"
         )
 
+    def _emit_compressed(comp_info: dict[str, Any]) -> str:
+        return (
+            "data: "
+            + json.dumps(
+                {
+                    "type": "compressed",
+                    "messages_compressed": comp_info["messages_compressed"],
+                    "tokens_before": comp_info["tokens_before"],
+                    "tokens_after": comp_info["tokens_after"],
+                    "elapsed_ms": comp_info["elapsed_ms"],
+                }
+            )
+            + "\n\n"
+        )
+
     def _record_dashboard_run(status: str, elapsed_ms: float) -> None:
         record_run_history(
             user_id=user_id,
@@ -2117,7 +2169,10 @@ async def stream_dashboard_chat(
                 _record_dashboard_run("cancelled", round(elapsed_ms, 2))
                 return
             rounds += 1
-            from app.services.context_compressor import maybe_compress_messages
+            from app.services.context_compressor import (
+                hard_compress_messages,
+                maybe_compress_messages,
+            )
 
             messages_for_call = [{"role": "system", "content": system_prompt}] + messages_to_use
             compressed, comp_info = await maybe_compress_messages(
@@ -2128,26 +2183,52 @@ async def stream_dashboard_chat(
             )
             if comp_info is not None:
                 messages_to_use = [m for m in compressed if m.get("role") != "system"]
-                yield (
-                    "data: "
-                    + json.dumps(
-                        {
-                            "type": "compressed",
-                            "messages_compressed": comp_info["messages_compressed"],
-                            "tokens_before": comp_info["tokens_before"],
-                            "tokens_after": comp_info["tokens_after"],
-                            "elapsed_ms": comp_info["elapsed_ms"],
-                        }
-                    )
-                    + "\n\n"
+                yield _emit_compressed(comp_info)
+
+            messages_for_call = [{"role": "system", "content": system_prompt}] + messages_to_use
+            if _estimate_tokens(messages_for_call) >= _context_limit:
+                compressed, comp_info = await hard_compress_messages(
+                    messages_for_call,
+                    model=model,
+                    client=client,
+                    target_tokens=_hard_compression_target,
                 )
+                if comp_info is not None:
+                    messages_to_use = [m for m in compressed if m.get("role") != "system"]
+                    yield _emit_compressed(comp_info)
+
             kwargs = {
                 **base_kwargs,
                 "messages": [{"role": "system", "content": system_prompt}] + messages_to_use,
             }
             last_trace_request = {**kwargs, "messages": kwargs["messages"]}
             round_start = time.time()
-            response = await asyncio.to_thread(client.chat.completions.create, **kwargs)
+            try:
+                response = await asyncio.to_thread(client.chat.completions.create, **kwargs)
+            except Exception as exc:
+                if not _is_context_overflow_error(exc):
+                    raise
+                retry_target = max(
+                    2_000,
+                    min(_hard_compression_target, int(_context_limit * 0.5)),
+                )
+                compressed, comp_info = await hard_compress_messages(
+                    [{"role": "system", "content": system_prompt}] + messages_to_use,
+                    model=model,
+                    client=client,
+                    target_tokens=retry_target,
+                )
+                if comp_info is None:
+                    raise
+                messages_to_use = [m for m in compressed if m.get("role") != "system"]
+                yield _emit_compressed(comp_info)
+                kwargs = {
+                    **base_kwargs,
+                    "messages": [{"role": "system", "content": system_prompt}] + messages_to_use,
+                }
+                last_trace_request = {**kwargs, "messages": kwargs["messages"]}
+                round_start = time.time()
+                response = await asyncio.to_thread(client.chat.completions.create, **kwargs)
             round_elapsed_ms = (time.time() - round_start) * 1000
             usage = getattr(response, "usage", None)
             used_tokens = (

@@ -86,4 +86,4 @@ export type SSEChunk =
   | { type: 'workflow_created'; workflow: WorkflowPreview }
   | { type: 'title'; title: string }
   | { type: 'done' }
-  | { type: 'error'; text: string }
+  | { type: 'error'; text?: string; message?: string }

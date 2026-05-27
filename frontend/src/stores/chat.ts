@@ -39,6 +39,7 @@ export const useChatStore = defineStore("chat", () => {
     toolCalls: ToolCall[];
     contextUsage: ContextUsage | null;
     workflowPreview: WorkflowPreview | null;
+    error: string | null;
     isStreaming: boolean;
   }
   const EMPTY_STREAM_STATE: StreamState = Object.freeze({
@@ -47,6 +48,7 @@ export const useChatStore = defineStore("chat", () => {
     toolCalls: [],
     contextUsage: null,
     workflowPreview: null,
+    error: null,
     isStreaming: false,
   }) as StreamState;
   const streamStatesByConv = ref<Record<string, StreamState>>({});
@@ -69,6 +71,7 @@ export const useChatStore = defineStore("chat", () => {
       toolCalls: [],
       contextUsage: null,
       workflowPreview: null,
+      error: null,
       isStreaming: false,
     };
     streamStatesByConv.value = {
@@ -310,6 +313,7 @@ export const useChatStore = defineStore("chat", () => {
       toolCalls: [],
       contextUsage: null,
       workflowPreview: null,
+      error: null,
       isStreaming: true,
     });
 
@@ -340,12 +344,9 @@ export const useChatStore = defineStore("chat", () => {
       toolCalls: [],
       contextUsage: null,
       workflowPreview: null,
+      error: null,
       isStreaming: true,
     });
-
-    function clearStreamingFlag(): void {
-      _setStreamState(conversationId, { isStreaming: false });
-    }
 
     try {
       await chatApi.subscribeStream(
@@ -385,8 +386,9 @@ export const useChatStore = defineStore("chat", () => {
           _refreshConversationTimestamp(conversationId);
           if (hasContent) _playDing();
         },
-        (_err) => {
-          clearStreamingFlag();
+        (message) => {
+          const cleanMessage = message.trim() || "Dashboard chat failed";
+          _setStreamState(conversationId, { error: cleanMessage, isStreaming: false });
           _patchConversationFlag(conversationId, "is_running", false);
         },
         (payload) => {
@@ -449,8 +451,11 @@ export const useChatStore = defineStore("chat", () => {
         controller.signal,
       );
     } catch {
-      clearStreamingFlag();
       if (!controller.signal.aborted) {
+        _setStreamState(conversationId, {
+          error: "Dashboard chat failed",
+          isStreaming: false,
+        });
         _patchConversationFlag(conversationId, "is_running", false);
       }
     } finally {

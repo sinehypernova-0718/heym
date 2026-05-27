@@ -8,9 +8,9 @@ interface Props {
   toolCall: ToolCall;
 }
 
-const props = defineProps<Props>();
+defineProps<Props>();
 
-const isOpen = ref(props.toolCall.status === "running");
+const isOpen = ref(false);
 
 function toggle(): void {
   isOpen.value = !isOpen.value;
