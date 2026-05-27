@@ -261,6 +261,52 @@ class TestMaybeCompressMessages(unittest.IsolatedAsyncioTestCase):
         assert info is not None
         self.assertEqual(info["messages_compressed"], 4)
 
+    async def test_hard_compresses_single_oversized_user_message(self) -> None:
+        from app.services.context_compressor import hard_compress_messages
+
+        msgs = [
+            {"role": "system", "content": "System."},
+            {"role": "user", "content": "large input " * 8000},
+        ]
+        client = self._make_mock_client("Compressed request summary.")
+
+        result, info = await hard_compress_messages(
+            msgs,
+            model="gpt-4o",
+            client=client,
+            target_tokens=2_000,
+        )
+
+        self.assertIsNotNone(info)
+        assert info is not None
+        self.assertEqual(info["mode"], "hard")
+        self.assertEqual(info["messages_compressed"], 1)
+        self.assertEqual(result[0], msgs[0])
+        self.assertEqual(result[1]["role"], "user")
+        self.assertIn("Context hard-compressed", result[1]["content"])
+        self.assertNotEqual(result[1]["content"], msgs[1]["content"])
+
+    async def test_hard_compression_falls_back_to_excerpt_when_llm_fails(self) -> None:
+        from app.services.context_compressor import hard_compress_messages
+
+        msgs = [
+            {"role": "system", "content": "System."},
+            {"role": "user", "content": "oversized " * 5000},
+        ]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("LLM error")
+
+        result, info = await hard_compress_messages(
+            msgs,
+            model="gpt-4o",
+            client=mock_client,
+            target_tokens=2_000,
+        )
+
+        self.assertIsNotNone(info)
+        self.assertEqual(result[1]["role"], "user")
+        self.assertIn("Context hard-compressed", result[1]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ import {
   MicOff,
   Paperclip,
   Pencil,
+  TriangleAlert,
   X,
 } from "lucide-vue-next";
 import { marked } from "marked";
@@ -219,6 +220,16 @@ watch(
   () => streamState.value.content,
   () => {
     if (!isThisConvStreaming.value) return;
+    nextTick(() => {
+      scrollToBottom();
+      updateMessageScrollbar();
+    });
+  },
+);
+
+watch(
+  () => streamState.value.error,
+  () => {
     nextTick(() => {
       scrollToBottom();
       updateMessageScrollbar();
@@ -1096,6 +1107,23 @@ onUnmounted(() => {
                 />
               </div>
             </div>
+          </div>
+        </div>
+
+        <div
+          v-if="streamState.error"
+          class="flex gap-3 justify-start"
+        >
+          <div class="w-7 h-7 rounded-full bg-destructive/10 flex items-center justify-center shrink-0 mt-0.5">
+            <TriangleAlert class="w-4 h-4 text-destructive" />
+          </div>
+          <div class="max-w-[72%] rounded-2xl rounded-tl-sm border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm leading-relaxed text-destructive break-words">
+            <p class="font-medium">
+              Chat error
+            </p>
+            <p class="mt-1 whitespace-pre-wrap">
+              {{ streamState.error }}
+            </p>
           </div>
         </div>
 

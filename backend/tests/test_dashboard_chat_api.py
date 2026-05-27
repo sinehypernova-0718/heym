@@ -1036,6 +1036,69 @@ class DashboardChatCompressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"messages_compressed": 18', joined)
         self.assertIn('"tokens_before": 98000', joined)
 
+    async def test_stream_retries_context_overflow_with_hard_compression(self) -> None:
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        final_msg = MagicMock()
+        final_msg.content = "ok"
+        final_msg.tool_calls = None
+        response = MagicMock()
+        response.choices = [MagicMock(message=final_msg)]
+        response.usage = MagicMock(prompt_tokens=12, completion_tokens=3, total_tokens=15)
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.side_effect = [
+            Exception("maximum context length exceeded"),
+            response,
+        ]
+        hard_compressed = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "[Context hard-compressed]\nsummary"},
+        ]
+        hard_info = {
+            "messages_compressed": 1,
+            "messages_before_count": 2,
+            "messages_after_count": 2,
+            "tokens_before": 18_000,
+            "tokens_after": 1_200,
+            "elapsed_ms": 55.0,
+            "mode": "hard",
+        }
+
+        with (
+            patch("app.api.ai_assistant.record_run_history"),
+            patch(
+                "app.services.context_compressor.maybe_compress_messages",
+                new=AsyncMock(return_value=([], None)),
+            ),
+            patch(
+                "app.services.context_compressor.hard_compress_messages",
+                new=AsyncMock(return_value=(hard_compressed, hard_info)),
+            ) as hard_compress,
+        ):
+            chunks = _normalize_chunks(
+                [
+                    chunk
+                    async for chunk in stream_dashboard_chat(
+                        fake_client,
+                        "gpt-4o-mini",
+                        "system",
+                        [{"role": "user", "content": "large input"}],
+                        AsyncMock(),
+                        user,
+                        "OpenAI",
+                        "http://localhost",
+                    )
+                ]
+            )
+
+        joined = "".join(chunks)
+        self.assertIn('"type": "compressed"', joined)
+        self.assertIn('"tokens_after": 1200', joined)
+        self.assertIn('"type": "content"', joined)
+        hard_compress.assert_awaited_once()
+        retry_messages = fake_client.chat.completions.create.call_args_list[1].kwargs["messages"]
+        self.assertEqual(retry_messages[-1]["content"], "[Context hard-compressed]\nsummary")
+
 
 class ContextSummaryEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_get_context_summary_returns_breakdown(self) -> None:

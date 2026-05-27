@@ -2518,7 +2518,17 @@ export const chatApi = {
           const parsed = JSON.parse(line.slice(6));
           if (parsed.type === "content") onChunk(parsed.text);
           else if (parsed.type === "done") { onDone(); reading = false; break; }
-          else if (parsed.type === "error") onError(parsed.text);
+          else if (parsed.type === "error") {
+            let message = "Dashboard chat failed";
+            if (typeof parsed.text === "string") {
+              message = parsed.text;
+            } else if (typeof parsed.message === "string") {
+              message = parsed.message;
+            }
+            onError(message);
+            reading = false;
+            break;
+          }
           else if (parsed.type === "tool_start" && typeof parsed.id === "string") {
             onToolStart?.({
               id: parsed.id,
