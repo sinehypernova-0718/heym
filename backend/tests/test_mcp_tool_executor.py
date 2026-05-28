@@ -2,8 +2,10 @@
 
 import os
 import unittest
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -303,6 +305,131 @@ class ExecuteMcpToolSessionToolListTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("is not available on this connection", str(ctx.exception))
         self.assertIn("list_notifications", str(ctx.exception))
+
+    async def test_call_tool_omits_empty_optional_schema_arguments(self) -> None:
+        captured_arguments: list[dict[str, Any]] = []
+        input_schema = {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "max_results": {"type": "integer"},
+                "search_depth": {"type": "string", "enum": ["basic", "advanced"]},
+                "include_images": {"type": "boolean"},
+                "include_domains": {"type": "array", "items": {"type": "string"}},
+                "country": {"type": "string"},
+            },
+            "required": ["query"],
+        }
+
+        @asynccontextmanager
+        async def fake_open_transport(
+            _conn: dict[str, Any],
+            _timeout: float,
+        ) -> AsyncGenerator[tuple[object, object], None]:
+            yield object(), object()
+
+        class FakeSession:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                self.initialize = AsyncMock()
+                self.list_tools = AsyncMock(
+                    return_value=SimpleNamespace(
+                        tools=[SimpleNamespace(name="tavily_search", inputSchema=input_schema)]
+                    )
+                )
+                self.call_tool = AsyncMock(side_effect=self._call_tool)
+
+            async def _call_tool(
+                self,
+                *_args: Any,
+                **kwargs: Any,
+            ) -> types.CallToolResult:
+                captured_arguments.append(kwargs["arguments"])
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text='{"ok": true}')],
+                    isError=False,
+                )
+
+            async def __aenter__(self) -> "FakeSession":
+                return self
+
+            async def __aexit__(self, *_args: Any) -> None:
+                return None
+
+        with (
+            patch("app.services.mcp_tool_executor._open_transport", fake_open_transport),
+            patch("app.services.mcp_tool_executor.ClientSession", FakeSession),
+        ):
+            result = await _execute_mcp_tool_async(
+                {"transport": "stdio", "command": "fake"},
+                "tavily_search",
+                {
+                    "query": "ai workflow news",
+                    "max_results": "",
+                    "search_depth": "",
+                    "include_images": "",
+                    "include_domains": "",
+                    "country": "",
+                },
+                5,
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(captured_arguments, [{"query": "ai workflow news"}])
+
+    async def test_call_tool_keeps_empty_required_schema_arguments(self) -> None:
+        captured_arguments: list[dict[str, Any]] = []
+        input_schema = {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "max_results": {"type": "integer"},
+            },
+            "required": ["query"],
+        }
+
+        @asynccontextmanager
+        async def fake_open_transport(
+            _conn: dict[str, Any],
+            _timeout: float,
+        ) -> AsyncGenerator[tuple[object, object], None]:
+            yield object(), object()
+
+        class FakeSession:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                self.initialize = AsyncMock()
+                self.list_tools = AsyncMock(
+                    return_value=SimpleNamespace(
+                        tools=[SimpleNamespace(name="tavily_search", inputSchema=input_schema)]
+                    )
+                )
+                self.call_tool = AsyncMock(side_effect=self._call_tool)
+
+            async def _call_tool(
+                self,
+                *_args: Any,
+                **kwargs: Any,
+            ) -> types.CallToolResult:
+                captured_arguments.append(kwargs["arguments"])
+                return types.CallToolResult(content=[], isError=False)
+
+            async def __aenter__(self) -> "FakeSession":
+                return self
+
+            async def __aexit__(self, *_args: Any) -> None:
+                return None
+
+        with (
+            patch("app.services.mcp_tool_executor._open_transport", fake_open_transport),
+            patch("app.services.mcp_tool_executor.ClientSession", FakeSession),
+        ):
+            await _execute_mcp_tool_async(
+                {"transport": "stdio", "command": "fake"},
+                "tavily_search",
+                {"query": "", "max_results": ""},
+                5,
+            )
+
+        self.assertEqual(captured_arguments, [{"query": ""}])
 
 
 class StdioEnvMergeTests(unittest.IsolatedAsyncioTestCase):
