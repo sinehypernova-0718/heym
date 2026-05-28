@@ -6810,15 +6810,17 @@ onUnmounted(() => {
                     <div
                       v-for="t in getMCPFetchState(conn.id).tools"
                       :key="t.name"
-                      class="text-xs"
+                      class="space-y-0.5 text-xs"
                     >
-                      <span class="font-medium text-foreground">{{ t.name }}</span>
-                      <span
+                      <div class="font-medium text-foreground break-words">
+                        {{ t.name }}
+                      </div>
+                      <p
                         v-if="t.description"
-                        class="text-muted-foreground"
+                        class="text-muted-foreground leading-snug break-words"
                       >
-                        — {{ t.description }}
-                      </span>
+                        {{ t.description }}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -11388,7 +11390,7 @@ onUnmounted(() => {
                 </p>
                 <p
                   v-else-if="mcpCallSelectedTool?.description"
-                  class="text-xs text-muted-foreground"
+                  class="text-xs text-muted-foreground leading-snug break-words"
                 >
                   {{ mcpCallSelectedTool.description }}
                 </p>
@@ -11417,11 +11419,13 @@ onUnmounted(() => {
                       v-if="mcpCallSelectedTool.inputSchema?.required?.includes(String(propKey))"
                       class="text-destructive"
                     >*</span>
-                    <span
-                      v-if="propDef.description"
-                      class="text-muted-foreground font-normal"
-                    >— {{ propDef.description }}</span>
                   </Label>
+                  <p
+                    v-if="propDef.description"
+                    class="text-xs text-muted-foreground leading-snug break-words"
+                  >
+                    {{ propDef.description }}
+                  </p>
                   <ExpressionInput
                     :ref="(el) => setMCPCallArgumentInputRef(String(propKey), el)"
                     :model-value="String(selectedNode.data.toolArguments?.[propKey] ?? '')"

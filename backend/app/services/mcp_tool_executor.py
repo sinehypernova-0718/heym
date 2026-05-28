@@ -231,6 +231,40 @@ def _extract_tool_result(call_result: types.CallToolResult) -> object:
     return None
 
 
+def _input_schema_from_tool(tool: Any) -> dict[str, Any]:
+    """Return a JSON-schema-like inputSchema dict from an MCP tool object."""
+    input_schema = getattr(tool, "inputSchema", None)
+    if input_schema is None and isinstance(tool, dict):
+        input_schema = tool.get("inputSchema")
+    if hasattr(input_schema, "model_dump"):
+        input_schema = input_schema.model_dump(by_alias=True, mode="json")
+    return input_schema if isinstance(input_schema, dict) else {}
+
+
+def _schema_required_keys(input_schema: dict[str, Any]) -> set[str]:
+    required = input_schema.get("required")
+    if not isinstance(required, list):
+        return set()
+    return {str(key) for key in required}
+
+
+def _omit_empty_optional_arguments(
+    arguments: dict[str, Any],
+    input_schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Drop blank optional args that UI forms may save for MCP schema fields."""
+    properties = input_schema.get("properties")
+    if not isinstance(properties, dict):
+        return dict(arguments)
+
+    required_keys = _schema_required_keys(input_schema)
+    return {
+        key: value
+        for key, value in arguments.items()
+        if not (value == "" and key in properties and key not in required_keys)
+    }
+
+
 def _normalize_connection(connection: dict[str, Any]) -> dict[str, Any]:
     """Parse args/headers from JSON strings if needed."""
     conn = dict(connection)
@@ -357,8 +391,12 @@ async def _execute_mcp_tool_async(
         ) as session:
             await session.initialize()
             tools_result = await session.list_tools()
+            selected_tool = next(
+                (tool for tool in tools_result.tools if getattr(tool, "name", None) == tool_name),
+                None,
+            )
             available_tool_names = [tool.name for tool in tools_result.tools]
-            if tool_name not in available_tool_names:
+            if selected_tool is None:
                 available_preview = ", ".join(available_tool_names[:20])
                 if len(available_tool_names) > 20:
                     available_preview += f", ... ({len(available_tool_names)} total)"
@@ -366,9 +404,13 @@ async def _execute_mcp_tool_async(
                     f"MCP tool '{tool_name}' is not available on this connection. "
                     f"Available tools: {available_preview or '(none)'}"
                 )
+            call_arguments = _omit_empty_optional_arguments(
+                arguments or {},
+                _input_schema_from_tool(selected_tool),
+            )
             call_result = await session.call_tool(
                 tool_name,
-                arguments=arguments or {},
+                arguments=call_arguments,
                 read_timeout_seconds=read_timeout,
             )
             return _extract_tool_result(call_result)
