@@ -179,6 +179,7 @@ Turn a workflow into a chat experience so users can invoke the orchestration wit
 - **Command Palette** — Ctrl+K for instant search, navigation, and workflow actions
 - **Evals** — Define test suites and run them against any workflow with one click
 - **LLM Traces** — Full observability for every agent call: requests, responses, tool calls, and timing
+- **LLM Cost Tracking** — Per-trace token counts (input / output) with real-time USD cost calculation, historical analytics with time-range filtering, and a synced pricing table covering all major models
 - **Self-Hosted** — Your data, your infrastructure
 
 ---
@@ -216,6 +217,7 @@ For a complete list of all features with short descriptions, see **[Full Feature
 | Data Tables | ✅ | ✅ | ✅ | ❌ |
 | Workflow Templates | ✅ | ✅ | ✅ | ✅ |
 | LLM trace inspection | ✅ | limited⁴ | ❌ | ✅ |
+| LLM token cost tracking (USD) | ✅ | ❌¹⁶ | ❌¹⁶ | limited¹⁶ |
 | Built-in evals for AI workflows | ✅ | ✅ | ❌ | ❌ |
 | Parallel DAG execution | ✅ | limited⁹ | ❌ | ❌ |
 | Self-hostable, source-available | ✅ MIT + Commons Clause | ✅ fair-code¹⁰ | ❌ | ❌ |
@@ -239,6 +241,7 @@ For a complete list of all features with short descriptions, see **[Full Feature
 13. Zapier's official docs cover inbound webhooks and outbound webhook/API requests over HTTP only, not native WebSocket trigger or send steps
 14. Make's official docs cover Webhooks modules and HTTP(S) request modules, but I couldn't find a native WebSocket trigger or send module
 15. As of April 22, 2026, n8n's official docs document HTTP batching and loop/wait patterns rather than a native LLM batch-status branch, Zapier's official ChatGPT app docs list no triggers and only a generic API Request beta, and Make's official OpenAI integration page exposes batch actions like create/watch completed but not a first-class status-branching LLM node, so n8n/Make are marked partial and Zapier is marked unavailable for this specific pattern
+16. n8n has no native LLM token cost tracking; community workaround workflows exist (e.g. "Token Estim8r") but require manual installation and post-execution API calls — an open feature request exists as of May 2026. Zapier exposes no per-execution token count or USD cost to users; AI steps consume tasks only, with no model pricing table. Make switched to a credits model in August 2025 that partially reflects token consumption for Make-hosted AI, but third-party connections using your own API key are billed as 1 operation = 1 credit with no token counting, and there is no per-execution USD breakdown by model
 
 </details>
 
@@ -337,6 +340,7 @@ cp .env.example .env
       <td valign="top">
         <b>🔍 Observability</b><br/><br/>
         LLM Traces (requests, tool calls)<br/>
+        LLM Cost Tracking (tokens + USD)<br/>
         Evals (AI test suites)<br/>
         Execution History<br/>
         Analytics · Logs
@@ -446,6 +450,9 @@ Independent nodes run concurrently based on the graph structure. Use the **Merge
 
 ### LLM Traces
 Full visibility into every agent call: request and response payloads, tool call names and results, per-call timing, and skills passed to the model.
+
+### LLM Cost Tracking
+Every trace records input and output token counts alongside a real-time USD cost calculated from a synced pricing table that covers all major models (OpenAI, Anthropic, Google, and more). A time-range filtered cost analytics view lets you see spending trends across workflows — no third-party cost dashboard needed.
 
 ### Evals
 Define test cases with expected outputs. Run the entire suite with one click. Review pass/fail, actual vs expected, and historical run data. Ship AI workflows with confidence.
