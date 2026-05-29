@@ -46,6 +46,9 @@ const filteredRows = computed(() => {
       r.model.toLowerCase().includes(q) || (r.provider ?? "").toLowerCase().includes(q),
   );
 });
+const customizedRowsCount = computed(
+  () => rows.value.filter((row) => row.is_custom || row.is_override).length,
+);
 
 function stopPolling(): void {
   pollGeneration += 1;
@@ -227,8 +230,12 @@ async function submitAdd(): Promise<void> {
 }
 
 function badgeFor(row: LLMPricingRow): { label: string; classes: string } | null {
-  if (row.is_custom) return { label: "User added", classes: "bg-blue-500/15 text-blue-600" };
-  if (row.is_override) return { label: "Customized", classes: "bg-amber-500/15 text-amber-600" };
+  if (row.is_custom) {
+    return { label: "User added", classes: "bg-blue-500/15 text-blue-700 dark:text-blue-300" };
+  }
+  if (row.is_override) {
+    return { label: "Customized", classes: "bg-amber-500/15 text-amber-700 dark:text-amber-300" };
+  }
   return null;
 }
 
@@ -260,8 +267,8 @@ onBeforeUnmount(() => {
           <span class="font-semibold text-foreground">
             {{ (syncStatus.total_rows ?? 0).toLocaleString() }} models
           </span>
-          <span v-if="(syncStatus.override_rows ?? 0) > 0">
-            · <span class="font-semibold text-foreground">{{ syncStatus.override_rows }}</span>
+          <span v-if="customizedRowsCount > 0">
+            · <span class="font-semibold text-foreground">{{ customizedRowsCount }}</span>
             customized
           </span>
           <span v-if="syncStatus.last_synced_at">

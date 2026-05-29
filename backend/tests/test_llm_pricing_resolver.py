@@ -23,8 +23,14 @@ def _global(model: str, op: str = "equals", inp: float = 1.0, out: float = 2.0) 
     )
 
 
-def _override(model: str, inp: float = 0.5, out: float = 1.0) -> _Row:
+def _override(
+    model: str,
+    inp: float = 0.5,
+    out: float = 1.0,
+    provider: str | None = None,
+) -> _Row:
     return _Row(
+        provider=provider,
         model=model,
         input_per_1m_usd=Decimal(str(inp)),
         output_per_1m_usd=Decimal(str(out)),
@@ -78,6 +84,18 @@ class ResolverTests(unittest.IsolatedAsyncioTestCase):
             overrides=[_override("gpt-4o", 1, 3)],
         )
         out = await resolve_costs_for_user(db, self.user_id, [("gpt-4o", 1_000_000, 1_000_000)])
+        self.assertEqual(out, [(Decimal("4"), True)])
+
+    async def test_custom_exact_model_beats_helicone_rule(self):
+        db = self._db_with(
+            globals_=[_global("claude", "includes", 5, 15)],
+            overrides=[_override("claude-3-5-sonnet", 1, 3, provider="anthropic")],
+        )
+        out = await resolve_costs_for_user(
+            db,
+            self.user_id,
+            [("claude-3-5-sonnet", 1_000_000, 1_000_000)],
+        )
         self.assertEqual(out, [(Decimal("4"), True)])
 
     async def test_unpriced_returns_none(self):

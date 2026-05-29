@@ -4,13 +4,25 @@ import { computed } from "vue";
 import type { TraceStatsResponse } from "@/types/trace";
 
 import Card from "@/components/ui/Card.vue";
+import { useThemeStore } from "@/stores/theme";
 
 interface Props {
   stats: TraceStatsResponse | null;
   loading: boolean;
 }
 
+interface ApexDonutTooltipContext {
+  series: number[];
+  seriesIndex: number;
+  w: {
+    globals?: {
+      labels?: string[];
+    };
+  };
+}
+
 const props = defineProps<Props>();
+const themeStore = useThemeStore();
 
 function fmtNum(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -31,17 +43,54 @@ function fmtMs(value: number): string {
   return `${Math.round(value)} ms`;
 }
 
+const htmlEscapeMap: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  "\"": "&quot;",
+  "'": "&#39;",
+};
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] ?? char);
+}
+
+function formatDonutTooltip(
+  context: ApexDonutTooltipContext,
+  valueFormatter: (value: number) => string,
+): string {
+  const label = context.w.globals?.labels?.[context.seriesIndex] ?? "Model";
+  const value = context.series[context.seriesIndex] ?? 0;
+  return `<div class="trace-donut-tooltip">${escapeHtml(label)}: <strong>${escapeHtml(valueFormatter(value))}</strong></div>`;
+}
+
 const kpis = computed(() => props.stats?.kpis ?? null);
+const chartTheme = computed(() => themeStore.isDark ? "dark" : "light");
+const chartTextColor = computed(() => themeStore.isDark ? "#e5e7eb" : "#111827");
+const chartMutedTextColor = computed(() => themeStore.isDark ? "#94a3b8" : "#64748b");
+const chartGridColor = computed(() =>
+  themeStore.isDark ? "rgba(148, 163, 184, 0.24)" : "rgba(100, 116, 139, 0.22)",
+);
 
 const hasModelData = computed(() => (props.stats?.by_model.length ?? 0) > 0);
 const hasTimeData = computed(() => (props.stats?.by_time.length ?? 0) > 0);
 
 const tokensByModelOptions = computed(() => ({
-  chart: { type: "donut" as const, fontFamily: "inherit", toolbar: { show: false } },
+  chart: {
+    type: "donut" as const,
+    fontFamily: "inherit",
+    background: "transparent",
+    foreColor: chartMutedTextColor.value,
+    toolbar: { show: false },
+  },
   labels: (props.stats?.by_model ?? []).map((m) => m.model),
-  legend: { position: "bottom" as const, labels: { colors: "var(--foreground)" } },
+  legend: { position: "bottom" as const, labels: { colors: chartTextColor.value } },
   dataLabels: { enabled: false },
+  theme: { mode: chartTheme.value },
   tooltip: {
+    fillSeriesColor: false,
+    custom: (context: ApexDonutTooltipContext): string =>
+      formatDonutTooltip(context, (val) => `${fmtNum(val)} tokens`),
     y: { formatter: (val: number) => `${fmtNum(val)} tokens` },
   },
 }));
@@ -50,11 +99,21 @@ const tokensByModelSeries = computed(() =>
 );
 
 const costByModelOptions = computed(() => ({
-  chart: { type: "donut" as const, fontFamily: "inherit", toolbar: { show: false } },
+  chart: {
+    type: "donut" as const,
+    fontFamily: "inherit",
+    background: "transparent",
+    foreColor: chartMutedTextColor.value,
+    toolbar: { show: false },
+  },
   labels: (props.stats?.by_model ?? []).map((m) => m.model),
-  legend: { position: "bottom" as const, labels: { colors: "var(--foreground)" } },
+  legend: { position: "bottom" as const, labels: { colors: chartTextColor.value } },
   dataLabels: { enabled: false },
+  theme: { mode: chartTheme.value },
   tooltip: {
+    fillSeriesColor: false,
+    custom: (context: ApexDonutTooltipContext): string =>
+      formatDonutTooltip(context, (val) => fmtCost(val)),
     y: { formatter: (val: number) => fmtCost(val) },
   },
 }));
@@ -67,23 +126,28 @@ const callsOverTimeOptions = computed(() => ({
     type: "area" as const,
     stacked: true,
     fontFamily: "inherit",
+    background: "transparent",
+    foreColor: chartMutedTextColor.value,
     toolbar: { show: false },
   },
+  theme: { mode: chartTheme.value },
   xaxis: {
     type: "datetime" as const,
-    labels: { style: { colors: "var(--muted-foreground)" } },
+    labels: { style: { colors: chartMutedTextColor.value } },
   },
   yaxis: {
     labels: {
-      style: { colors: "var(--muted-foreground)" },
+      style: { colors: chartMutedTextColor.value },
       formatter: (val: number) => fmtNum(val),
     },
   },
+  grid: { borderColor: chartGridColor.value },
   colors: ["#10b981", "#ef4444"],
   stroke: { curve: "smooth" as const, width: 2 },
   fill: { opacity: 0.3 },
-  legend: { position: "bottom" as const, labels: { colors: "var(--foreground)" } },
+  legend: { position: "bottom" as const, labels: { colors: chartTextColor.value } },
   dataLabels: { enabled: false },
+  tooltip: { theme: chartTheme.value },
 }));
 const callsOverTimeSeries = computed(() => {
   const buckets = props.stats?.by_time ?? [];
@@ -172,7 +236,7 @@ const showUnpriced = computed(() => (kpis.value?.unpriced_models?.length ?? 0) >
       <Card
         variant="flat"
         :hover="false"
-        class="p-3"
+        class="trace-chart-card p-3"
       >
         <div class="text-sm font-medium mb-2">
           Tokens by Model
@@ -194,7 +258,7 @@ const showUnpriced = computed(() => (kpis.value?.unpriced_models?.length ?? 0) >
       <Card
         variant="flat"
         :hover="false"
-        class="p-3"
+        class="trace-chart-card p-3"
       >
         <div class="text-sm font-medium mb-2">
           Cost by Model
@@ -223,7 +287,7 @@ const showUnpriced = computed(() => (kpis.value?.unpriced_models?.length ?? 0) >
       <Card
         variant="flat"
         :hover="false"
-        class="p-3"
+        class="trace-chart-card p-3"
       >
         <div class="text-sm font-medium mb-2">
           Calls Over Time
@@ -245,3 +309,51 @@ const showUnpriced = computed(() => (kpis.value?.unpriced_models?.length ?? 0) >
     </div>
   </div>
 </template>
+
+<style scoped>
+.trace-chart-card :deep(.apexcharts-canvas),
+.trace-chart-card :deep(.apexcharts-canvas svg) {
+  background: transparent !important;
+}
+
+.trace-chart-card :deep(.apexcharts-tooltip) {
+  background: hsl(var(--popover)) !important;
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  box-shadow: 0 12px 30px hsl(var(--background) / 0.3) !important;
+}
+
+.trace-chart-card :deep(.apexcharts-tooltip-title) {
+  background: hsl(var(--muted)) !important;
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.trace-chart-card :deep(.apexcharts-tooltip-text),
+.trace-chart-card :deep(.apexcharts-tooltip-y-group),
+.trace-chart-card :deep(.apexcharts-xaxistooltip) {
+  color: hsl(var(--foreground)) !important;
+}
+
+.trace-chart-card :deep(.apexcharts-xaxistooltip) {
+  background: hsl(var(--popover)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+:global(.trace-donut-tooltip) {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 12px 30px hsl(var(--background) / 0.3);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+:global(.trace-donut-tooltip strong) {
+  color: hsl(var(--foreground));
+  font-weight: 700;
+}
+</style>

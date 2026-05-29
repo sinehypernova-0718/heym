@@ -16,6 +16,8 @@ export interface LLMTraceListItem {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   total_tokens: number | null;
+  cost_usd: string | null;
+  is_priced: boolean;
 }
 
 export interface LLMTraceDetail extends LLMTraceListItem {

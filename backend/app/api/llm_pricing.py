@@ -49,10 +49,34 @@ def _apply_override(base: LLMPricingRow, override: LLMPricingOverride) -> LLMPri
     )
 
 
+def _split_custom_model_input(model: str) -> tuple[str | None, str]:
+    trimmed = model.strip()
+    provider, separator, model_name = trimmed.partition("/")
+    if separator == "":
+        return None, trimmed
+    provider = provider.strip()
+    model_name = model_name.strip()
+    if provider == "" or model_name == "":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Custom model names must be either 'model' or 'provider/model'.",
+        )
+    return provider, model_name
+
+
+def _custom_matches_global(custom: LLMPricingOverride, global_row: LLMPricing) -> bool:
+    if custom.model == global_row.model:
+        return True
+    provider = custom.provider
+    if provider and f"{provider}/{custom.model}" == global_row.model:
+        return True
+    return bool(provider and provider == global_row.provider and custom.model == global_row.model)
+
+
 def _custom_to_row(o: LLMPricingOverride) -> LLMPricingRow:
     return LLMPricingRow(
         id=o.id,
-        provider=None,
+        provider=o.provider,
         model=o.model,
         operator="equals",
         input_per_1m_usd=o.input_per_1m_usd,
@@ -81,21 +105,29 @@ async def list_pricing(
         select(LLMPricingOverride).where(LLMPricingOverride.user_id == current_user.id)
     )
     overrides_list: list[LLMPricingOverride] = list(overrides_result.scalars().all())
-    overrides_by_model = {o.model: o for o in overrides_list}
+    base_overrides_by_model = {o.model: o for o in overrides_list if o.base_pricing_id is not None}
     custom_overrides = [o for o in overrides_list if o.base_pricing_id is None]
 
     rows: list[LLMPricingRow] = []
-    seen_models: set[str] = set()
+    seen_custom_ids: set[object] = set()
     for g in globals_list:
         base = _global_to_row(g)
-        if g.model in overrides_by_model:
-            rows.append(_apply_override(base, overrides_by_model[g.model]))
+        matching_customs = [o for o in custom_overrides if _custom_matches_global(o, g)]
+        if matching_customs:
+            for custom_override in matching_customs:
+                if custom_override.id not in seen_custom_ids:
+                    rows.append(_custom_to_row(custom_override))
+                    seen_custom_ids.add(custom_override.id)
+            continue
+
+        override = base_overrides_by_model.get(g.model)
+        if override is not None:
+            rows.append(_apply_override(base, override))
         else:
             rows.append(base)
-        seen_models.add(g.model)
 
     for o in custom_overrides:
-        if o.model in seen_models:
+        if o.id in seen_custom_ids:
             continue
         rows.append(_custom_to_row(o))
 
@@ -205,6 +237,8 @@ async def update_pricing(
     await db.commit()
     await db.refresh(override)
 
+    if override.base_pricing_id is None:
+        return _custom_to_row(override)
     if global_row is not None:
         return _apply_override(_global_to_row(global_row), override)
     return _custom_to_row(override)
@@ -237,10 +271,11 @@ async def create_custom_pricing(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> LLMPricingRow:
+    provider, model = _split_custom_model_input(payload.model)
     result = await db.execute(
         select(LLMPricingOverride).where(
             LLMPricingOverride.user_id == current_user.id,
-            LLMPricingOverride.model == payload.model,
+            LLMPricingOverride.model == model,
         )
     )
     if result.scalar_one_or_none() is not None:
@@ -251,7 +286,8 @@ async def create_custom_pricing(
 
     row = LLMPricingOverride(
         user_id=current_user.id,
-        model=payload.model,
+        provider=provider,
+        model=model,
         input_per_1m_usd=payload.input_per_1m_usd,
         output_per_1m_usd=payload.output_per_1m_usd,
         note=payload.note,

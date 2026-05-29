@@ -387,6 +387,14 @@ function formatMillis(value: number | null): string {
   return `${Math.round(value)} ms`;
 }
 
+function formatCost(value: string | null): string {
+  if (value === null) return "Unpriced";
+  const parsed = parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed === 0) return "$0.00";
+  if (parsed < 0.01) return `$${parsed.toFixed(4)}`;
+  return `$${parsed.toFixed(2)}`;
+}
+
 function formatJson(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
@@ -674,7 +682,7 @@ onMounted(async () => {
             variant="outline"
             size="sm"
             class="h-9 md:h-9 text-xs"
-            :disabled="!hasPrevious"
+            :disabled="loading || !hasPrevious"
             @click="goPrevious"
           >
             <ChevronLeft class="w-3 h-3 md:w-4 md:h-4" />
@@ -684,7 +692,7 @@ onMounted(async () => {
             variant="outline"
             size="sm"
             class="h-9 md:h-9 text-xs"
-            :disabled="!hasNext"
+            :disabled="loading || !hasNext"
             @click="goNext"
           >
             <span class="hidden sm:inline">Next</span>
@@ -695,14 +703,14 @@ onMounted(async () => {
     </div>
 
     <div
-      v-if="loading"
+      v-if="loading && traces.length === 0"
       class="text-sm text-muted-foreground text-center py-10"
     >
       Loading traces...
     </div>
 
     <div
-      v-else-if="error"
+      v-else-if="error && traces.length === 0"
       class="text-sm text-destructive text-center py-10"
     >
       {{ error }}
@@ -717,7 +725,9 @@ onMounted(async () => {
 
     <div
       v-else
-      class="grid gap-3"
+      class="grid gap-3 transition-opacity duration-150"
+      :class="cn(loading && 'pointer-events-none opacity-60')"
+      :aria-busy="loading"
     >
       <Card
         v-for="(trace, index) in traces"
@@ -762,6 +772,11 @@ onMounted(async () => {
           <div class="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
             <span>{{ trace.request_type }}</span>
             <span v-if="trace.total_tokens !== null">{{ trace.total_tokens }} tokens</span>
+            <span
+              v-if="trace.cost_usd !== null"
+            >
+              Cost {{ formatCost(trace.cost_usd) }}
+            </span>
             <span>{{ formatMillis(trace.elapsed_ms) }}</span>
           </div>
         </button>

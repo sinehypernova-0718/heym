@@ -537,6 +537,7 @@ class LLMPricingOverride(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     model: Mapped[str] = mapped_column(String(200), nullable=False)
     input_per_1m_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)
     output_per_1m_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)

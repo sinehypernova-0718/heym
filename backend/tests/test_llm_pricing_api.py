@@ -37,10 +37,11 @@ def _global(model="gpt-4o", op="equals"):
     )
 
 
-def _override(model="gpt-4o", base_id=None):
+def _override(model="gpt-4o", base_id=None, provider=None):
     return _Row(
         id=uuid.uuid4(),
         user_id=uuid.uuid4(),
+        provider=provider,
         model=model,
         input_per_1m_usd=Decimal("1"),
         output_per_1m_usd=Decimal("3"),
@@ -85,7 +86,7 @@ class ListPricingTests(unittest.IsolatedAsyncioTestCase):
     async def test_list_includes_custom_only_rows(self):
         user = MagicMock()
         user.id = uuid.uuid4()
-        custom = _override("my-private-model", base_id=None)
+        custom = _override("zai-glm-4.7", base_id=None, provider="cerebras")
         db = AsyncMock()
         db.execute = AsyncMock(
             side_effect=[
@@ -97,7 +98,57 @@ class ListPricingTests(unittest.IsolatedAsyncioTestCase):
             rows = await list_pricing(current_user=user, db=db)
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0].is_custom)
-        self.assertIsNone(rows[0].provider)
+        self.assertEqual(rows[0].provider, "cerebras")
+        self.assertEqual(rows[0].model, "zai-glm-4.7")
+
+    async def test_list_custom_row_masks_same_model_from_helicone(self):
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        global_row = _global("anthropic/claude-3-5-sonnet")
+        custom = _override("claude-3-5-sonnet", base_id=None, provider="anthropic")
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _exec_with([global_row, _global("anthropic/claude-3-5-sonnet", op="startsWith")]),
+                _exec_with([custom]),
+            ]
+        )
+        with patch("app.api.llm_pricing.ensure_pricing_synced", AsyncMock(return_value=False)):
+            rows = await list_pricing(current_user=user, db=db)
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0].is_custom)
+        self.assertFalse(rows[0].is_override)
+        self.assertEqual(rows[0].source, "user")
+        self.assertEqual(rows[0].provider, "anthropic")
+        self.assertEqual(rows[0].model, "claude-3-5-sonnet")
+        self.assertEqual(rows[0].input_per_1m_usd, Decimal("1"))
+
+    async def test_list_keeps_multiple_custom_rows_that_match_same_global(self):
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        global_row = _global("anthropic/claude-3-5-sonnet")
+        provider_custom = _override("claude-3-5-sonnet", base_id=None, provider="anthropic")
+        legacy_custom = _override("anthropic/claude-3-5-sonnet", base_id=None)
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _exec_with([global_row]),
+                _exec_with([provider_custom, legacy_custom]),
+            ]
+        )
+
+        with patch("app.api.llm_pricing.ensure_pricing_synced", AsyncMock(return_value=False)):
+            rows = await list_pricing(current_user=user, db=db)
+
+        custom_rows = [row for row in rows if row.is_custom]
+        self.assertEqual(len(custom_rows), 2)
+        self.assertEqual(
+            {(row.provider, row.model) for row in custom_rows},
+            {
+                ("anthropic", "claude-3-5-sonnet"),
+                (None, "anthropic/claude-3-5-sonnet"),
+            },
+        )
 
 
 class UpdatePricingTests(unittest.IsolatedAsyncioTestCase):
@@ -144,6 +195,31 @@ class UpdatePricingTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(existing.input_per_1m_usd, Decimal("9"))
         self.assertEqual(result.output_per_1m_usd, Decimal("10"))
+
+    async def test_patch_keeps_custom_duplicate_as_custom(self):
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        global_row = _global("anthropic/claude-3-5-sonnet")
+        existing = _override("claude-3-5-sonnet", base_id=None, provider="anthropic")
+        db = AsyncMock()
+        scalar1 = MagicMock()
+        scalar1.scalar_one_or_none = MagicMock(return_value=global_row)
+        scalar2 = MagicMock()
+        scalar2.scalar_one_or_none = MagicMock(return_value=existing)
+        db.execute = AsyncMock(side_effect=[scalar1, scalar2])
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+        payload = LLMPricingPatch(input_per_1m_usd=Decimal("9"), output_per_1m_usd=Decimal("10"))
+        result = await update_pricing(
+            model_name="claude-3-5-sonnet",
+            payload=payload,
+            current_user=user,
+            db=db,
+        )
+        self.assertTrue(result.is_custom)
+        self.assertFalse(result.is_override)
+        self.assertEqual(result.provider, "anthropic")
+        self.assertEqual(result.source, "user")
 
     async def test_patch_404_when_neither_exists(self):
         user = MagicMock()
@@ -216,15 +292,60 @@ class CustomCreateTests(unittest.IsolatedAsyncioTestCase):
         db.add.assert_called_once()
         added = db.add.call_args[0][0]
         self.assertIsNone(added.base_pricing_id)
-        self.assertEqual(added.model, "org/private-model")
-        self.assertEqual(result.model, "org/private-model")
+        self.assertEqual(added.provider, "org")
+        self.assertEqual(added.model, "private-model")
+        self.assertEqual(result.model, "private-model")
         self.assertTrue(result.is_custom)
+        self.assertEqual(result.provider, "org")
+
+    async def test_create_custom_without_provider_keeps_model_only(self):
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        db = AsyncMock()
+        scalar = MagicMock()
+        scalar.scalar_one_or_none = MagicMock(return_value=None)
+        db.execute = AsyncMock(return_value=scalar)
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        async def _refresh_side_effect(row):
+            row.id = uuid.uuid4()
+            row.updated_at = datetime.now(timezone.utc)
+
+        db.refresh = AsyncMock(side_effect=_refresh_side_effect)
+        payload = LLMPricingCustomCreate(
+            model="zai-glm-4.7",
+            input_per_1m_usd=Decimal("2"),
+            output_per_1m_usd=Decimal("4"),
+        )
+        result = await create_custom_pricing(payload=payload, current_user=user, db=db)
+        added = db.add.call_args[0][0]
+        self.assertIsNone(added.provider)
+        self.assertEqual(added.model, "zai-glm-4.7")
         self.assertIsNone(result.provider)
+        self.assertEqual(result.model, "zai-glm-4.7")
+
+    async def test_create_custom_422_when_provider_prefix_has_no_model(self):
+        user = MagicMock()
+        user.id = uuid.uuid4()
+        db = AsyncMock()
+        with self.assertRaises(HTTPException) as ctx:
+            await create_custom_pricing(
+                payload=LLMPricingCustomCreate(
+                    model="cerebras/",
+                    input_per_1m_usd=Decimal("1"),
+                    output_per_1m_usd=Decimal("2"),
+                ),
+                current_user=user,
+                db=db,
+            )
+        self.assertEqual(ctx.exception.status_code, 422)
+        db.execute.assert_not_called()
 
     async def test_creates_custom_409_when_duplicate(self):
         user = MagicMock()
         user.id = uuid.uuid4()
-        existing = _override("org/private-model")
+        existing = _override("private-model", provider="org")
         db = AsyncMock()
         scalar = MagicMock()
         scalar.scalar_one_or_none = MagicMock(return_value=existing)

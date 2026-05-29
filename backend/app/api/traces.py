@@ -102,9 +102,20 @@ async def list_traces(
 
     order_by = LLMTrace.created_at.asc() if order == "asc" else LLMTrace.created_at.desc()
     result = await db.execute(base_query.order_by(order_by).limit(limit).offset(offset))
+    rows = result.all()
+    cost_pairs = [
+        (trace.model or "", int(trace.prompt_tokens or 0), int(trace.completion_tokens or 0))
+        for trace, _, _ in rows
+    ]
+    resolved_costs = (
+        await resolve_costs_for_user(db, current_user.id, cost_pairs) if cost_pairs else []
+    )
 
     items: list[LLMTraceListItem] = []
-    for trace, credential_name, workflow_name in result.all():
+    for index, (trace, credential_name, workflow_name) in enumerate(rows):
+        cost_usd, is_priced = (
+            resolved_costs[index] if index < len(resolved_costs) else (None, False)
+        )
         items.append(
             LLMTraceListItem(
                 id=trace.id,
@@ -124,6 +135,8 @@ async def list_traces(
                 prompt_tokens=trace.prompt_tokens,
                 completion_tokens=trace.completion_tokens,
                 total_tokens=trace.total_tokens,
+                cost_usd=cost_usd,
+                is_priced=is_priced,
             )
         )
 
