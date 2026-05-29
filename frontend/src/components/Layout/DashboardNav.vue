@@ -210,7 +210,7 @@ watch(activeTab, () => {
       >
         <component
           :is="tab.icon"
-          class="w-4 h-4"
+          class="tab-icon w-4 h-4"
         />
         <span class="hidden sm:inline">{{ tab.label }}</span>
       </button>
@@ -226,5 +226,97 @@ watch(activeTab, () => {
 .tab-fade-enter-from,
 .tab-fade-leave-to {
   opacity: 0;
+}
+
+/* --- icon hover animation keyframes --- */
+@keyframes icon-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes icon-tick {
+  0%, 100% { transform: rotate(0deg); }
+  25%       { transform: rotate(-15deg); }
+  75%       { transform: rotate(10deg); }
+}
+
+@keyframes icon-pop {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.25); }
+}
+
+@keyframes icon-bounce {
+  0%, 100% { transform: translateY(0); }
+  40%       { transform: translateY(-4px); }
+  70%       { transform: translateY(-2px); }
+}
+
+@keyframes icon-pulse {
+  0%, 100% { transform: scale(1); }
+  40%       { transform: scale(1.2); }
+  70%       { transform: scale(0.95); }
+}
+
+@keyframes icon-slide {
+  0%, 100% { transform: translateX(0); }
+  40%       { transform: translateX(3px); }
+  70%       { transform: translateX(1px); }
+}
+
+@keyframes icon-rotate {
+  0%, 100% { transform: rotate(0deg); }
+  40%       { transform: rotate(20deg); }
+  70%       { transform: rotate(10deg); }
+}
+
+@keyframes icon-blink {
+  0%, 100% { opacity: 1; }
+  40%       { opacity: 0.3; }
+  70%       { opacity: 0.7; }
+}
+
+@keyframes icon-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  15%       { transform: rotate(-12deg); }
+  35%       { transform: rotate(12deg); }
+  55%       { transform: rotate(-6deg); }
+  75%       { transform: rotate(6deg); }
+}
+
+@keyframes icon-grow {
+  0%, 100% { transform: scaleY(1); }
+  30%       { transform: scaleY(0.7); }
+  60%       { transform: scaleY(1.1); }
+}
+
+@keyframes icon-shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-3px); }
+  40%       { transform: translateX(3px); }
+  60%       { transform: translateX(-2px); }
+  80%       { transform: translateX(2px); }
+}
+
+/* --- per-tab hover animations --- */
+.tab-item[data-tab-id="workflows"]:hover       .tab-icon { animation: icon-spin   0.45s ease-out; }
+.tab-item[data-tab-id="schedules"]:hover       .tab-icon { animation: icon-tick   0.40s ease-out; }
+.tab-item[data-tab-id="templates"]:hover       .tab-icon { animation: icon-pop    0.35s ease-out; }
+.tab-item[data-tab-id="globalvariables"]:hover .tab-icon { animation: icon-bounce 0.40s ease-out; }
+.tab-item[data-tab-id="chat"]:hover            .tab-icon { animation: icon-pulse  0.40s ease-out; }
+.tab-item[data-tab-id="drive"]:hover           .tab-icon { animation: icon-spin   0.50s ease-out; }
+.tab-item[data-tab-id="datatable"]:hover       .tab-icon { animation: icon-slide  0.35s ease-out; }
+.tab-item[data-tab-id="credentials"]:hover     .tab-icon { animation: icon-rotate 0.40s ease-out; }
+.tab-item[data-tab-id="vectorstores"]:hover    .tab-icon { animation: icon-pulse  0.40s ease-out; }
+.tab-item[data-tab-id="mcp"]:hover             .tab-icon { animation: icon-blink  0.50s ease-out; }
+.tab-item[data-tab-id="traces"]:hover          .tab-icon { animation: icon-wiggle 0.50s ease-out; }
+.tab-item[data-tab-id="analytics"]:hover       .tab-icon { animation: icon-grow   0.40s ease-out; }
+.tab-item[data-tab-id="evals"]:hover           .tab-icon { animation: icon-shake  0.45s ease-out; }
+.tab-item[data-tab-id="teams"]:hover           .tab-icon { animation: icon-bounce 0.40s ease-out; }
+.tab-item[data-tab-id="logs"]:hover            .tab-icon { animation: icon-blink  0.50s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-icon {
+    animation: none !important;
+  }
 }
 </style>
