@@ -462,7 +462,7 @@ function handleDoubleClick(type: NodeType): void {
         Nodes
         <span
           v-if="workflowStore.pendingInsertEdge"
-          class="text-xs font-medium text-primary px-2 py-0.5 rounded-full bg-primary/10"
+          class="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary dark:bg-primary/25 dark:text-violet-200"
         >
           Insert
         </span>

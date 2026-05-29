@@ -47,12 +47,12 @@ async function handleLogout(): Promise<void> {
         <div class="logo-link flex items-center gap-3 font-semibold group">
           <router-link
             to="/"
-            class="logo-icon flex items-center justify-center w-10 h-10 rounded-xl overflow-hidden cursor-pointer"
+            class="logo-icon flex items-center justify-center w-9 h-9 cursor-pointer"
           >
             <img
               src="/fav.svg"
               alt="Heym"
-              class="block w-10 h-10"
+              class="block w-9 h-9"
             >
           </router-link>
           <div class="flex flex-col">
@@ -175,13 +175,10 @@ async function handleLogout(): Promise<void> {
 }
 
 .logo-icon {
-  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
-  box-shadow: 0 4px 12px hsl(var(--primary) / 0.2);
   transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .logo-link:hover .logo-icon {
-  box-shadow: 0 6px 20px hsl(var(--primary) / 0.3);
   transform: translateY(-1px);
 }
 
