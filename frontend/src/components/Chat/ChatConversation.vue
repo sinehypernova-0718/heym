@@ -16,6 +16,8 @@ import {
   Paperclip,
   Pencil,
   TriangleAlert,
+  Volume2,
+  AudioLines,
   X,
 } from "lucide-vue-next";
 import { marked } from "marked";
@@ -39,6 +41,9 @@ import {
 } from "@/features/showcase/showcaseChatDraft";
 import { useAuthStore } from "@/stores/auth";
 import { useChatStore } from "@/stores/chat";
+import { useVoiceStore } from "@/stores/voice";
+import { useTextToSpeech } from "@/composables/useTextToSpeech";
+import InteractiveVoiceMode from "@/components/Chat/InteractiveVoiceMode.vue";
 
 interface Props {
   conversationId: string;
@@ -497,6 +502,48 @@ async function copyMessage(msg: Message): Promise<void> {
   }
 }
 
+const tts = useTextToSpeech();
+const voiceStore = useVoiceStore();
+
+function plainTextFromMarkdown(markdown: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = renderMarkdown(markdown);
+  return (div.textContent || div.innerText || "").trim();
+}
+
+async function readMessageAloud(msg: Message): Promise<void> {
+  if (!tts.isConfigured.value) {
+    voiceStore.requestVoiceSettings();
+    return;
+  }
+  try {
+    await tts.speak(msg.id, plainTextFromMarkdown(msg.content));
+  } catch {
+    // playback/synthesis failure is non-fatal; reset playback state
+    tts.stop();
+  }
+}
+
+const interactiveVoiceOpen = ref(false);
+
+function openInteractiveVoice(): void {
+  if (!tts.isConfigured.value) {
+    voiceStore.requestVoiceSettings();
+    return;
+  }
+  interactiveVoiceOpen.value = true;
+}
+
+async function sendVoiceText(text: string): Promise<void> {
+  if (!selectedCredentialId.value || !selectedModel.value) return;
+  await chatStore.sendMessage(
+    props.conversationId,
+    text,
+    selectedCredentialId.value,
+    selectedModel.value,
+  );
+}
+
 function openFilePicker(): void {
   fileInputRef.value?.click();
 }
@@ -893,7 +940,7 @@ onUnmounted(() => {
 
           <div
             :class="[
-              'group/message relative rounded-2xl px-4 py-2.5 pr-10 text-sm leading-relaxed break-words',
+              'group/message relative rounded-2xl px-4 py-2.5 pr-[4.25rem] text-sm leading-relaxed break-words',
               msg.workflowPreview ? 'w-[min(92%,920px)] max-w-[920px]' : 'max-w-[72%]',
               msg.role === 'user'
                 ? 'bg-primary text-primary-foreground rounded-tr-sm'
@@ -912,6 +959,22 @@ onUnmounted(() => {
                 class="w-3.5 h-3.5"
               />
               <Copy
+                v-else
+                class="w-3.5 h-3.5"
+              />
+            </button>
+            <button
+              type="button"
+              class="absolute right-9 top-1.5 flex h-7 w-7 items-center justify-center rounded-lg text-current opacity-60 transition-opacity hover:bg-black/10 sm:opacity-0 sm:group-hover/message:opacity-70 hover:opacity-100"
+              :title="tts.playingId.value === msg.id ? 'Stop' : 'Read aloud'"
+              :aria-label="tts.playingId.value === msg.id ? 'Stop reading' : 'Read message aloud'"
+              @click="readMessageAloud(msg)"
+            >
+              <Square
+                v-if="tts.playingId.value === msg.id"
+                class="w-3.5 h-3.5"
+              />
+              <Volume2
                 v-else
                 class="w-3.5 h-3.5"
               />
@@ -1155,6 +1218,14 @@ onUnmounted(() => {
       @close="imageLightboxSrc = null"
     />
 
+    <InteractiveVoiceMode
+      :open="interactiveVoiceOpen"
+      :messages="messages"
+      :is-streaming="isThisConvStreaming"
+      :on-send="sendVoiceText"
+      @close="interactiveVoiceOpen = false"
+    />
+
     <div class="chat-input-area shrink-0 px-3 sm:px-4 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <input
         ref="fileInputRef"
@@ -1224,6 +1295,16 @@ onUnmounted(() => {
           @keydown="onKeydown"
           @input="resizeChatInput"
         />
+        <button
+          type="button"
+          class="shrink-0 h-9 w-9 min-h-[36px] min-w-[36px] rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/80 disabled:opacity-50 disabled:pointer-events-none touch-manipulation transition-colors"
+          :disabled="!canSendMessage || !selectedCredentialId || !selectedModel || modelsLoadFailed"
+          title="Interactive voice mode"
+          aria-label="Open interactive voice mode"
+          @click="openInteractiveVoice"
+        >
+          <AudioLines class="w-4 h-4" />
+        </button>
         <button
           v-if="isSpeechSupported"
           type="button"

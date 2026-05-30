@@ -51,6 +51,8 @@ class PasswordChangeRequest(BaseModel):
 class UserUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     user_rules: str | None = Field(None, max_length=4000)
+    tts_credential_id: uuid.UUID | None = None
+    tts_voice_id: str | None = Field(None, max_length=64)
 
 
 class UserResponse(BaseModel):
@@ -58,6 +60,8 @@ class UserResponse(BaseModel):
     email: str
     name: str
     user_rules: str | None = None
+    tts_credential_id: uuid.UUID | None = None
+    tts_voice_id: str | None = None
     created_at: datetime
 
     class Config:
@@ -455,6 +459,7 @@ class CredentialType(str, Enum):
     flaresolverr = "flaresolverr"
     google_sheets = "google_sheets"
     bigquery = "bigquery"
+    elevenlabs = "elevenlabs"
 
 
 class CredentialConfigOpenAI(BaseModel):
@@ -462,6 +467,10 @@ class CredentialConfigOpenAI(BaseModel):
 
 
 class CredentialConfigGoogle(BaseModel):
+    api_key: str
+
+
+class CredentialConfigElevenLabs(BaseModel):
     api_key: str
 
 
