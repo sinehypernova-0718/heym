@@ -9122,7 +9122,15 @@ class WorkflowExecutor:
                                     raise ValueError(
                                         f"Drive Node: convertFile does not support input format '{src_mime}'"
                                     )
-                                _all_doc_formats = {"pdf", "docx", "html", "md", "txt", "csv", "epub"}
+                                _all_doc_formats = {
+                                    "pdf",
+                                    "docx",
+                                    "html",
+                                    "md",
+                                    "txt",
+                                    "csv",
+                                    "epub",
+                                }
                                 if target_format not in _all_doc_formats:
                                     raise ValueError(
                                         f"Drive Node: convertFile does not support output format '{target_format}'"
