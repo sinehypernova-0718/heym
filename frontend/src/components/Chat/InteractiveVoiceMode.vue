@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { Mic, MicOff, X } from "lucide-vue-next";
 
 import type { Message } from "@/types/chat";
-import { onDismissOverlays } from "@/composables/useOverlayBackHandler";
+import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { useInteractiveVoice, type VoiceState } from "@/composables/useInteractiveVoice";
 import { useTextToSpeech } from "@/composables/useTextToSpeech";
 
@@ -100,6 +100,7 @@ watch(
       lastUserText.value = "";
       lastAssistantText.value = "";
       spokenForMessageId = null;
+      pushOverlayState();
       unsubscribeDismiss = onDismissOverlays(() => close());
       await voice.start();
     } else {
