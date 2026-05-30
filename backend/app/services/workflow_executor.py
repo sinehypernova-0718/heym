@@ -9117,7 +9117,8 @@ class WorkflowExecutor:
                                 out_filename = f"{base_name}.{norm_ext}"
                             else:
                                 pandoc_fmt = _detect_pandoc_format(src_mime, src_filename)
-                                if pandoc_fmt is None and src_mime != "application/pdf":
+                                _special_inputs = {"application/pdf", "application/json"}
+                                if pandoc_fmt is None and src_mime not in _special_inputs:
                                     raise ValueError(
                                         f"Drive Node: convertFile does not support input format '{src_mime}'"
                                     )
@@ -9167,6 +9168,21 @@ class WorkflowExecutor:
                                             src_tmp = f"{tmpdir}/input.txt"
                                             with open(src_tmp, "w", encoding="utf-8") as fh:
                                                 fh.write(extracted)
+                                            pandoc_fmt = "markdown"
+                                        elif src_mime == "application/json":
+                                            import json as _json
+
+                                            _raw = src_bytes.decode("utf-8", errors="replace")
+                                            try:
+                                                _data = _json.loads(_raw)
+                                                _pretty = _json.dumps(
+                                                    _data, indent=2, ensure_ascii=False
+                                                )
+                                            except _json.JSONDecodeError:
+                                                _pretty = _raw
+                                            src_tmp = f"{tmpdir}/input.md"
+                                            with open(src_tmp, "w", encoding="utf-8") as fh:
+                                                fh.write(f"```json\n{_pretty}\n```\n")
                                             pandoc_fmt = "markdown"
                                         else:
                                             src_ext = (

@@ -3177,6 +3177,7 @@ const _MIME_TO_FORMAT: Record<string, string> = {
   "text/plain": "txt",
   "text/csv": "csv",
   "application/epub+zip": "epub",
+  "application/json": "json",
   "image/jpeg": "jpg",
   "image/jpg": "jpg",
   "image/png": "png",
