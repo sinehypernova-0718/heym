@@ -3,6 +3,8 @@
 Handles URL verification challenge and routes events to workflow execution.
 """
 
+import json
+
 import asyncio
 import hashlib
 import hmac
@@ -78,9 +80,12 @@ async def _find_workflow_by_node_id(
     node_id: str,
 ) -> Workflow | None:
     """Use JSONB containment to find the workflow containing this node_id."""
-    safe_node_id = node_id.replace("'", "").replace('"', "")
     result = await db.execute(
-        select(Workflow).where(text(f'nodes::jsonb @> \'[{{"id": "{safe_node_id}"}}]\'::jsonb'))
+        select(Workflow).where(
+            text("nodes::jsonb @> :node_filter::jsonb").bindparams(
+                node_filter=json.dumps([{"id": node_id}])
+            )
+        )
     )
     return result.scalar_one_or_none()
 
