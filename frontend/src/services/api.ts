@@ -1078,6 +1078,52 @@ export const credentialsApi = {
   },
 };
 
+export interface VoiceInfo {
+  voice_id: string;
+  name: string;
+}
+
+export interface SttResult {
+  text: string;
+  language_code: string;
+}
+
+export const voiceApi = {
+  // Same-origin GET URL for an <audio> element to stream TTS progressively.
+  // Auth is carried by the access-token cookie sent with the media request.
+  streamUrl: (text: string, opts?: { voiceId?: string; credentialId?: string }): string => {
+    const params = new URLSearchParams({ text });
+    if (opts?.voiceId) params.set("voice_id", opts.voiceId);
+    if (opts?.credentialId) params.set("credential_id", opts.credentialId);
+    return `${API_URL}/api/voice/tts/stream?${params.toString()}`;
+  },
+  listVoices: async (credentialId?: string): Promise<VoiceInfo[]> => {
+    const response = await api.get<VoiceInfo[]>("/voice/voices", {
+      params: credentialId ? { credential_id: credentialId } : undefined,
+    });
+    return response.data;
+  },
+  tts: async (
+    text: string,
+    opts?: { voiceId?: string; credentialId?: string },
+  ): Promise<Blob> => {
+    const response = await api.post(
+      "/voice/tts",
+      { text, voice_id: opts?.voiceId, credential_id: opts?.credentialId },
+      { responseType: "blob" },
+    );
+    return response.data as Blob;
+  },
+  stt: async (blob: Blob): Promise<SttResult> => {
+    const formData = new FormData();
+    formData.append("file", blob, "audio.webm");
+    const response = await api.post<SttResult>("/voice/stt", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  },
+};
+
 export const gristApi = {
   getColumns: async (docId: string, tableId: string): Promise<{ id: string; name: string; type: string }[]> => {
     const response = await api.get<{ columns: { id: string; name: string; type: string }[] }>(
