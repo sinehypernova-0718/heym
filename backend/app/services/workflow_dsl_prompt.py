@@ -2827,7 +2827,10 @@ If `playwrightAuthEnabled` is true, the first item in `playwrightSteps` must be 
   - `drivePassword`: Password string (setPassword only, supports expressions)
   - `driveTtlHours`: Hours until expiry as integer (setTtl only)
   - `driveMaxDownloads`: Max download count as integer (setMaxDownloads only)
-  - `driveConvertTargetFormat`: Target format for conversion — `"pdf"` | `"docx"` | `"html"` | `"md"` | `"txt"` | `"jpg"` | `"png"` | `"bmp"` | `"webp"` (convertFile only); reuses `driveFileId` for the source file UUID
+  - `driveConvertTargetFormat`: Target format for conversion (convertFile only); reuses `driveFileId` for the source file UUID
+    - Document outputs: `"pdf"` | `"docx"` | `"html"` | `"md"` | `"txt"` | `"epub"`
+    - CSV output: `"csv"` — only supported when input is a JSON array of objects
+    - Image outputs: `"jpg"` | `"png"` | `"bmp"` | `"webp"`
 
 **Operations Reference**:
 
@@ -2840,7 +2843,7 @@ If `playwrightAuthEnabled` is true, the first item in `playwrightSteps` must be 
 | `setPassword` | driveFileId, drivePassword | Replace default public token with a password-protected token |
 | `setTtl` | driveFileId, driveTtlHours | Replace default public token with one that expires after N hours |
 | `setMaxDownloads` | driveFileId, driveMaxDownloads | Replace default public token with one limited to N downloads |
-| `convertFile` | driveFileId, driveConvertTargetFormat | Convert file to a new format; stores result as a new Drive file (original unchanged). Documents via pandoc (docx/html/md/txt/pdf in+out, pdf in→txt/md/html/docx), images via Pillow (jpg/png/bmp/webp↔jpg/png/bmp/webp) |
+| `convertFile` | driveFileId, driveConvertTargetFormat | Convert file to a new format; stores result as a new Drive file (original unchanged). Inputs: docx/html/md/txt/csv/pdf + json (array of objects). Doc outputs: pdf/docx/html/md/txt/epub via pandoc; csv output: json→csv via Python csv module; image outputs: jpg/png/bmp/webp via Pillow. Same-format conversion not allowed. |
 
 **⚠️ CRITICAL: File ID comes from the agent/skill output**: When an Agent node runs a skill that generates files, the output contains `_generated_files` — an array of file objects. Each object has an `id` field. Reference it with `$agentLabel._generated_files[0].id`.
 
