@@ -3154,11 +3154,39 @@ const driveConvertFormatOptions = [
   { value: "md", label: "Markdown (.md)" },
   { value: "txt", label: "Plain Text (.txt)" },
   { value: "csv", label: "CSV (.csv)" },
+  { value: "epub", label: "EPUB (.epub)" },
   { value: "jpg", label: "JPEG Image (.jpg)" },
   { value: "png", label: "PNG Image (.png)" },
   { value: "bmp", label: "BMP Image (.bmp)" },
   { value: "webp", label: "WebP Image (.webp)" },
 ];
+
+const _IMAGE_MIMES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/bmp",
+  "image/webp",
+]);
+
+const driveConvertFormatOptionsFiltered = computed(() => {
+  const n = selectedNode.value;
+  if (!n || n.type !== "drive" || n.data.driveOperation !== "convertFile") {
+    return driveConvertFormatOptions;
+  }
+  const fileId = n.data.driveFileId;
+  if (!fileId) return driveConvertFormatOptions;
+  const file = driveFiles.value.find((f) => f.id === fileId);
+  if (!file) return driveConvertFormatOptions;
+  if (_IMAGE_MIMES.has(file.mime_type)) {
+    return driveConvertFormatOptions.filter((o) =>
+      ["jpg", "png", "bmp", "webp"].includes(o.value),
+    );
+  }
+  return driveConvertFormatOptions.filter((o) =>
+    ["pdf", "docx", "html", "md", "txt", "csv", "epub"].includes(o.value),
+  );
+});
 
 const dataTableOptions = computed(() => {
   const options = [{ value: "", label: "Select table..." }];
@@ -10053,7 +10081,7 @@ onUnmounted(() => {
               <Label>Target Format</Label>
               <Select
                 :model-value="selectedNode.data.driveConvertTargetFormat || ''"
-                :options="driveConvertFormatOptions"
+                :options="driveConvertFormatOptionsFiltered"
                 @update:model-value="updateNodeData('driveConvertTargetFormat', $event || undefined)"
               />
               <p class="text-xs text-muted-foreground">

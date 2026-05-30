@@ -9068,7 +9068,7 @@ class WorkflowExecutor:
                                 )
 
                             _image_formats = {"jpg", "jpeg", "png", "bmp", "webp"}
-                            _doc_formats = {"pdf", "docx", "html", "md", "txt", "csv"}
+                            _doc_formats = {"pdf", "docx", "html", "md", "txt", "csv", "epub"}
 
                             src_mime = file_row.mime_type or ""
                             src_filename = file_row.filename or ""
@@ -9128,6 +9128,7 @@ class WorkflowExecutor:
                                     "md": "md",
                                     "txt": "txt",
                                     "csv": "csv",
+                                    "epub": "epub",
                                 }
                                 _format_to_mime = {
                                     "pdf": "application/pdf",
@@ -9136,6 +9137,7 @@ class WorkflowExecutor:
                                     "md": "text/markdown",
                                     "txt": "text/plain",
                                     "csv": "text/csv",
+                                    "epub": "application/epub+zip",
                                 }
                                 _pandoc_target = {
                                     "pdf": "pdf",
@@ -9144,6 +9146,7 @@ class WorkflowExecutor:
                                     "md": "markdown",
                                     "txt": "plain",
                                     "csv": "csv",
+                                    "epub": "epub",
                                 }
                                 if target_format not in _pandoc_target:
                                     raise ValueError(
