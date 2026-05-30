@@ -170,10 +170,68 @@ if __name__ == "__main__":
 Standard library is always available. Third-party libraries available in Heym:
 - `reportlab` for PDF generation
 - `python-docx` for DOCX generation
-- `Pillow` for image processing
+- `Pillow` (`PIL`) for image processing and format conversion
+- `pypandoc` for document conversion (markdown/html/docx/txt → pdf/docx/html/md/txt/epub). Import as `import pypandoc`. The pandoc binary is bundled — no system install needed.
 - `requests` for HTTP calls
-- `pandas` and `openpyxl` for spreadsheet work
-- `pypdf` for PDF processing
+- `pypdf` for PDF reading and text extraction
+
+### Generating files with pypandoc
+
+Use `pypandoc.convert_text` or `pypandoc.convert_file` to convert document formats. Always write output to `_OUTPUT_DIR`:
+
+```python
+import os
+import pypandoc
+import pathlib
+
+def execute(params: dict, files: dict) -> dict:
+    md_content = params.get("markdown", "# Hello")
+    out_dir = pathlib.Path(os.environ["_OUTPUT_DIR"])
+
+    # Markdown → PDF
+    pdf_path = out_dir / "output.pdf"
+    pypandoc.convert_text(
+        md_content,
+        "pdf",
+        format="markdown",
+        outputfile=str(pdf_path),
+        extra_args=["--pdf-engine=weasyprint"],
+    )
+
+    # Markdown → DOCX
+    docx_path = out_dir / "output.docx"
+    pypandoc.convert_text(md_content, "docx", format="markdown", outputfile=str(docx_path))
+
+    return {"status": "done"}
+```
+
+For HTML input: `format="html"`. For plain text input: `format="markdown"`. Supported output formats: `pdf`, `docx`, `html`, `markdown`, `plain`, `epub`.
+
+### Generating files with Pillow
+
+Use `PIL.Image` to create, resize, or convert images. Write output to `_OUTPUT_DIR`:
+
+```python
+import os
+import pathlib
+from PIL import Image, ImageDraw, ImageFont
+
+def execute(params: dict, files: dict) -> dict:
+    out_dir = pathlib.Path(os.environ["_OUTPUT_DIR"])
+
+    # Create a simple image
+    img = Image.new("RGB", (800, 400), color=(30, 30, 30))
+    draw = ImageDraw.Draw(img)
+    draw.text((40, 160), params.get("text", "Hello"), fill=(255, 255, 255))
+    img.save(out_dir / "result.png", format="PNG")
+
+    # Convert format: open input bytes, save as different format
+    # if "image" in files:
+    #     src = Image.open(io.BytesIO(files["image"]))
+    #     src.save(out_dir / "converted.jpg", format="JPEG")
+
+    return {"status": "done"}
+```
 
 ### Critical rules
 

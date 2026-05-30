@@ -2819,7 +2819,7 @@ If `playwrightAuthEnabled` is true, the first item in `playwrightSteps` must be 
 - **No credential required** — operates on files owned by the workflow owner
 - **Data fields**:
   - `label`: Node identifier
-  - `driveOperation`: Operation — `"get"` | `"getAll"` | `"downloadUrl"` | `"delete"` | `"setPassword"` | `"setTtl"` | `"setMaxDownloads"`
+  - `driveOperation`: Operation — `"get"` | `"getAll"` | `"downloadUrl"` | `"convertFile"` | `"delete"` | `"setPassword"` | `"setTtl"` | `"setMaxDownloads"`
   - `driveFileId`: UUID of the Drive file (supports expressions, e.g. `$agentLabel._generated_files[0].id`; all operations except getAll/downloadUrl)
   - `driveLimit`: Optional max number of files to return (getAll only; omit for no limit)
   - `driveSourceUrl`: URL to fetch and store as a Drive file (downloadUrl only, supports expressions)
@@ -2827,6 +2827,10 @@ If `playwrightAuthEnabled` is true, the first item in `playwrightSteps` must be 
   - `drivePassword`: Password string (setPassword only, supports expressions)
   - `driveTtlHours`: Hours until expiry as integer (setTtl only)
   - `driveMaxDownloads`: Max download count as integer (setMaxDownloads only)
+  - `driveConvertTargetFormat`: Target format for conversion (convertFile only); reuses `driveFileId` for the source file UUID
+    - Document outputs: `"pdf"` | `"docx"` | `"html"` | `"md"` | `"txt"` | `"epub"`
+    - CSV output: `"csv"` — only supported when input is a JSON array of objects
+    - Image outputs: `"jpg"` | `"png"` | `"bmp"` | `"webp"`
 
 **Operations Reference**:
 
@@ -2839,6 +2843,7 @@ If `playwrightAuthEnabled` is true, the first item in `playwrightSteps` must be 
 | `setPassword` | driveFileId, drivePassword | Replace default public token with a password-protected token |
 | `setTtl` | driveFileId, driveTtlHours | Replace default public token with one that expires after N hours |
 | `setMaxDownloads` | driveFileId, driveMaxDownloads | Replace default public token with one limited to N downloads |
+| `convertFile` | driveFileId, driveConvertTargetFormat | Convert file to a new format; stores result as a new Drive file (original unchanged). Inputs: docx/html/md/txt/csv/pdf + json (array of objects). Doc outputs: pdf/docx/html/md/txt/epub via pandoc; csv output: json→csv via Python csv module; image outputs: jpg/png/bmp/webp via Pillow. Same-format conversion not allowed. |
 
 **⚠️ CRITICAL: File ID comes from the agent/skill output**: When an Agent node runs a skill that generates files, the output contains `_generated_files` — an array of file objects. Each object has an `id` field. Reference it with `$agentLabel._generated_files[0].id`.
 
@@ -2914,6 +2919,22 @@ If `playwrightAuthEnabled` is true, the first item in `playwrightSteps` must be 
   }
 }
 ```
+
+**Example - Convert Markdown to PDF**:
+```json
+{
+  "id": "drive-convert",
+  "type": "drive",
+  "position": {"x": 600, "y": 200},
+  "data": {
+    "label": "convertDoc",
+    "driveOperation": "convertFile",
+    "driveFileId": "$reportAgent._generated_files[0].id",
+    "driveConvertTargetFormat": "pdf"
+  }
+}
+```
+Access the converted file downstream: `$convertDoc.id`, `$convertDoc.download_url`
 
 **Output access**:
 - `$nodeLabel.files` - Array of file metadata objects (getAll only)

@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     nodejs \
     npm \
+    weasyprint \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI (static binary — no daemon needed, connects via mounted socket)

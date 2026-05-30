@@ -56,6 +56,7 @@ Generated files are stored on the server's filesystem under `data/files/`. In Do
 The [Drive node](../nodes/drive-node.md) lets you manage Drive files programmatically from within a workflow. Use it to:
 
 - **List** your files and return metadata such as filename, MIME type, size, source, and download URL
+- **Convert** a file to a different format — documents via pandoc (docx, html, md, txt, pdf) or images via Pillow (jpg, png, bmp, webp)
 - **Delete** a file after it has been delivered to the user
 - **Set a password** on the download link
 - **Set a TTL** so the link expires after N hours
