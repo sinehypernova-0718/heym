@@ -3153,6 +3153,7 @@ const driveConvertFormatOptions = [
   { value: "html", label: "HTML (.html)" },
   { value: "md", label: "Markdown (.md)" },
   { value: "txt", label: "Plain Text (.txt)" },
+  { value: "csv", label: "CSV (.csv)" },
   { value: "jpg", label: "JPEG Image (.jpg)" },
   { value: "png", label: "PNG Image (.png)" },
   { value: "bmp", label: "BMP Image (.bmp)" },
@@ -9873,7 +9874,7 @@ onUnmounted(() => {
                   field-key="driveFileId"
                 />
               </div>
-              <template v-if="selectedNode.data.driveOperation === 'get'">
+              <template v-if="selectedNode.data.driveOperation === 'get' || selectedNode.data.driveOperation === 'convertFile'">
                 <Select
                   :model-value="selectedNode.data.driveFileId || ''"
                   :options="driveFileOptions"
