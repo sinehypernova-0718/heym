@@ -9116,40 +9116,14 @@ class WorkflowExecutor:
                                 )
                                 out_filename = f"{base_name}.{norm_ext}"
                             else:
-                                pandoc_fmt = _detect_pandoc_format(src_mime, src_filename)
                                 _special_inputs = {"application/pdf", "application/json"}
+                                pandoc_fmt = _detect_pandoc_format(src_mime, src_filename)
                                 if pandoc_fmt is None and src_mime not in _special_inputs:
                                     raise ValueError(
                                         f"Drive Node: convertFile does not support input format '{src_mime}'"
                                     )
-                                _format_to_ext = {
-                                    "pdf": "pdf",
-                                    "docx": "docx",
-                                    "html": "html",
-                                    "md": "md",
-                                    "txt": "txt",
-                                    "csv": "csv",
-                                    "epub": "epub",
-                                }
-                                _format_to_mime = {
-                                    "pdf": "application/pdf",
-                                    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    "html": "text/html",
-                                    "md": "text/markdown",
-                                    "txt": "text/plain",
-                                    "csv": "text/csv",
-                                    "epub": "application/epub+zip",
-                                }
-                                _pandoc_target = {
-                                    "pdf": "pdf",
-                                    "docx": "docx",
-                                    "html": "html",
-                                    "md": "markdown",
-                                    "txt": "plain",
-                                    "csv": "csv",
-                                    "epub": "epub",
-                                }
-                                if target_format not in _pandoc_target:
+                                _all_doc_formats = {"pdf", "docx", "html", "md", "txt", "csv", "epub"}
+                                if target_format not in _all_doc_formats:
                                     raise ValueError(
                                         f"Drive Node: convertFile does not support output format '{target_format}'"
                                     )
@@ -9158,60 +9132,123 @@ class WorkflowExecutor:
                                     if "." in src_filename
                                     else src_filename
                                 )
-                                out_ext = _format_to_ext[target_format]
-                                out_filename = f"{base_name}.{out_ext}"
-                                out_mime = _format_to_mime[target_format]
-                                try:
-                                    with _tempfile.TemporaryDirectory() as tmpdir:
-                                        if src_mime == "application/pdf":
-                                            extracted = _extract_pdf_text(src_bytes)
-                                            src_tmp = f"{tmpdir}/input.txt"
-                                            with open(src_tmp, "w", encoding="utf-8") as fh:
-                                                fh.write(extracted)
-                                            pandoc_fmt = "markdown"
-                                        elif src_mime == "application/json":
-                                            import json as _json
 
-                                            _raw = src_bytes.decode("utf-8", errors="replace")
-                                            try:
-                                                _data = _json.loads(_raw)
-                                                _pretty = _json.dumps(
-                                                    _data, indent=2, ensure_ascii=False
-                                                )
-                                            except _json.JSONDecodeError:
-                                                _pretty = _raw
-                                            src_tmp = f"{tmpdir}/input.md"
-                                            with open(src_tmp, "w", encoding="utf-8") as fh:
-                                                fh.write(f"```json\n{_pretty}\n```\n")
-                                            pandoc_fmt = "markdown"
-                                        else:
-                                            src_ext = (
-                                                src_filename.rsplit(".", 1)[-1]
-                                                if "." in src_filename
-                                                else "txt"
+                                # CSV output: Python-native (pandoc has no csv output format)
+                                if target_format == "csv":
+                                    import csv as _csv_mod
+                                    import io as _io_mod
+                                    import json as _json
+
+                                    if src_mime != "application/json":
+                                        raise ValueError(
+                                            "Drive Node: CSV output is only supported for JSON array input"
+                                        )
+                                    try:
+                                        _raw = src_bytes.decode("utf-8", errors="replace")
+                                        _data = _json.loads(_raw)
+                                        if (
+                                            not isinstance(_data, list)
+                                            or not _data
+                                            or not isinstance(_data[0], dict)
+                                        ):
+                                            raise ValueError(
+                                                "JSON must be an array of objects for CSV conversion"
                                             )
-                                            src_tmp = f"{tmpdir}/input.{src_ext}"
-                                            with open(src_tmp, "wb") as fh:
-                                                fh.write(src_bytes)
-                                        out_tmp = f"{tmpdir}/output.{out_ext}"
-                                        extra_args = (
-                                            ["--pdf-engine=weasyprint"]
-                                            if target_format == "pdf"
-                                            else []
+                                        _buf = _io_mod.StringIO()
+                                        _writer = _csv_mod.DictWriter(
+                                            _buf,
+                                            fieldnames=list(_data[0].keys()),
+                                            extrasaction="ignore",
                                         )
-                                        _pypandoc.convert_file(
-                                            src_tmp,
-                                            _pandoc_target[target_format],
-                                            outputfile=out_tmp,
-                                            format=pandoc_fmt,
-                                            extra_args=extra_args,
-                                        )
-                                        with open(out_tmp, "rb") as fh:
-                                            out_bytes = fh.read()
-                                except Exception as exc:
-                                    raise ValueError(
-                                        f"Drive Node: conversion failed: {exc}"
-                                    ) from exc
+                                        _writer.writeheader()
+                                        _writer.writerows(_data)
+                                        out_bytes = _buf.getvalue().encode("utf-8")
+                                    except Exception as exc:
+                                        raise ValueError(
+                                            f"Drive Node: conversion failed: {exc}"
+                                        ) from exc
+                                    out_filename = f"{base_name}.csv"
+                                    out_mime = "text/csv"
+                                else:
+                                    # Pandoc path for all other document output formats
+                                    _format_to_ext = {
+                                        "pdf": "pdf",
+                                        "docx": "docx",
+                                        "html": "html",
+                                        "md": "md",
+                                        "txt": "txt",
+                                        "epub": "epub",
+                                    }
+                                    _format_to_mime = {
+                                        "pdf": "application/pdf",
+                                        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "html": "text/html",
+                                        "md": "text/markdown",
+                                        "txt": "text/plain",
+                                        "epub": "application/epub+zip",
+                                    }
+                                    _pandoc_target = {
+                                        "pdf": "pdf",
+                                        "docx": "docx",
+                                        "html": "html",
+                                        "md": "markdown",
+                                        "txt": "plain",
+                                        "epub": "epub",
+                                    }
+                                    out_ext = _format_to_ext[target_format]
+                                    out_filename = f"{base_name}.{out_ext}"
+                                    out_mime = _format_to_mime[target_format]
+                                    try:
+                                        with _tempfile.TemporaryDirectory() as tmpdir:
+                                            if src_mime == "application/pdf":
+                                                extracted = _extract_pdf_text(src_bytes)
+                                                src_tmp = f"{tmpdir}/input.txt"
+                                                with open(src_tmp, "w", encoding="utf-8") as fh:
+                                                    fh.write(extracted)
+                                                pandoc_fmt = "markdown"
+                                            elif src_mime == "application/json":
+                                                import json as _json
+
+                                                _raw = src_bytes.decode("utf-8", errors="replace")
+                                                try:
+                                                    _data = _json.loads(_raw)
+                                                    _pretty = _json.dumps(
+                                                        _data, indent=2, ensure_ascii=False
+                                                    )
+                                                except _json.JSONDecodeError:
+                                                    _pretty = _raw
+                                                src_tmp = f"{tmpdir}/input.md"
+                                                with open(src_tmp, "w", encoding="utf-8") as fh:
+                                                    fh.write(f"```json\n{_pretty}\n```\n")
+                                                pandoc_fmt = "markdown"
+                                            else:
+                                                src_ext = (
+                                                    src_filename.rsplit(".", 1)[-1]
+                                                    if "." in src_filename
+                                                    else "txt"
+                                                )
+                                                src_tmp = f"{tmpdir}/input.{src_ext}"
+                                                with open(src_tmp, "wb") as fh:
+                                                    fh.write(src_bytes)
+                                            out_tmp = f"{tmpdir}/output.{out_ext}"
+                                            extra_args = (
+                                                ["--pdf-engine=weasyprint"]
+                                                if target_format == "pdf"
+                                                else []
+                                            )
+                                            _pypandoc.convert_file(
+                                                src_tmp,
+                                                _pandoc_target[target_format],
+                                                outputfile=out_tmp,
+                                                format=pandoc_fmt,
+                                                extra_args=extra_args,
+                                            )
+                                            with open(out_tmp, "rb") as fh:
+                                                out_bytes = fh.read()
+                                    except Exception as exc:
+                                        raise ValueError(
+                                            f"Drive Node: conversion failed: {exc}"
+                                        ) from exc
 
                             _max_bytes = _settings.file_max_size_mb * 1024 * 1024
                             if len(out_bytes) > _max_bytes:
