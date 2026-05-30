@@ -461,7 +461,8 @@ export interface NodeData {
     | "setPassword"
     | "setTtl"
     | "setMaxDownloads"
-    | "downloadUrl";
+    | "downloadUrl"
+    | "convertFile";
   driveFileId?: string;
   driveLimit?: number;
   drivePassword?: string;
@@ -469,6 +470,7 @@ export interface NodeData {
   driveMaxDownloads?: number;
   driveIncludeBinary?: boolean;
   driveSourceUrl?: string;
+  driveConvertTargetFormat?: string;
   bqOperation?: string;
   bqProjectId?: string;
   bqQuery?: string;

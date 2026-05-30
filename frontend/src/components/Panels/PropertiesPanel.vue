@@ -3140,10 +3140,23 @@ const driveOperationOptions = [
   { value: "get", label: "Get File" },
   { value: "getAll", label: "Get All Files" },
   { value: "downloadUrl", label: "Download from URL" },
+  { value: "convertFile", label: "Convert File" },
   { value: "delete", label: "Delete File" },
   { value: "setPassword", label: "Set Password" },
   { value: "setTtl", label: "Set TTL (Expiry)" },
   { value: "setMaxDownloads", label: "Set Max Downloads" },
+];
+
+const driveConvertFormatOptions = [
+  { value: "pdf", label: "PDF (.pdf)" },
+  { value: "docx", label: "Word Document (.docx)" },
+  { value: "html", label: "HTML (.html)" },
+  { value: "md", label: "Markdown (.md)" },
+  { value: "txt", label: "Plain Text (.txt)" },
+  { value: "jpg", label: "JPEG Image (.jpg)" },
+  { value: "png", label: "PNG Image (.png)" },
+  { value: "bmp", label: "BMP Image (.bmp)" },
+  { value: "webp", label: "WebP Image (.webp)" },
 ];
 
 const dataTableOptions = computed(() => {
@@ -10032,6 +10045,21 @@ onUnmounted(() => {
               </p>
             </div>
 
+            <div
+              v-if="selectedNode.data.driveOperation === 'convertFile'"
+              class="space-y-2"
+            >
+              <Label>Target Format</Label>
+              <Select
+                :model-value="selectedNode.data.driveConvertTargetFormat || ''"
+                :options="driveConvertFormatOptions"
+                @update:model-value="updateNodeData('driveConvertTargetFormat', $event || undefined)"
+              />
+              <p class="text-xs text-muted-foreground">
+                Format to convert the file to
+              </p>
+            </div>
+
             <div class="rounded-lg bg-muted/50 p-3 space-y-1">
               <p class="text-xs font-medium text-foreground">
                 Output
@@ -10055,6 +10083,13 @@ onUnmounted(() => {
                 <template v-else-if="selectedNode.data.driveOperation === 'downloadUrl'">
                   <div>${{ selectedNode.data.label }}.id - new file UUID</div>
                   <div>${{ selectedNode.data.label }}.filename - file name</div>
+                  <div>${{ selectedNode.data.label }}.mime_type - MIME type</div>
+                  <div>${{ selectedNode.data.label }}.size_bytes - file size</div>
+                  <div>${{ selectedNode.data.label }}.download_url - Drive download URL</div>
+                </template>
+                <template v-else-if="selectedNode.data.driveOperation === 'convertFile'">
+                  <div>${{ selectedNode.data.label }}.id - new converted file UUID</div>
+                  <div>${{ selectedNode.data.label }}.filename - converted filename</div>
                   <div>${{ selectedNode.data.label }}.mime_type - MIME type</div>
                   <div>${{ selectedNode.data.label }}.size_bytes - file size</div>
                   <div>${{ selectedNode.data.label }}.download_url - Drive download URL</div>
