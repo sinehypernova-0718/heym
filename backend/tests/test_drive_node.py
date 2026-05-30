@@ -1149,7 +1149,7 @@ class DriveConvertHelpersTests(unittest.TestCase):
     def test_detect_plain_by_mime(self) -> None:
         from app.services.workflow_executor import _detect_pandoc_format
 
-        self.assertEqual(_detect_pandoc_format("text/plain", "notes.txt"), "plain")
+        self.assertEqual(_detect_pandoc_format("text/plain", "notes.txt"), "markdown")
 
     def test_detect_csv_by_mime(self) -> None:
         from app.services.workflow_executor import _detect_pandoc_format

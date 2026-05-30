@@ -1372,7 +1372,7 @@ def _detect_pandoc_format(mime_type: str, filename: str) -> str | None:
         "text/markdown": "markdown",
         "text/html": "html",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-        "text/plain": "plain",
+        "text/plain": "markdown",
         "text/csv": "csv",
     }
     if mime_type in _mime_map:
@@ -1384,7 +1384,7 @@ def _detect_pandoc_format(mime_type: str, filename: str) -> str | None:
         "html": "html",
         "htm": "html",
         "docx": "docx",
-        "txt": "plain",
+        "txt": "markdown",
         "csv": "csv",
     }
     return _ext_map.get(ext)
@@ -9167,7 +9167,7 @@ class WorkflowExecutor:
                                             src_tmp = f"{tmpdir}/input.txt"
                                             with open(src_tmp, "w", encoding="utf-8") as fh:
                                                 fh.write(extracted)
-                                            pandoc_fmt = "plain"
+                                            pandoc_fmt = "markdown"
                                         else:
                                             src_ext = (
                                                 src_filename.rsplit(".", 1)[-1]
