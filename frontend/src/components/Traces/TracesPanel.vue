@@ -235,8 +235,14 @@ const spans = computed(() =>
   selectedTrace.value ? buildTraceSpans(selectedTrace.value) : []
 );
 
+const workflowNames = computed<Record<string, string>>(() =>
+  Object.fromEntries(workflows.value.map((workflow) => [workflow.id, workflow.name])),
+);
+
 const steps = computed<TraceStep[]>(() =>
-  selectedTrace.value ? buildTraceSteps(selectedTrace.value) : [],
+  selectedTrace.value
+    ? buildTraceSteps(selectedTrace.value, { workflowNames: workflowNames.value })
+    : [],
 );
 
 async function copyToClipboard(text: string, type: "request" | "response"): Promise<void> {

@@ -105,6 +105,7 @@ function buildToolStep(
   rawCall: RawToolCall,
   enriched: RawResponseToolCall | undefined,
   toolResultById: Map<string, RawMessage>,
+  workflowNames: Record<string, string>,
 ): TraceStep {
   const name = rawCall.function?.name ?? "tool";
   const argsRaw = rawCall.function?.arguments;
@@ -120,6 +121,20 @@ function buildToolStep(
     argsObj = enriched.arguments;
   }
 
+  // Resolve the executed workflow (for workflow-execution tools), so the step
+  // can show the workflow's name rather than just an opaque id.
+  let workflowId: string | undefined;
+  if (argsObj && typeof argsObj === "object" && !Array.isArray(argsObj)) {
+    const wid = (argsObj as Record<string, unknown>).workflow_id;
+    if (typeof wid === "string" && wid.trim()) {
+      workflowId = wid.trim();
+    }
+  }
+  const workflowName =
+    (typeof enriched?.workflow_name === "string" && enriched.workflow_name.trim()
+      ? enriched.workflow_name.trim()
+      : undefined) ?? (workflowId ? workflowNames[workflowId] : undefined);
+
   let resultValue: unknown;
   const id = rawCall.id;
   if (id && toolResultById.has(id)) {
@@ -134,8 +149,10 @@ function buildToolStep(
   } else if (enriched?.source === "skill") {
     badges.push({ label: "Skill" });
   }
-  if (typeof enriched?.workflow_name === "string" && enriched.workflow_name.trim()) {
-    badges.push({ label: `Workflow: ${enriched.workflow_name.trim()}` });
+  if (workflowName) {
+    badges.push({ label: `Workflow: ${workflowName}` });
+  } else if (workflowId) {
+    badges.push({ label: `Workflow: ${workflowId.slice(0, 8)}…` });
   }
 
   const argsCompact =
@@ -175,6 +192,7 @@ function buildConversationSteps(
   messages: RawMessage[],
   response: Record<string, unknown>,
   trace: LLMTraceDetail,
+  workflowNames: Record<string, string>,
 ): TraceStep[] {
   const steps: TraceStep[] = [];
 
@@ -254,7 +272,7 @@ function buildConversationSteps(
       const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
       toolCalls.forEach((tc, tcIndex) => {
         const enriched = matchResponseToolCall(tc.function?.name ?? "tool", tc.id);
-        steps.push(buildToolStep(index, tcIndex, tc, enriched, toolResultById));
+        steps.push(buildToolStep(index, tcIndex, tc, enriched, toolResultById, workflowNames));
       });
     }
     // msg.role === "tool" is consumed as a tool step's result above.
@@ -331,14 +349,23 @@ function buildFallbackSteps(
   return steps;
 }
 
+export interface BuildTraceStepsOptions {
+  /** Map of workflow id → display name, used to label workflow-execution tools. */
+  workflowNames?: Record<string, string>;
+}
+
 /** Turn a trace into an ordered list of readable steps for the timeline view. */
-export function buildTraceSteps(trace: LLMTraceDetail): TraceStep[] {
+export function buildTraceSteps(
+  trace: LLMTraceDetail,
+  options: BuildTraceStepsOptions = {},
+): TraceStep[] {
   const request = (trace.request ?? {}) as Record<string, unknown>;
   const response = (trace.response ?? {}) as Record<string, unknown>;
   const messages = request.messages;
+  const workflowNames = options.workflowNames ?? {};
 
   if (Array.isArray(messages) && messages.length > 0) {
-    return buildConversationSteps(messages as RawMessage[], response, trace);
+    return buildConversationSteps(messages as RawMessage[], response, trace, workflowNames);
   }
   return buildFallbackSteps(trace, request, response);
 }
