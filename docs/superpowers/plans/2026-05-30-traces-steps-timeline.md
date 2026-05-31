@@ -10,6 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-30-traces-steps-timeline-design.md`
 
+> **UPDATE 2026-05-31 (per user request): no frontend tests.** Task 1 (Vitest harness)
+> is dropped, and `traceSteps.test.ts` is not written. The parser is verified via
+> `bun run typecheck` + manual smoke. The `buildTraceSteps` implementation in Task 3 is
+> unchanged; only its test steps are skipped.
+
 ---
 
 ## File Structure
