@@ -77,7 +77,7 @@ async def _find_workflow_by_node_id(
     """Use JSONB containment to find the workflow containing this node_id."""
     result = await db.execute(
         select(Workflow).where(
-            text("nodes::jsonb @> :node_filter::jsonb").bindparams(
+            text("nodes::jsonb @> (:node_filter)::jsonb").bindparams(
                 node_filter=json.dumps([{"id": node_id}])
             )
         )
