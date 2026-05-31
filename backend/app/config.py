@@ -26,9 +26,16 @@ class Settings(BaseSettings):
     @field_validator("secret_key")
     @classmethod
     def _validate_secret_key(cls, v: str) -> str:
-        if not v or v == "your-super-secret-key-change-in-production-min-32-chars":
+        """Refuse to start if SECRET_KEY is missing, a known placeholder, or too short."""
+        placeholder = "your-super-secret-key-change-in-production-min-32-chars"
+        if not v or v == placeholder:
             raise ValueError(
                 "SECRET_KEY must be set to a cryptographically random value. "
+                "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+        if len(v) < 32:
+            raise ValueError(
+                f"SECRET_KEY must be at least 32 characters long (got {len(v)}). "
                 "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
             )
         return v
