@@ -14,6 +14,7 @@ import {
 
 import type { TraceStep } from "@/lib/traceSteps";
 
+import CopyButton from "@/components/Traces/CopyButton.vue";
 import { renderMarkdown } from "@/lib/markdown";
 
 const props = defineProps<{
@@ -115,8 +116,11 @@ const jsonText = computed(() => formatJson(props.step.json));
           v-if="step.argumentsText"
           class="space-y-1"
         >
-          <div class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Arguments
+          <div class="flex items-center justify-between">
+            <div class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Arguments
+            </div>
+            <CopyButton :text="step.argumentsText" />
           </div>
           <pre class="text-xs bg-muted/40 rounded-md p-2 overflow-auto whitespace-pre-wrap">{{ step.argumentsText }}</pre>
         </div>
@@ -124,31 +128,51 @@ const jsonText = computed(() => formatJson(props.step.json));
           v-if="step.resultText"
           class="space-y-1"
         >
-          <div class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Result
+          <div class="flex items-center justify-between">
+            <div class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Result
+            </div>
+            <CopyButton :text="step.resultText" />
           </div>
           <pre class="text-xs bg-muted/40 rounded-md p-2 overflow-auto whitespace-pre-wrap max-h-60">{{ step.resultText }}</pre>
         </div>
       </template>
 
-      <!-- eslint-disable vue/no-v-html -->
       <div
         v-else-if="step.detail && step.detailIsMarkdown"
-        class="text-sm leading-relaxed break-words [&_table]:w-full [&_table]:text-xs [&_td]:border [&_td]:border-border/40 [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-0.5 [&_a]:text-primary [&_a]:underline [&_pre]:bg-muted/40 [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-auto"
-        v-html="renderMarkdown(step.detail)"
-      />
-      <!-- eslint-enable vue/no-v-html -->
+        class="relative"
+      >
+        <CopyButton
+          :text="step.detail"
+          class="absolute right-0 top-0 z-[1]"
+        />
+        <!-- eslint-disable vue/no-v-html -->
+        <div
+          class="text-sm leading-relaxed break-words pr-8 [&_table]:w-full [&_table]:text-xs [&_td]:border [&_td]:border-border/40 [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-0.5 [&_a]:text-primary [&_a]:underline [&_pre]:bg-muted/40 [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-auto"
+          v-html="renderMarkdown(step.detail)"
+        />
+        <!-- eslint-enable vue/no-v-html -->
+      </div>
 
       <div
         v-else-if="step.detail"
-        class="text-sm whitespace-pre-wrap break-words"
+        class="relative"
       >
-        {{ step.detail }}
+        <CopyButton
+          :text="step.detail"
+          class="absolute right-0 top-0 z-[1]"
+        />
+        <div class="text-sm whitespace-pre-wrap break-words pr-8">
+          {{ step.detail }}
+        </div>
       </div>
 
       <div class="space-y-1">
-        <div class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Raw JSON
+        <div class="flex items-center justify-between">
+          <div class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Raw JSON
+          </div>
+          <CopyButton :text="jsonText" />
         </div>
         <pre class="text-xs bg-muted/30 border rounded-md p-2 overflow-auto max-h-72 whitespace-pre-wrap">{{ jsonText }}</pre>
       </div>

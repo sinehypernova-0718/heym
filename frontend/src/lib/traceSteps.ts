@@ -219,6 +219,7 @@ function buildConversationSteps(
         roleLabel: "System",
         summary: summarize(text) || "System instructions",
         detail: text,
+        detailIsMarkdown: true,
         json: msg,
       });
     } else if (msg.role === "user") {
