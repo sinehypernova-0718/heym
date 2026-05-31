@@ -52,6 +52,7 @@ interface RawResponseToolCall {
   elapsed_ms?: number;
   source?: string;
   mcp_server?: string;
+  workflow_name?: string;
 }
 
 const SUMMARY_MAX = 140;
@@ -132,6 +133,9 @@ function buildToolStep(
     badges.push({ label: enriched.mcp_server ? `MCP: ${enriched.mcp_server}` : "MCP" });
   } else if (enriched?.source === "skill") {
     badges.push({ label: "Skill" });
+  }
+  if (typeof enriched?.workflow_name === "string" && enriched.workflow_name.trim()) {
+    badges.push({ label: `Workflow: ${enriched.workflow_name.trim()}` });
   }
 
   const argsCompact =
