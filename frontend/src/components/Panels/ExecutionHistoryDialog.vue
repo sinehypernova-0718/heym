@@ -52,6 +52,7 @@ const searchQuery = ref("");
 const searchInputRef = ref<HTMLInputElement | null>(null);
 const listRef = ref<HTMLDivElement | null>(null);
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const SEARCH_DEBOUNCE_MS = 500;
 
 const executionHistoryList = computed(
   () => workflowStore.executionHistoryList,
@@ -156,6 +157,22 @@ async function reloadHistoryWithFilters(): Promise<void> {
   await resetSelectionToFirstEntry();
 }
 
+function cancelScheduledSearchReload(): boolean {
+  if (!searchDebounceTimer) return false;
+
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = null;
+  return true;
+}
+
+function scheduleSearchReload(): void {
+  cancelScheduledSearchReload();
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null;
+    void reloadHistoryWithFilters();
+  }, SEARCH_DEBOUNCE_MS);
+}
+
 function handleKeyDown(event: KeyboardEvent): void {
   if (!props.open || isTypingTarget(event.target)) return;
   if (event.key === "s" || event.key === "S") {
@@ -178,10 +195,7 @@ watch(
       selectedTriggerSource.value = undefined;
       searchActive.value = false;
       searchQuery.value = "";
-      if (searchDebounceTimer) {
-        clearTimeout(searchDebounceTimer);
-        searchDebounceTimer = null;
-      }
+      cancelScheduledSearchReload();
       delete document.body.dataset.heymOverlayEscapeTrap;
     }
   }
@@ -189,6 +203,7 @@ watch(
 
 watch(selectedTriggerSource, async () => {
   if (!props.open) return;
+  cancelScheduledSearchReload();
   await reloadHistoryWithFilters();
 });
 
@@ -207,10 +222,7 @@ watch(
 
 onUnmounted(() => {
   document.removeEventListener("keydown", handleKeyDown);
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = null;
-  }
+  cancelScheduledSearchReload();
   delete document.body.dataset.heymOverlayEscapeTrap;
 });
 
@@ -242,6 +254,7 @@ async function cancelActiveExecution(item: ActiveExecutionItem): Promise<void> {
 }
 
 async function refreshHistory(): Promise<void> {
+  cancelScheduledSearchReload();
   const previousSelectedId = selectedId.value;
   await loadHistory(true);
   const newList = executionHistoryList.value;
@@ -265,17 +278,17 @@ function clearHistory(): void {
   selectedTriggerSource.value = undefined;
   searchActive.value = false;
   searchQuery.value = "";
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = null;
-  }
+  cancelScheduledSearchReload();
 }
 
 function toggleSearch(): void {
   searchActive.value = !searchActive.value;
   if (searchActive.value) {
     nextTick(() => searchInputRef.value?.focus());
-  } else if (searchQuery.value) {
+  } else {
+    const hadPendingSearchReload = cancelScheduledSearchReload();
+    if (!searchQuery.value && !hadPendingSearchReload) return;
+
     searchQuery.value = "";
     void reloadHistoryWithFilters();
   }
@@ -283,20 +296,12 @@ function toggleSearch(): void {
 
 function onSearchInput(event: Event): void {
   searchQuery.value = (event.target as HTMLInputElement).value;
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer);
-  }
-  searchDebounceTimer = setTimeout(() => {
-    void reloadHistoryWithFilters();
-  }, 300);
+  scheduleSearchReload();
 }
 
 function clearSearch(): void {
   searchQuery.value = "";
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = null;
-  }
+  cancelScheduledSearchReload();
   void reloadHistoryWithFilters();
   searchInputRef.value?.focus();
 }
@@ -317,10 +322,7 @@ function handleDialogEscape(event: KeyboardEvent): void {
     return;
   }
 
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = null;
-  }
+  cancelScheduledSearchReload();
 
   event.preventDefault();
   event.stopImmediatePropagation();
