@@ -252,13 +252,21 @@ For a complete list of all features with short descriptions, see **[Full Feature
 ```bash
 git clone https://github.com/heymrun/heym.git
 cd heym
-cp .env.example .env
 ./run.sh
 
-# OR — with .env file
+# OR — with .env file (run.sh auto-generates SECRET_KEY and ENCRYPTION_KEY)
 git clone https://github.com/heymrun/heym.git
 cd heym
 cp .env.example .env
+./run.sh
+
+# OR — Docker with .env file
+git clone https://github.com/heymrun/heym.git
+cd heym
+cp .env.example .env
+# Generate required keys before starting:
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))" >> .env
+python3 -c "import secrets; print('ENCRYPTION_KEY=' + secrets.token_hex(32))" >> .env
 docker run --env-file .env \
   -p 4017:4017 \
   -v /var/run/docker.sock:/var/run/docker.sock \
@@ -284,7 +292,7 @@ For direct `docker run` setups, the `data/files` mount keeps Drive uploads and s
 
 ```bash
 cp .env.example .env
-./deploy.sh              # Build and deploy all services
+./deploy.sh              # Build and deploy (auto-generates keys if empty)
 ./deploy.sh --down       # Stop services
 ./deploy.sh --logs       # View logs
 ./deploy.sh --restart    # Restart services

@@ -29,10 +29,22 @@ show_help() {
 }
 
 if [ ! -f "$PROJECT_ROOT/.env" ]; then
-    echo -e "${RED}Error: .env file not found${NC}"
-    echo -e "${YELLOW}Run: cp .env.example .env${NC}"
-    exit 1
+    echo -e "${YELLOW}Creating .env from .env.example...${NC}"
+    cp "$PROJECT_ROOT/.env.example" "$PROJECT_ROOT/.env"
 fi
+
+# Ensure SECRET_KEY and ENCRYPTION_KEY are populated before deploying.
+if grep -q '^SECRET_KEY=$' "$PROJECT_ROOT/.env" 2>/dev/null; then
+    GENERATED_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+    sed -i.bak "s|^SECRET_KEY=$|SECRET_KEY=${GENERATED_SECRET}|" "$PROJECT_ROOT/.env"
+    echo -e "${GREEN}Generated random SECRET_KEY${NC}"
+fi
+if grep -q '^ENCRYPTION_KEY=change_this_to_a_random_32_byte_hex_value' "$PROJECT_ROOT/.env" 2>/dev/null; then
+    GENERATED_ENC=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+    sed -i.bak "s|^ENCRYPTION_KEY=change_this_to_a_random_32_byte_hex_value|ENCRYPTION_KEY=${GENERATED_ENC}|" "$PROJECT_ROOT/.env"
+    echo -e "${GREEN}Generated random ENCRYPTION_KEY${NC}"
+fi
+rm -f "$PROJECT_ROOT/.env.bak"
 
 source "$PROJECT_ROOT/.env"
 
