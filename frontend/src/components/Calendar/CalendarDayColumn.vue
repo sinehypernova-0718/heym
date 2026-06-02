@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import CalendarEventBlock from "./CalendarEventBlock.vue";
+import CalendarOverflowEvents from "./CalendarOverflowEvents.vue";
 
 import type { ScheduleEvent } from "@/types/schedule";
 
@@ -69,9 +70,10 @@ const isToday = computed(() => {
           :event="event"
           compact
         />
-        <span class="text-[10px] text-muted-foreground self-center whitespace-nowrap">
-          +{{ eventsForHour(hour).length - OVERFLOW_THRESHOLD }} more
-        </span>
+        <CalendarOverflowEvents
+          :events="eventsForHour(hour).slice(OVERFLOW_THRESHOLD)"
+          class="self-center whitespace-nowrap"
+        />
       </template>
     </div>
   </div>

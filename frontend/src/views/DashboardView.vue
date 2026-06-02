@@ -1371,7 +1371,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
                   </h2>
                   <span
                     v-if="!loading && workflows.length > 0"
-                    class="inline-flex items-center px-2 py-px rounded-full text-xs font-medium bg-primary/10 text-primary ring-1 ring-inset ring-primary/20 mt-0.5"
+                    class="inline-flex items-center px-2 py-px rounded-full text-xs font-medium bg-primary/10 text-primary ring-1 ring-inset ring-primary/20 mt-0.5 dark:bg-primary/15 dark:text-accent-foreground dark:ring-primary/35"
                   >
                     {{ workflowCountLabel }}
                   </span>

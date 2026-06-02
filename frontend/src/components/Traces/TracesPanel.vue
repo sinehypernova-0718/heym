@@ -10,6 +10,7 @@ import type { WorkflowListItem } from "@/types/workflow";
 import TraceDurationChart, { type TraceSpan } from "@/components/Traces/TraceDurationChart.vue";
 import TracesStatsHeader from "@/components/Traces/TracesStatsHeader.vue";
 import TracesTimeRangeSelect from "@/components/Traces/TracesTimeRangeSelect.vue";
+import TraceStepsTimeline from "@/components/Traces/TraceStepsTimeline.vue";
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
 import Dialog from "@/components/ui/Dialog.vue";
@@ -18,6 +19,7 @@ import Select from "@/components/ui/Select.vue";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { cn, formatDate } from "@/lib/utils";
 import { credentialsApi, traceApi, workflowApi } from "@/services/api";
+import { buildTraceSteps, type TraceStep } from "@/lib/traceSteps";
 
 interface SelectOption {
   value: string;
@@ -74,6 +76,7 @@ interface ToolCallEntry {
   elapsed_ms?: number;
   source?: string;
   mcp_server?: string;
+  workflow_name?: string;
 }
 
 function getToolCallsFromResponse(response: Record<string, unknown> | null): ToolCallEntry[] | undefined {
@@ -231,6 +234,27 @@ function buildTraceSpans(trace: LLMTraceDetail): TraceSpan[] {
 
 const spans = computed(() =>
   selectedTrace.value ? buildTraceSpans(selectedTrace.value) : []
+);
+
+const workflowNames = computed<Record<string, string>>(() =>
+  Object.fromEntries(workflows.value.map((workflow) => [workflow.id, workflow.name])),
+);
+
+/** Resolve the executed workflow's display name for a tool call (workflow-execution tools). */
+function toolCallWorkflowLabel(tc: ToolCallEntry): string | null {
+  const explicit = typeof tc.workflow_name === "string" ? tc.workflow_name.trim() : "";
+  if (explicit) return explicit;
+  const workflowId = tc.arguments?.workflow_id;
+  if (typeof workflowId === "string" && workflowId.trim()) {
+    return workflowNames.value[workflowId.trim()] ?? `${workflowId.trim().slice(0, 8)}…`;
+  }
+  return null;
+}
+
+const steps = computed<TraceStep[]>(() =>
+  selectedTrace.value
+    ? buildTraceSteps(selectedTrace.value, { workflowNames: workflowNames.value })
+    : [],
 );
 
 async function copyToClipboard(text: string, type: "request" | "response"): Promise<void> {
@@ -977,7 +1001,7 @@ onMounted(async () => {
             <span
               v-for="(s, i) in getSkillsFromRequest(selectedTrace.request)"
               :key="i"
-              class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary"
+              class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary dark:bg-primary/25 dark:text-accent-foreground"
             >
               {{ s }}
             </span>
@@ -1003,15 +1027,21 @@ onMounted(async () => {
                 </span>
                 <span
                   v-if="tc.source === 'mcp'"
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary dark:bg-primary/25 dark:text-accent-foreground"
                 >
                   MCP{{ tc.mcp_server ? `: ${tc.mcp_server}` : '' }}
                 </span>
                 <span
                   v-else-if="tc.source === 'skill'"
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary dark:bg-primary/25 dark:text-accent-foreground"
                 >
                   Skill
+                </span>
+                <span
+                  v-if="toolCallWorkflowLabel(tc)"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary dark:bg-primary/25 dark:text-accent-foreground"
+                >
+                  Workflow: {{ toolCallWorkflowLabel(tc) }}
                 </span>
               </div>
               <div class="mt-2 text-xs text-muted-foreground break-all">
@@ -1020,6 +1050,11 @@ onMounted(async () => {
             </div>
           </div>
         </div>
+
+        <TraceStepsTimeline
+          v-if="steps.length > 0"
+          :steps="steps"
+        />
 
         <div class="space-y-2">
           <div class="flex items-center justify-between">

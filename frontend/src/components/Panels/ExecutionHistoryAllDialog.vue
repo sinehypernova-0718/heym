@@ -66,6 +66,7 @@ const searchQuery = ref("");
 const selectedTriggerSource = ref<string | undefined>(undefined);
 const searchInputRef = ref<HTMLInputElement | null>(null);
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const SEARCH_DEBOUNCE_MS = 500;
 const activeExecutions = ref<ActiveExecutionItem[]>([]);
 const isCancellingId = ref<string | null>(null);
 const loadingMore = ref(false);
@@ -200,6 +201,22 @@ async function loadHistory(): Promise<void> {
   }
 }
 
+function cancelScheduledSearchReload(): boolean {
+  if (!searchDebounceTimer) return false;
+
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = null;
+  return true;
+}
+
+function scheduleSearchReload(): void {
+  cancelScheduledSearchReload();
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null;
+    void loadHistory();
+  }, SEARCH_DEBOUNCE_MS);
+}
+
 function handleKeyDown(event: KeyboardEvent): void {
   if (!props.open) return;
   const tag = (event.target as HTMLElement)?.tagName;
@@ -220,6 +237,7 @@ watch(
       searchActive.value = false;
       searchQuery.value = "";
       selectedTriggerSource.value = undefined;
+      cancelScheduledSearchReload();
       delete document.body.dataset.heymOverlayEscapeTrap;
       return;
     }
@@ -251,6 +269,7 @@ watch(
 watch(selectedTriggerSource, async () => {
   if (!props.open) return;
 
+  cancelScheduledSearchReload();
   entryDetailsCache.value = new Map();
   expandedNodes.value = new Set();
   await loadHistory();
@@ -272,6 +291,7 @@ watch(filteredExecutionHistory, async (items) => {
 
 onUnmounted(() => {
   document.removeEventListener("keydown", handleKeyDown);
+  cancelScheduledSearchReload();
   delete document.body.dataset.heymOverlayEscapeTrap;
 });
 
@@ -300,6 +320,7 @@ async function selectEntry(entryId: string): Promise<void> {
 }
 
 async function refreshHistory(): Promise<void> {
+  cancelScheduledSearchReload();
   isRefreshing.value = true;
   const previousSelectedId = selectedId.value;
   const previousCache = new Map(entryDetailsCache.value);
@@ -353,6 +374,7 @@ async function refreshHistory(): Promise<void> {
 
 async function clearAllHistory(): Promise<void> {
   if (!confirm("Are you sure you want to clear all execution history?")) return;
+  cancelScheduledSearchReload();
   clearing.value = true;
   try {
     await workflowApi.clearAllHistory();
@@ -389,23 +411,24 @@ function toggleSearch(): void {
   searchActive.value = !searchActive.value;
   if (searchActive.value) {
     nextTick(() => searchInputRef.value?.focus());
-  } else if (searchQuery.value) {
+  } else {
+    const hadPendingSearchReload = cancelScheduledSearchReload();
+    if (!searchQuery.value && !hadPendingSearchReload) return;
+
     searchQuery.value = "";
-    loadHistory();
+    void loadHistory();
   }
 }
 
 function onSearchInput(event: Event): void {
   searchQuery.value = (event.target as HTMLInputElement).value;
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-  searchDebounceTimer = setTimeout(() => {
-    loadHistory();
-  }, 300);
+  scheduleSearchReload();
 }
 
 function clearSearch(): void {
   searchQuery.value = "";
-  loadHistory();
+  cancelScheduledSearchReload();
+  void loadHistory();
   searchInputRef.value?.focus();
 }
 
@@ -443,10 +466,7 @@ function handleDialogEscape(event: KeyboardEvent): void {
     return;
   }
 
-  if (searchDebounceTimer) {
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = null;
-  }
+  cancelScheduledSearchReload();
 
   event.preventDefault();
   event.stopImmediatePropagation();
