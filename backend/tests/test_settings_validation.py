@@ -5,7 +5,7 @@ import unittest
 import pytest
 from pydantic import ValidationError
 
-from app.config import Settings, _SECRET_KEY_PLACEHOLDER, _ENCRYPTION_KEY_PLACEHOLDER
+from app.config import _ENCRYPTION_KEY_PLACEHOLDER, _SECRET_KEY_PLACEHOLDER, Settings
 
 
 class TestSecretKeyValidation(unittest.TestCase):

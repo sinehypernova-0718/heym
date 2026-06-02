@@ -42,6 +42,7 @@ class Settings(BaseSettings):
                 "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
             )
         return v
+
     encryption_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 1440

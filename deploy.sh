@@ -28,25 +28,45 @@ show_help() {
     echo "  ./deploy.sh --down    # Stop services"
 }
 
-if [ ! -f "$PROJECT_ROOT/.env" ]; then
-    echo -e "${YELLOW}Creating .env from .env.example...${NC}"
-    cp "$PROJECT_ROOT/.env.example" "$PROJECT_ROOT/.env"
-fi
+ENV_FILE="$PROJECT_ROOT/.env"
+ENCRYPTION_KEY_PLACEHOLDER="change_this_to_a_random_32_byte_hex_value"
 
-# Ensure SECRET_KEY and ENCRYPTION_KEY are populated before deploying.
-if grep -q '^SECRET_KEY=$' "$PROJECT_ROOT/.env" 2>/dev/null; then
-    GENERATED_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
-    sed -i.bak "s|^SECRET_KEY=$|SECRET_KEY=${GENERATED_SECRET}|" "$PROJECT_ROOT/.env"
-    echo -e "${GREEN}Generated random SECRET_KEY${NC}"
-fi
-if grep -q '^ENCRYPTION_KEY=change_this_to_a_random_32_byte_hex_value' "$PROJECT_ROOT/.env" 2>/dev/null; then
-    GENERATED_ENC=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
-    sed -i.bak "s|^ENCRYPTION_KEY=change_this_to_a_random_32_byte_hex_value|ENCRYPTION_KEY=${GENERATED_ENC}|" "$PROJECT_ROOT/.env"
-    echo -e "${GREEN}Generated random ENCRYPTION_KEY${NC}"
-fi
-rm -f "$PROJECT_ROOT/.env.bak"
+backfill_secret_key() {
+    # Populate SECRET_KEY only when it is empty. Safe for both new and existing
+    # .env files: an empty SECRET_KEY has never signed a token worth preserving.
+    if grep -q '^SECRET_KEY=$' "$ENV_FILE" 2>/dev/null; then
+        local generated
+        generated=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+        sed -i.bak "s|^SECRET_KEY=$|SECRET_KEY=${generated}|" "$ENV_FILE"
+        rm -f "$ENV_FILE.bak"
+        echo -e "${GREEN}Generated random SECRET_KEY${NC}"
+    fi
+}
 
-source "$PROJECT_ROOT/.env"
+# Prepare .env and load it. Only invoked for subcommands that actually deploy;
+# read-only subcommands (--help, --logs, --status, --down) must never mutate .env.
+prepare_env() {
+    if [ ! -f "$ENV_FILE" ]; then
+        echo -e "${YELLOW}Creating .env from .env.example...${NC}"
+        cp "$PROJECT_ROOT/.env.example" "$ENV_FILE"
+
+        # Brand-new .env: no data has been encrypted yet, so generating both keys is safe.
+        backfill_secret_key
+        if grep -q "^ENCRYPTION_KEY=${ENCRYPTION_KEY_PLACEHOLDER}\$" "$ENV_FILE" 2>/dev/null; then
+            GENERATED_ENC=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+            sed -i.bak "s|^ENCRYPTION_KEY=${ENCRYPTION_KEY_PLACEHOLDER}|ENCRYPTION_KEY=${GENERATED_ENC}|" "$ENV_FILE"
+            rm -f "$ENV_FILE.bak"
+            echo -e "${GREEN}Generated random ENCRYPTION_KEY${NC}"
+        fi
+    else
+        # Existing .env: only backfill an empty SECRET_KEY. NEVER rotate a populated
+        # ENCRYPTION_KEY — replacing it would make previously-encrypted data unreadable
+        # (InvalidToken). Leave any non-empty ENCRYPTION_KEY untouched.
+        backfill_secret_key
+    fi
+
+    source "$ENV_FILE"
+}
 
 VERSION=$(cat "$PROJECT_ROOT/VERSION" 2>/dev/null)
 
@@ -76,6 +96,7 @@ case "${1:-}" in
         exit 0
         ;;
     --restart)
+        prepare_env
         echo -e "${YELLOW}Restarting services...${NC}"
         dc restart
         ;;
@@ -84,6 +105,7 @@ case "${1:-}" in
         exit 0
         ;;
     "")
+        prepare_env
         # Zero-downtime deploy: build first (containers keep running), then swap
         echo -e "${YELLOW}Building Docker images v${VERSION} (containers stay up)...${NC}"
         if ! dc build --build-arg APP_VERSION=$VERSION --no-cache; then

@@ -264,9 +264,11 @@ cp .env.example .env
 git clone https://github.com/heymrun/heym.git
 cd heym
 cp .env.example .env
-# Generate required keys before starting:
-python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))" >> .env
-python3 -c "import secrets; print('ENCRYPTION_KEY=' + secrets.token_hex(32))" >> .env
+# Generate required keys and write them into the placeholder lines copied from
+# .env.example (replace in place — appending with >> would create duplicate entries):
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+ENCRYPTION_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+sed -i.bak "s|^SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|; s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${ENCRYPTION_KEY}|" .env && rm -f .env.bak
 docker run --env-file .env \
   -p 4017:4017 \
   -v /var/run/docker.sock:/var/run/docker.sock \
