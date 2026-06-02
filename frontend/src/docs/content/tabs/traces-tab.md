@@ -38,6 +38,7 @@ A single **Time range** selector at the top of the filter bar drives both the st
 
 When you open a trace:
 
+- **Steps** – A top-to-bottom timeline that reads the trace as an ordered chain: System → User → Assistant → Tool → Answer. Each step is collapsible; expanding one shows a readable detail (message text, or a tool's arguments and result) followed by that step's raw JSON. Tool steps display their duration and an MCP/Skill badge where applicable. Traces without a message chain (for example image generation) show a minimal Request → Response timeline. The Steps view sits directly above the raw payloads below — it is a readable preview, not a replacement.
 - **Request** – Full request payload sent to the LLM
 - **Response** – Model response, including tool calls if any
 - **Timing breakdown** – `llm_ms`, `tools_ms`, `mcp_list_ms` for performance analysis
