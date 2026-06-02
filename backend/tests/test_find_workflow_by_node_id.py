@@ -3,8 +3,6 @@
 import json
 import unittest
 
-from sqlalchemy import text
-
 
 class _FakeResult:
     """Minimal async-compatible result for capturing executed statements."""
