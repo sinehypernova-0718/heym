@@ -614,6 +614,14 @@ Join our Discord to connect with the community, ask questions, share workflows, 
 
 ---
 
+## 🧩 Share a Template
+
+Want to publish a workflow template for the community? You can now submit it directly from the **[Templates page](https://heym.run/templates)** — open the dialog, paste your workflow DSL, and send it for review. No pull request needed.
+
+If you'd rather contribute through code, please **[start a Discussion](https://github.com/heymrun/heym/discussions)** so we can talk it through together **before** opening a pull request.
+
+---
+
 ## 🏢 Enterprise
 
 Commercial use, enterprise licensing, and professional support are available.
@@ -632,7 +640,7 @@ Commercial use, enterprise licensing, and professional support are available.
 
 **Built with ❤️ using Vue.js, FastAPI, and a lot of LLM tokens.**
 
-[⭐ Star this repo](https://github.com/heymrun/heym/stargazers) · [🐛 Report a bug](https://github.com/heymrun/heym/issues) · [💡 Request a feature](https://github.com/heymrun/heym/issues)
+[⭐ Star this repo](https://github.com/heymrun/heym/stargazers) · [🐛 Report a bug](https://github.com/heymrun/heym/issues) · [💡 Request a feature](https://github.com/heymrun/heym/discussions)
 
 ## ⭐ Star History
 
