@@ -3,6 +3,10 @@ import os
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
+# Known placeholder values that must not be used in production
+_SECRET_KEY_PLACEHOLDER = "your-super-secret-key-change-in-production-min-32-chars"
+_ENCRYPTION_KEY_PLACEHOLDER = "change_this_to_a_random_32_byte_hex_value"
+
 
 def _read_version() -> str:
     """Read version from VERSION file."""
@@ -21,7 +25,24 @@ class Settings(BaseSettings):
     postgres_user: str = "postgres"
     postgres_password: str = "postgres"
     postgres_db: str = "heym"
-    secret_key: str = "your-super-secret-key-change-in-production-min-32-chars"
+    secret_key: str = ""
+
+    @field_validator("secret_key")
+    @classmethod
+    def _validate_secret_key(cls, v: str) -> str:
+        """Refuse to start if SECRET_KEY is missing, a known placeholder, or too short."""
+        if not v or v == _SECRET_KEY_PLACEHOLDER:
+            raise ValueError(
+                "SECRET_KEY must be set to a cryptographically random value. "
+                "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+        if len(v) < 32:
+            raise ValueError(
+                f"SECRET_KEY must be at least 32 characters long (got {len(v)}). "
+                "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+        return v
+
     encryption_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 1440
@@ -67,10 +88,10 @@ class Settings(BaseSettings):
     @classmethod
     def encryption_key_must_be_set(cls, v: str) -> str:
         """Refuse to start if ENCRYPTION_KEY is absent or still the known-compromised default."""
-        if not v:
+        if not v or v == _ENCRYPTION_KEY_PLACEHOLDER:
             raise ValueError(
-                "ENCRYPTION_KEY environment variable is required. "
-                "Generate a strong random key: "
+                "ENCRYPTION_KEY environment variable is required and must not be the "
+                "placeholder value. Generate a strong random key: "
                 'python -c "import secrets; print(secrets.token_hex(32))"'
             )
         return v

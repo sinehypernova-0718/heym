@@ -107,10 +107,52 @@ check_command "bun"
 check_command "uv"
 echo -e "${GREEN}All prerequisites found.${NC}"
 
-if [ ! -f "$PROJECT_ROOT/.env" ]; then
+ENV_FILE="$PROJECT_ROOT/.env"
+ENCRYPTION_KEY_PLACEHOLDER="change_this_to_a_random_32_byte_hex_value"
+
+backfill_secret_key() {
+    # Populate SECRET_KEY only when it is empty. Safe for both new and existing
+    # .env files: an empty SECRET_KEY has never signed a token worth preserving.
+    if grep -q '^SECRET_KEY=$' "$ENV_FILE" 2>/dev/null; then
+        local generated
+        generated=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+        sed -i.bak "s|^SECRET_KEY=$|SECRET_KEY=${generated}|" "$ENV_FILE"
+        rm -f "$ENV_FILE.bak"
+        echo -e "${GREEN}Generated random SECRET_KEY${NC}"
+    fi
+}
+
+backfill_encryption_key() {
+    # Populate ENCRYPTION_KEY only when it is empty. Safe for both new and existing
+    # .env files: no data could have been encrypted with an empty key.
+    # If the legacy placeholder is present, fail loudly — overwriting would make
+    # previously-encrypted credentials unreadable (InvalidToken).
+    if grep -q "^ENCRYPTION_KEY=${ENCRYPTION_KEY_PLACEHOLDER}\$" "$ENV_FILE" 2>/dev/null; then
+        echo -e "${RED}Error: ENCRYPTION_KEY is set to the legacy placeholder value.${NC}"
+        echo -e "${YELLOW}Generate a new key and set it in .env:${NC}"
+        echo -e "  python3 -c 'import secrets; print(secrets.token_hex(32))'"
+        echo -e "${RED}Do NOT auto-generate over an existing placeholder — data encrypted with the old key would be lost.${NC}"
+        exit 1
+    fi
+    if grep -q '^ENCRYPTION_KEY=$' "$ENV_FILE" 2>/dev/null; then
+        local generated
+        generated=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+        sed -i.bak "s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=${generated}|" "$ENV_FILE"
+        rm -f "$ENV_FILE.bak"
+        echo -e "${GREEN}Generated random ENCRYPTION_KEY${NC}"
+    fi
+}
+
+if [ ! -f "$ENV_FILE" ]; then
     echo -e "${YELLOW}Creating .env from .env.example...${NC}"
-    cp "$PROJECT_ROOT/.env.example" "$PROJECT_ROOT/.env"
+    cp "$PROJECT_ROOT/.env.example" "$ENV_FILE"
 fi
+
+# Backfill both keys in all cases: empty SECRET_KEY and empty ENCRYPTION_KEY are
+# safe to generate regardless of whether .env is new or pre-existing. The legacy
+# placeholder ENCRYPTION_KEY triggers an explicit error instead of silent rotation.
+backfill_secret_key
+backfill_encryption_key
 
 set -a
 source "$PROJECT_ROOT/.env"
