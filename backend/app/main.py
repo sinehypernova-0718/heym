@@ -53,6 +53,7 @@ from app.http_identity import HEYM_SERVER_AGENT
 from app.models.schemas import AppVersionResponse
 from app.services.cron_scheduler import cron_scheduler
 from app.services.distributed_lock import lock_service
+from app.services.execution_cancellation import active_execution_registry
 from app.services.grist_pool import close_all_clients as close_grist_clients
 from app.services.grist_pool import warm_up_pools as warm_up_grist_pools
 from app.services.hitl_service import build_public_base_url, build_review_url
@@ -122,6 +123,7 @@ async def lifespan(app: FastAPI):
     if qdrant_count > 0:
         logger.info("Qdrant pools warmed up: %d", qdrant_count)
 
+    await active_execution_registry.start()
     await cron_scheduler.start()
     await imap_trigger_manager.start()
     await rabbitmq_consumer_manager.start()
@@ -132,6 +134,7 @@ async def lifespan(app: FastAPI):
     await imap_trigger_manager.stop()
     await RabbitMQPool.close_all()
     await cron_scheduler.stop()
+    await active_execution_registry.stop()
     await lock_service.stop()
     close_redis_pools()
     close_grist_clients()

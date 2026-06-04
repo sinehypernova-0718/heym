@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException, Request
 
 from app.api.ai_assistant import run_execute_workflow_tool
-from app.api.portal import portal_cancel_execution
+from app.api.portal import portal_cancel_execution, portal_execute_stream
 from app.api.workflows import (
     collect_referenced_workflows,
     execute_workflow_endpoint,
@@ -19,6 +19,7 @@ from app.api.workflows import (
     parse_execute_body,
 )
 from app.db.models import DataTable, DataTableRow
+from app.models.schemas import PortalExecuteRequest
 from app.services.workflow_executor import (
     ExecutionResult,
     SubWorkflowExecution,
@@ -270,7 +271,13 @@ class PortalCancelExecutionTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        with patch("app.api.portal.cancel_active_execution", return_value=True) as cancel_mock:
+        with (
+            patch("app.api.portal.cancel_active_execution", return_value=True) as cancel_mock,
+            patch(
+                "app.api.portal.request_persisted_execution_cancel",
+                AsyncMock(return_value=True),
+            ) as persisted_cancel_mock,
+        ):
             result = await portal_cancel_execution(
                 slug="portal-test",
                 execution_id=execution_id,
@@ -280,6 +287,38 @@ class PortalCancelExecutionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": "cancel_requested"})
         cancel_mock.assert_called_once_with(workflow_id=workflow_id, execution_id=execution_id)
+        persisted_cancel_mock.assert_awaited_once_with(
+            db,
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+        )
+
+    async def test_returns_cancel_requested_when_execution_is_on_another_worker(self) -> None:
+        workflow_id = uuid.uuid4()
+        execution_id = uuid.uuid4()
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _ScalarResult(SimpleNamespace(id=workflow_id)),
+                _ScalarResult(None),
+            ]
+        )
+
+        with (
+            patch("app.api.portal.cancel_active_execution", return_value=False),
+            patch(
+                "app.api.portal.request_persisted_execution_cancel",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            result = await portal_cancel_execution(
+                slug="portal-test",
+                execution_id=execution_id,
+                request=make_request(),
+                db=db,
+            )
+
+        self.assertEqual(result, {"status": "cancel_requested"})
 
     async def test_raises_not_found_when_execution_is_missing(self) -> None:
         workflow_id = uuid.uuid4()
@@ -292,7 +331,13 @@ class PortalCancelExecutionTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        with patch("app.api.portal.cancel_active_execution", return_value=False):
+        with (
+            patch("app.api.portal.cancel_active_execution", return_value=False),
+            patch(
+                "app.api.portal.request_persisted_execution_cancel",
+                AsyncMock(return_value=False),
+            ),
+        ):
             with self.assertRaises(HTTPException) as context:
                 await portal_cancel_execution(
                     slug="portal-test",
@@ -303,6 +348,67 @@ class PortalCancelExecutionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(context.exception.status_code, 404)
         self.assertEqual(context.exception.detail, "Execution not found or already finished")
+
+
+class PortalExecuteStreamHeartbeatTests(unittest.IsolatedAsyncioTestCase):
+    async def test_emits_hidden_heartbeat_while_waiting_for_workflow_events(self) -> None:
+        workflow = SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            name="Portal Workflow",
+            nodes=[{"id": "n1", "type": "textInput", "data": {"label": "Input"}}],
+            edges=[],
+        )
+        release_executor = Event()
+
+        def fake_streaming_executor(**_kwargs: object):
+            release_executor.wait(timeout=2)
+            yield {
+                "type": "execution_complete",
+                "workflow_id": str(workflow.id),
+                "status": "success",
+                "outputs": {},
+                "node_results": [],
+                "sub_workflow_executions": [],
+                "execution_time_ms": 0,
+            }
+
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _ScalarResult(workflow),
+                _ScalarResult(None),
+            ]
+        )
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+
+        with (
+            patch("app.api.portal.collect_referenced_workflows", AsyncMock(return_value={})),
+            patch("app.api.portal.get_credentials_context", AsyncMock(return_value={})),
+            patch("app.api.portal.get_global_variables_context", AsyncMock(return_value={})),
+            patch("app.api.portal.register_execution", return_value=Event()),
+            patch("app.api.portal.clear_active_execution"),
+            patch("app.api.portal.execute_workflow_streaming", fake_streaming_executor),
+            patch("app.api.portal._persist_global_variables_from_execution", AsyncMock()),
+            patch("app.api.portal.upsert_workflow_analytics_snapshot", AsyncMock()),
+            patch("app.api.portal.PORTAL_SSE_HEARTBEAT_SECONDS", 0.001),
+        ):
+            response = await portal_execute_stream(
+                slug="portal-test",
+                execute_data=PortalExecuteRequest(inputs={}),
+                request=make_request(),
+                db=db,
+            )
+
+            stream = response.body_iterator
+            self.assertIn('"type": "execution_started"', await stream.__anext__())
+            self.assertEqual(await stream.__anext__(), ": heartbeat\n\n")
+
+            release_executor.set()
+            self.assertIn('"type": "execution_complete"', await stream.__anext__())
+            with self.assertRaises(StopAsyncIteration):
+                await stream.__anext__()
 
 
 class ExecuteWorkflowStreamAvailabilityTests(unittest.IsolatedAsyncioTestCase):

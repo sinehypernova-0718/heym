@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from typing import Any, AsyncGenerator, Literal
 from urllib.parse import urlparse
 
@@ -123,6 +123,7 @@ class FixTranscriptionResponse(BaseModel):
 MAX_DASHBOARD_CHAT_HISTORY = 25
 DASHBOARD_CHAT_TEMPERATURE = 0.1
 WORKFLOW_BUILDER_TEMPERATURE = 0.0
+WORKFLOW_ASSISTANT_SSE_HEARTBEAT_SECONDS = 10.0
 
 
 def _get_dashboard_chat_node_label(
@@ -3359,6 +3360,43 @@ async def stream_llm_response(
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
 
+async def _stream_sse_with_heartbeat(
+    source: AsyncGenerator[str, None],
+    *,
+    heartbeat_seconds: float,
+) -> AsyncGenerator[str, None]:
+    """Forward SSE chunks from a sync-backed generator while sending idle keepalives."""
+    queue: asyncio.Queue[str | Exception | None] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    async def consume_source() -> None:
+        try:
+            async for chunk in source:
+                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+        except Exception as exc:
+            loop.call_soon_threadsafe(queue.put_nowait, exc)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    def run_source() -> None:
+        asyncio.run(consume_source())
+
+    Thread(target=run_source, daemon=True).start()
+
+    while True:
+        try:
+            item = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+        except TimeoutError:
+            yield ": heartbeat\n\n"
+            continue
+
+        if item is None:
+            break
+        if isinstance(item, Exception):
+            raise item
+        yield item
+
+
 @router.post("/workflow-assistant")
 async def workflow_assistant_stream(
     request: AIAssistantRequest,
@@ -3446,15 +3484,20 @@ async def workflow_assistant_stream(
         source="assistant",
     )
 
+    assistant_stream = stream_llm_response(
+        client,
+        request.model,
+        system_prompt,
+        messages,
+        provider,
+        trace_context,
+        run_type="workflow_assistant",
+    )
+
     return StreamingResponse(
-        stream_llm_response(
-            client,
-            request.model,
-            system_prompt,
-            messages,
-            provider,
-            trace_context,
-            run_type="workflow_assistant",
+        _stream_sse_with_heartbeat(
+            assistant_stream,
+            heartbeat_seconds=WORKFLOW_ASSISTANT_SSE_HEARTBEAT_SECONDS,
         ),
         media_type="text/event-stream",
         headers={

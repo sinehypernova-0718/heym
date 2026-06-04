@@ -64,7 +64,9 @@ from app.services.execution_cancellation import (
 )
 from app.services.execution_cancellation import (
     list_active_executions,
+    list_persisted_active_executions_for_user,
     register_execution,
+    request_persisted_execution_cancel,
 )
 from app.services.global_variables_service import (
     get_global_variables_context,
@@ -953,36 +955,53 @@ async def list_active_workflow_executions(
     db: AsyncSession = Depends(get_db),
 ) -> list[ActiveExecutionItem]:
     """Return all currently running executions belonging to the authenticated user."""
-    handles = list_active_executions()
-    if not handles:
-        return []
-
-    workflow_ids = list({h.workflow_id for h in handles})
-    result = await db.execute(
-        select(Workflow).where(
-            Workflow.id.in_(workflow_ids),
-            or_(
-                Workflow.owner_id == current_user.id,
-                Workflow.id.in_(
-                    select(WorkflowShare.workflow_id).where(
-                        WorkflowShare.user_id == current_user.id
-                    )
-                ),
-            ),
+    persisted = await list_persisted_active_executions_for_user(db, current_user.id)
+    items_by_execution_id = {
+        record.execution_id: ActiveExecutionItem(
+            execution_id=str(record.execution_id),
+            workflow_id=str(record.workflow_id),
+            workflow_name=record.workflow_name,
+            started_at=record.started_at,
         )
-    )
-    accessible: dict[uuid.UUID, str] = {w.id: w.name for w in result.scalars().all()}
+        for record in persisted
+    }
 
-    return [
-        ActiveExecutionItem(
-            execution_id=str(h.execution_id),
-            workflow_id=str(h.workflow_id),
-            workflow_name=accessible[h.workflow_id],
-            started_at=h.started_at,
-        )
-        for h in handles
-        if h.workflow_id in accessible
+    local_handles = [
+        handle
+        for handle in list_active_executions()
+        if handle.execution_id not in items_by_execution_id and not handle.event.is_set()
     ]
+    if local_handles:
+        workflow_ids = list({h.workflow_id for h in local_handles})
+        result = await db.execute(
+            select(Workflow).where(
+                Workflow.id.in_(workflow_ids),
+                or_(
+                    Workflow.owner_id == current_user.id,
+                    Workflow.id.in_(
+                        select(WorkflowShare.workflow_id).where(
+                            WorkflowShare.user_id == current_user.id
+                        )
+                    ),
+                ),
+            )
+        )
+        accessible: dict[uuid.UUID, str] = {w.id: w.name for w in result.scalars().all()}
+        for handle in local_handles:
+            if handle.workflow_id not in accessible:
+                continue
+            items_by_execution_id[handle.execution_id] = ActiveExecutionItem(
+                execution_id=str(handle.execution_id),
+                workflow_id=str(handle.workflow_id),
+                workflow_name=accessible[handle.workflow_id],
+                started_at=handle.started_at,
+            )
+
+    return sorted(
+        items_by_execution_id.values(),
+        key=lambda item: item.started_at,
+        reverse=True,
+    )
 
 
 @router.post("", response_model=WorkflowResponse, status_code=status.HTTP_201_CREATED)
@@ -3067,8 +3086,13 @@ async def cancel_workflow_execution(
             detail="Workflow not found",
         )
 
-    cancelled = cancel_active_execution(workflow_id=workflow_id, execution_id=execution_id)
-    if not cancelled:
+    cancelled_local = cancel_active_execution(workflow_id=workflow_id, execution_id=execution_id)
+    cancelled_persisted = await request_persisted_execution_cancel(
+        db,
+        workflow_id=workflow_id,
+        execution_id=execution_id,
+    )
+    if not cancelled_local and not cancelled_persisted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Execution not found or already finished",

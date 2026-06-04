@@ -10,6 +10,7 @@ Read and follow this `AGENTS.md` at the start of every session. Repository conve
 ./run.sh                    # Start all services (postgres, backend, frontend)
 ./run.sh --no-debug         # Start with INFO logging instead of DEBUG
 ./check.sh                  # Run frontend lint/typecheck, backend Ruff checks, and backend tests
+SECRET_KEY=test-secret-key-for-tests-only-32-bytes ./check.sh  # Use when no SECRET_KEY is exported locally
 ```
 
 ### Frontend (Vue.js + Bun)
@@ -24,6 +25,7 @@ bun run build && bun run preview  # Build && test production build
 ```bash
 cd backend && uv sync && uv run alembic upgrade head && uv run uvicorn app.main:app --reload --port 10105
 ./run_tests.sh               # Run all backend unit tests in parallel (required before git push)
+SECRET_KEY=test-secret-key-for-tests-only-32-bytes ./run_tests.sh  # Full backend tests when no SECRET_KEY is exported
 uv run pytest tests/test_file.py::ClassName::test_method  # Run specific test
 uv run ruff check .           # Linting (fix with --fix) - must pass before commits
 uv run ruff format .          # Auto-format code
@@ -72,6 +74,7 @@ SQLAlchemy 2.0 async, UUID primary keys only, Alembic for migrations, index freq
 Backend: pytest with unittest.TestCase/IsolatedAsyncioTestCase, AsyncMock for DB mocking
 Frontend: No tests yet (add when needed)
 **New features must include backend tests** - run `./check.sh` before git push (includes backend tests via `./run_tests.sh`)
+If the local environment does not export `SECRET_KEY`, prefix full-suite commands with `SECRET_KEY=test-secret-key-for-tests-only-32-bytes` (test-only value; never use it for runtime/prod).
 
 ### Expression evaluation (avoid executor vs dialog drift)
 The canvas **expression evaluate** dialog (`/expressions/evaluate`, `ExpressionEvaluatorService`) and **workflow execution** (`WorkflowExecutor`) must agree on the same semantics for `$…` templates.

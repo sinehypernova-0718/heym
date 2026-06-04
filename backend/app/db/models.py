@@ -425,6 +425,31 @@ class ExecutionHistory(Base):
     )
 
 
+class ActiveWorkflowExecution(Base):
+    """Cross-worker registry of executions that are currently running."""
+
+    __tablename__ = "active_workflow_executions"
+
+    execution_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    worker_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class WorkflowAnalyticsSnapshot(Base):
     __tablename__ = "workflow_analytics_snapshots"
     __table_args__ = (

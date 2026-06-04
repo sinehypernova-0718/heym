@@ -41,6 +41,7 @@ from app.services.execution_cancellation import (
 )
 from app.services.execution_cancellation import (
     register_execution,
+    request_persisted_execution_cancel,
 )
 from app.services.global_variables_service import get_global_variables_context
 from app.services.hitl_service import build_public_base_url, persist_pending_hitl_execution
@@ -56,6 +57,7 @@ from app.services.workflow_executor import (
 router = APIRouter()
 
 _session_ttl_hours = 168
+PORTAL_SSE_HEARTBEAT_SECONDS = 10.0
 
 
 def _generate_session_token() -> str:
@@ -446,6 +448,7 @@ async def portal_execute_stream(
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = loop.run_in_executor(pool, run_executor)
+            last_heartbeat_at = loop.time()
             yield (
                 "data: "
                 + json.dumps(
@@ -466,6 +469,7 @@ async def portal_execute_stream(
                     if event is None:
                         break
                     event = progress_tracker.observe_event(event)
+                    last_heartbeat_at = loop.time()
                     if (
                         event.get("type") == "execution_complete"
                         and event.get("status") == "pending"
@@ -502,12 +506,18 @@ async def portal_execute_stream(
                     if await request.is_disconnected():
                         cancel_event.set()
                         break
+                    now = loop.time()
+                    if now - last_heartbeat_at >= PORTAL_SSE_HEARTBEAT_SECONDS:
+                        last_heartbeat_at = now
+                        yield ": heartbeat\n\n"
+                        continue
                     if future.done():
                         while not event_queue.empty():
                             event = event_queue.get_nowait()
                             if event is None:
                                 break
                             event = progress_tracker.observe_event(event)
+                            last_heartbeat_at = loop.time()
                             if (
                                 event.get("type") == "execution_complete"
                                 and event.get("status") == "pending"
@@ -648,8 +658,13 @@ async def portal_cancel_execution(
                 detail="Invalid or expired session",
             )
 
-    cancelled = cancel_active_execution(workflow_id=workflow.id, execution_id=execution_id)
-    if not cancelled:
+    cancelled_local = cancel_active_execution(workflow_id=workflow.id, execution_id=execution_id)
+    cancelled_persisted = await request_persisted_execution_cancel(
+        db,
+        workflow_id=workflow.id,
+        execution_id=execution_id,
+    )
+    if not cancelled_local and not cancelled_persisted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Execution not found or already finished",

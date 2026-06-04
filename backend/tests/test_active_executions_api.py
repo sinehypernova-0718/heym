@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.api.workflows import list_active_workflow_executions
 from app.models.schemas import ActiveExecutionItem
 from app.services.execution_cancellation import (
+    ActiveExecutionRecord,
     ExecutionCancellationHandle,
     list_active_executions,
+    list_persisted_active_executions_for_user,
 )
 from app.services.workflow_executor import ExecutionResult, WorkflowExecutor
 
@@ -22,19 +24,58 @@ def _make_handle(workflow_id: uuid.UUID, execution_id: uuid.UUID) -> ExecutionCa
     )
 
 
+def _make_record(workflow_id: uuid.UUID, execution_id: uuid.UUID) -> ActiveExecutionRecord:
+    return ActiveExecutionRecord(
+        workflow_id=workflow_id,
+        execution_id=execution_id,
+        workflow_name="My Workflow",
+        started_at=datetime.datetime(2025, 1, 1, 12, 0, 0),
+    )
+
+
 class ListActiveWorkflowExecutionsTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_empty_when_no_active_executions(self) -> None:
         user = MagicMock()
         user.id = uuid.uuid4()
         db = AsyncMock()
 
-        with patch("app.api.workflows.list_active_executions", return_value=[]):
+        with (
+            patch(
+                "app.api.workflows.list_persisted_active_executions_for_user",
+                AsyncMock(return_value=[]),
+            ),
+            patch("app.api.workflows.list_active_executions", return_value=[]),
+        ):
             result = await list_active_workflow_executions(current_user=user, db=db)
 
         self.assertEqual(result, [])
         db.execute.assert_not_called()
 
-    async def test_filters_to_accessible_workflows(self) -> None:
+    async def test_returns_persisted_active_executions(self) -> None:
+        user = MagicMock()
+        user.id = uuid.uuid4()
+
+        wf_id = uuid.uuid4()
+        ex_id = uuid.uuid4()
+        db = AsyncMock()
+
+        with (
+            patch(
+                "app.api.workflows.list_persisted_active_executions_for_user",
+                AsyncMock(return_value=[_make_record(wf_id, ex_id)]),
+            ),
+            patch("app.api.workflows.list_active_executions", return_value=[]),
+        ):
+            result = await list_active_workflow_executions(current_user=user, db=db)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].execution_id, str(ex_id))
+        self.assertEqual(result[0].workflow_id, str(wf_id))
+        self.assertEqual(result[0].workflow_name, "My Workflow")
+        self.assertIsInstance(result[0], ActiveExecutionItem)
+        db.execute.assert_not_called()
+
+    async def test_filters_local_fallback_to_accessible_workflows(self) -> None:
         user = MagicMock()
         user.id = uuid.uuid4()
 
@@ -57,7 +98,13 @@ class ListActiveWorkflowExecutionsTests(unittest.IsolatedAsyncioTestCase):
         db_result.scalars.return_value.all.return_value = [owned_workflow]
         db.execute.return_value = db_result
 
-        with patch("app.api.workflows.list_active_executions", return_value=handles):
+        with (
+            patch(
+                "app.api.workflows.list_persisted_active_executions_for_user",
+                AsyncMock(return_value=[]),
+            ),
+            patch("app.api.workflows.list_active_executions", return_value=handles),
+        ):
             result = await list_active_workflow_executions(current_user=user, db=db)
 
         self.assertEqual(len(result), 1)
@@ -83,10 +130,53 @@ class ListActiveWorkflowExecutionsTests(unittest.IsolatedAsyncioTestCase):
         db_result.scalars.return_value.all.return_value = [workflow]
         db.execute.return_value = db_result
 
-        with patch("app.api.workflows.list_active_executions", return_value=[handle]):
+        with (
+            patch(
+                "app.api.workflows.list_persisted_active_executions_for_user",
+                AsyncMock(return_value=[]),
+            ),
+            patch("app.api.workflows.list_active_executions", return_value=[handle]),
+        ):
             result = await list_active_workflow_executions(current_user=user, db=db)
 
         self.assertEqual(result[0].started_at, datetime.datetime(2025, 1, 1, 12, 0, 0))
+
+    async def test_excludes_cancelled_local_fallback_handles(self) -> None:
+        user = MagicMock()
+        user.id = uuid.uuid4()
+
+        wf_id = uuid.uuid4()
+        ex_id = uuid.uuid4()
+        handle = _make_handle(wf_id, ex_id)
+        handle.event.set()
+
+        db = AsyncMock()
+
+        with (
+            patch(
+                "app.api.workflows.list_persisted_active_executions_for_user",
+                AsyncMock(return_value=[]),
+            ),
+            patch("app.api.workflows.list_active_executions", return_value=[handle]),
+        ):
+            result = await list_active_workflow_executions(current_user=user, db=db)
+
+        self.assertEqual(result, [])
+        db.execute.assert_not_called()
+
+
+class ListPersistedActiveExecutionsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_filters_out_cancel_requested_rows(self) -> None:
+        db = AsyncMock()
+        db_result = MagicMock()
+        db_result.all.return_value = []
+        db.execute.return_value = db_result
+
+        await list_persisted_active_executions_for_user(db, uuid.uuid4())
+
+        stmt = db.execute.call_args.args[0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": False}))
+        self.assertIn("active_workflow_executions.cancel_requested_at IS NULL", compiled)
 
 
 class SubWorkflowActiveTrackingTests(unittest.TestCase):
