@@ -5,6 +5,7 @@ import { AlertTriangle, Ban, Bot, Brain, Braces, Bug, CalendarClock, Clock, Data
 import type { NodeTemplate } from "@/features/templates/types/template.types";
 import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
 
+import TemplatesBrowseDialog from "@/features/templates/components/TemplatesBrowseDialog.vue";
 import { buildWorkflowNodeFromNodeTemplate } from "@/lib/nodeFromTemplate";
 import {
   INPUT_HANDLE,
@@ -26,6 +27,13 @@ const searchInputRef = ref<HTMLInputElement | null>(null);
 const selectedIndex = ref<number>(-1);
 const nodeTemplates = ref<NodeTemplate[]>([]);
 const templatesLoadError = ref(false);
+const showTemplatesBrowse = ref(false);
+const templatesBrowseQuery = ref("");
+
+function openTemplatesBrowse(): void {
+  templatesBrowseQuery.value = searchQuery.value.trim();
+  showTemplatesBrowse.value = true;
+}
 
 async function loadNodeTemplates(): Promise<void> {
   try {
@@ -593,18 +601,52 @@ function handleDoubleClick(type: NodeType): void {
         </template>
         <div
           v-if="paletteRows.length === 0"
-          class="text-center py-8"
+          class="py-8"
         >
-          <Search class="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-          <p class="text-sm text-muted-foreground">
-            No nodes found
-          </p>
-          <p class="text-xs text-muted-foreground/60 mt-1">
-            Try a different search term
-          </p>
+          <div class="text-center mb-4">
+            <Search class="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
+            <p class="text-sm text-muted-foreground">
+              No nodes found
+            </p>
+            <p class="text-xs text-muted-foreground/60 mt-1">
+              Try a different search term
+            </p>
+          </div>
+          <button
+            type="button"
+            class="node-item w-full flex items-center gap-3 p-3 rounded-xl border border-border/40 cursor-pointer transition-all duration-200 min-h-[44px] text-left hover:border-primary/40 hover:bg-accent/50 hover:shadow-sm"
+            @click="openTemplatesBrowse"
+          >
+            <div
+              class="node-icon flex items-center justify-center w-10 h-10 rounded-xl shrink-0 transition-all duration-200"
+            >
+              <img
+                src="/fav.svg"
+                alt=""
+                aria-hidden="true"
+                class="w-8 h-8 rounded-lg"
+              >
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="font-medium text-sm leading-tight">
+                Search Heym templates
+              </div>
+              <div class="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                {{ searchQuery.trim()
+                  ? `Find "${searchQuery.trim()}" in public templates`
+                  : "Browse public templates to bring to canvas" }}
+              </div>
+            </div>
+          </button>
         </div>
       </div>
     </div>
+
+    <TemplatesBrowseDialog
+      :open="showTemplatesBrowse"
+      :query="templatesBrowseQuery"
+      @close="showTemplatesBrowse = false"
+    />
   </div>
 </template>
 

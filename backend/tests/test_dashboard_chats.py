@@ -1,6 +1,8 @@
+import asyncio
 import unittest
 import uuid
 from datetime import datetime, timezone
+from types import TracebackType
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
@@ -11,6 +13,7 @@ from app.api.chats import (
     delete_conversation,
     get_conversation,
     list_conversations,
+    stream_conversation,
     update_conversation,
 )
 from app.db.models import CredentialType, DashboardConversation, DashboardMessage
@@ -57,6 +60,22 @@ def _close_created_task(coro: object) -> MagicMock:
     if hasattr(coro, "close"):
         coro.close()
     return MagicMock()
+
+
+class _QueueContext:
+    def __init__(self, queue: asyncio.Queue[object | None] | None) -> None:
+        self.queue = queue
+
+    async def __aenter__(self) -> asyncio.Queue[object | None] | None:
+        return self.queue
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        return None
 
 
 class TestListConversations(unittest.IsolatedAsyncioTestCase):
@@ -272,6 +291,41 @@ class TestClearConversations(unittest.IsolatedAsyncioTestCase):
 
         mock_db.execute.assert_awaited_once()
         mock_db.commit.assert_awaited_once()
+
+
+class TestStreamConversation(unittest.IsolatedAsyncioTestCase):
+    async def test_emits_heartbeat_while_waiting_for_chat_events(self) -> None:
+        user = _make_user()
+        conv = _make_conversation(user.id)
+        queue: asyncio.Queue[object | None] = asyncio.Queue()
+        mock_db = AsyncMock()
+
+        with (
+            patch(
+                "app.api.chats._get_conversation_or_404",
+                new_callable=AsyncMock,
+                return_value=conv,
+            ),
+            patch("app.api.chats.registry.subscribe", return_value=_QueueContext(queue)),
+            patch("app.api.chats.CHAT_STREAM_HEARTBEAT_SECONDS", 0.001),
+        ):
+            response = await stream_conversation(
+                conversation_id=conv.id,
+                current_user=user,
+                db=mock_db,
+            )
+
+            stream = response.body_iterator
+            self.assertEqual(await stream.__anext__(), ": ping\n\n")
+
+            await queue.put({"type": "content", "text": "hello"})
+            self.assertEqual(
+                await stream.__anext__(),
+                'data: {"type": "content", "text": "hello"}\n\n',
+            )
+
+            await queue.put(None)
+            self.assertEqual(await stream.__anext__(), 'data: {"type": "done"}\n\n')
 
 
 class TestSendMessageAuth(unittest.IsolatedAsyncioTestCase):
