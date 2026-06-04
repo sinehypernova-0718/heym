@@ -724,8 +724,7 @@ onMounted(async () => {
             </div>
           </div>
           <div class="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-            <span>{{ table.column_count }} cols</span>
-            <span>{{ table.row_count }} rows</span>
+            <span class="font-semibold">{{ table.row_count }} rows</span>
             <span
               v-if="table.is_shared"
               class="text-blue-500"

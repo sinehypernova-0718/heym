@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { ExternalLink, Globe, X } from "lucide-vue-next";
+
+import { useThemeStore } from "@/stores/theme";
 
 interface Props {
   open: boolean;
+  query?: string;
 }
 
 const props = defineProps<Props>();
 const emit = defineEmits<{ close: [] }>();
+const themeStore = useThemeStore();
 
 const iframeLoaded = ref(false);
 
@@ -22,8 +26,16 @@ if (import.meta.env.PROD && raw) {
     base = fallback;
   }
 }
-const templatesBrowseIframeSrc = `${base.replace(/\/$/, "")}/templates/embed`;
-const templatesPageUrl = `${base.replace(/\/$/, "")}/templates`;
+const baseUrl = base.replace(/\/$/, "");
+const templatesPageUrl = `${baseUrl}/templates`;
+const templatesBrowseIframeSrc = computed(() => {
+  const params = new URLSearchParams({ theme: themeStore.isDark ? "dark" : "light" });
+  const q = props.query?.trim();
+  if (q) {
+    params.set("query", q);
+  }
+  return `${baseUrl}/templates/embed?${params.toString()}`;
+});
 
 function handleLoad(): void {
   iframeLoaded.value = true;

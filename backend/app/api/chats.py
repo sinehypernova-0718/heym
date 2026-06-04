@@ -71,6 +71,7 @@ DEFAULT_QUICK_PROMPTS: list[str] = [
 ]
 MAX_QUICK_PROMPTS = 7
 MAX_PROMPT_LENGTH = 200
+CHAT_STREAM_HEARTBEAT_SECONDS = 10.0
 
 
 def _build_hidden_workflow_context_marker(workflow_id: str, workflow_name: str) -> str:
@@ -644,7 +645,13 @@ async def stream_conversation(
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(
+                        queue.get(), timeout=CHAT_STREAM_HEARTBEAT_SECONDS
+                    )
+                except TimeoutError:
+                    yield ": ping\n\n"
+                    continue
                 if item is None:
                     yield f"data: {json.dumps({'type': 'done'})}\n\n"
                     break
