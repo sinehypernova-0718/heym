@@ -1267,15 +1267,15 @@ export const useWorkflowStore = defineStore("workflow", () => {
           const m = new Map(agentProgressLogs.value);
           const arr = m.get(data.node_id) ?? [];
           const entry = data.entry;
-          const toolCallId = (entry as any)?.tool_call_id as string | null | undefined;
-          const phase = (entry as any)?.phase as string | undefined;
+          const toolCallId = entry.tool_call_id;
+          const phase = entry.phase;
           if (toolCallId && phase && phase !== "start") {
             const idx = [...arr]
-              .map((e) => (e as any)?.tool_call_id as string | null | undefined)
+              .map((e) => e.tool_call_id)
               .lastIndexOf(toolCallId);
             if (idx >= 0) {
               const next = [...arr];
-              next[idx] = { ...(next[idx] as any), ...(entry as any) };
+              next[idx] = { ...next[idx], ...entry };
               m.set(data.node_id, next);
               agentProgressLogs.value = m;
               return;
