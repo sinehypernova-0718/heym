@@ -218,7 +218,7 @@ async function toggleWorkflow(workflow: MCPWorkflowItem): Promise<void> {
         ? `"${workflow.name}" enabled for MCP`
         : `"${workflow.name}" disabled for MCP`,
     );
-  } catch (error) {
+  } catch {
     showToast("Failed to toggle workflow", "error");
   } finally {
     togglingWorkflowId.value = null;
@@ -240,7 +240,7 @@ async function regenerateKey(): Promise<void> {
     }
     showApiKey.value = true;
     showToast("API key regenerated successfully");
-  } catch (error) {
+  } catch {
     showToast("Failed to regenerate API key", "error");
   } finally {
     regenerating.value = false;

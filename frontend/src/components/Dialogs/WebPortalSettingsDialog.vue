@@ -87,7 +87,7 @@ async function loadSettings(): Promise<void> {
   try {
     const data = await portalApi.getSettings(workflowStore.currentWorkflow.id);
     settings.value = data;
-  } catch (e) {
+  } catch {
     error.value = "Failed to load portal settings";
   } finally {
     isLoading.value = false;

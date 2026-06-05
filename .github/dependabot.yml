@@ -70,7 +70,6 @@ updates:
           - "vue-tsc"
           - "eslint*"
           - "@vue/eslint-config-typescript"
-          - "@rushstack/eslint-patch"
       frontend-security-sensitive:
         applies-to: "security-updates"
         patterns:

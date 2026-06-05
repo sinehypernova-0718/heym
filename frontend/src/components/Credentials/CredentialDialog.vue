@@ -398,8 +398,6 @@ async function startGoogleSheetsOAuth(): Promise<void> {
 
     const popup = window.open(auth_url, "google-oauth", "width=520,height=620");
 
-    let pollClosed: ReturnType<typeof setInterval>;
-
     const onMessage = (evt: MessageEvent): void => {
       if (evt.data?.type === "google-oauth-success" && evt.data.credentialId === credId) {
         window.removeEventListener("message", onMessage);
@@ -421,16 +419,16 @@ async function startGoogleSheetsOAuth(): Promise<void> {
         error.value = evt.data.message || "OAuth authorization failed";
       }
     };
-    window.addEventListener("message", onMessage);
 
-    // Detect popup closed without completing
-    pollClosed = setInterval(() => {
+    const pollClosed = setInterval(() => {
       if (popup?.closed) {
         clearInterval(pollClosed);
         window.removeEventListener("message", onMessage);
         gsOAuthConnecting.value = false;
       }
     }, 500);
+
+    window.addEventListener("message", onMessage);
   } catch (err) {
     gsOAuthConnecting.value = false;
     error.value = err instanceof Error ? err.message : "OAuth authorization failed";
@@ -470,8 +468,6 @@ async function startBigQueryOAuth(): Promise<void> {
     const { auth_url } = await credentialsApi.bigQueryOAuthAuthorize(credId);
     const popup = window.open(auth_url, "bq-oauth", "width=520,height=620");
 
-    let pollClosed: ReturnType<typeof setInterval>;
-
     const onMessage = (evt: MessageEvent): void => {
       if (evt.data?.type === "google-oauth-success" && evt.data.credentialId === credId) {
         window.removeEventListener("message", onMessage);
@@ -492,15 +488,16 @@ async function startBigQueryOAuth(): Promise<void> {
         error.value = evt.data.message || "OAuth authorization failed";
       }
     };
-    window.addEventListener("message", onMessage);
 
-    pollClosed = setInterval(() => {
+    const pollClosed = setInterval(() => {
       if (popup?.closed) {
         clearInterval(pollClosed);
         window.removeEventListener("message", onMessage);
         bqOAuthConnecting.value = false;
       }
     }, 500);
+
+    window.addEventListener("message", onMessage);
   } catch (err) {
     bqOAuthConnecting.value = false;
     error.value = err instanceof Error ? err.message : "OAuth authorization failed";

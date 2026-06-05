@@ -393,7 +393,7 @@ async function deleteTestCase(tc: { id: string }): Promise<void> {
   }
 }
 
-let saveTcTimeout: Record<string, ReturnType<typeof setTimeout>> = {};
+const saveTcTimeout: Record<string, ReturnType<typeof setTimeout>> = {};
 
 function debouncedSaveTc(
   tcId: string,
