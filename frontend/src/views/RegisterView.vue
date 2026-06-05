@@ -10,6 +10,17 @@ import Label from "@/components/ui/Label.vue";
 import WorkflowHeroBackground from "@/components/Layout/WorkflowHeroBackground.vue";
 import { useAuthStore } from "@/stores/auth";
 
+interface FastApiValidationError {
+  msg: string;
+}
+
+interface RegisterApiError {
+  response?: {
+    status?: number;
+    data?: { detail?: string | FastApiValidationError[] };
+  };
+}
+
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -19,6 +30,7 @@ const password = ref("");
 const confirmPassword = ref("");
 const error = ref("");
 const loading = ref(false);
+const minPasswordLength = ref(8);
 
 async function handleSubmit(): Promise<void> {
   error.value = "";
@@ -28,8 +40,8 @@ async function handleSubmit(): Promise<void> {
     return;
   }
 
-  if (password.value.length < 6) {
-    error.value = "Password must be at least 6 characters";
+  if (password.value.length < minPasswordLength.value) {
+    error.value = `Password must be at least ${minPasswordLength.value} characters`;
     return;
   }
 
@@ -43,15 +55,20 @@ async function handleSubmit(): Promise<void> {
     });
     router.push("/");
   } catch (err: unknown) {
-    const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } };
+    const defaultErrorMessage = "Registration failed. Please try again.";
+    const axiosErr = err as RegisterApiError;
+
     if (axiosErr.response?.status === 403 && axiosErr.response?.data?.detail === "Registration is disabled") {
       error.value = "Signups are currently closed. We're not accepting new accounts right now.";
     } else if (axiosErr.response?.data?.detail) {
-      error.value = typeof axiosErr.response.data.detail === "string"
-        ? axiosErr.response.data.detail
-        : "Registration failed. Please try again.";
+      const errorDetail = axiosErr.response.data.detail;
+      error.value = typeof errorDetail === "string"
+        ? errorDetail
+        : Array.isArray(errorDetail)
+          ? (errorDetail[0]?.msg ?? defaultErrorMessage).replace(/value error,/ig, "")
+          : defaultErrorMessage;
     } else {
-      error.value = "Registration failed. Please try again.";
+      error.value = defaultErrorMessage;
     }
   } finally {
     loading.value = false;
@@ -170,7 +187,7 @@ const features = [
                 id="password"
                 v-model="password"
                 type="password"
-                placeholder="Min 6 chars"
+                :placeholder="`Min ${minPasswordLength} chars`"
                 required
                 class="h-11 min-h-[44px]"
               />
