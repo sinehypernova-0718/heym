@@ -28,6 +28,7 @@ from app.services.file_storage import (
     validate_basic_auth,
 )
 from app.services.hitl_service import build_public_base_url
+from app.services.upload_limits import read_upload_file_limited
 
 router = APIRouter()
 
@@ -177,7 +178,7 @@ async def upload_file(
 ) -> GeneratedFileResponse:
     """Upload a file manually to Drive."""
     base_url = build_public_base_url(request)
-    file_bytes = await file.read()
+    file_bytes = await read_upload_file_limited(file)
     try:
         row = await store_file(
             db,
