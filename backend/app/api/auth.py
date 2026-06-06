@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +32,28 @@ from app.services.credential_access import get_accessible_credential
 
 router = APIRouter()
 
-_COOKIE_SECURE = not settings.cors_origins.startswith("http://localhost")
+
+def _is_local_http_origin(origin: str) -> bool:
+    """Return True when an origin is plain HTTP for a local development host."""
+    parsed = urlparse(origin.strip())
+    hostname = parsed.hostname or ""
+    return parsed.scheme == "http" and hostname in {"localhost", "127.0.0.1", "::1"}
+
+
+def _should_use_secure_auth_cookies(frontend_url: str, cors_origins: list[str]) -> bool:
+    """Use insecure cookies only for explicit local HTTP development origins."""
+    frontend = frontend_url.strip()
+    if frontend and not _is_local_http_origin(frontend):
+        return True
+
+    origins = [origin.strip() for origin in cors_origins if origin.strip()]
+    if not origins:
+        return not frontend or not _is_local_http_origin(frontend)
+
+    return not all(_is_local_http_origin(origin) for origin in origins)
+
+
+_COOKIE_SECURE = _should_use_secure_auth_cookies(settings.frontend_url, settings.cors_origins_list)
 _ACCESS_COOKIE_MAX_AGE = settings.jwt_access_token_expire_minutes * 60
 _REFRESH_COOKIE_MAX_AGE = settings.jwt_refresh_token_expire_days * 86400
 
