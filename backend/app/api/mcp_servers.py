@@ -44,6 +44,7 @@ from app.services.execution_cancellation import clear_execution as clear_active_
 from app.services.execution_cancellation import register_execution
 from app.services.global_variables_service import get_global_variables_context
 from app.services.mcp_session import mcp_session_store, mcp_sse_channels
+from app.services.oauth_tokens import oauth_token_lookup_values
 from app.services.workflow_executor import execute_workflow
 
 router = APIRouter()
@@ -138,7 +139,7 @@ async def _get_named_server_context(
         now = datetime.now(timezone.utc)
         token_res = await db.execute(
             select(OAuthAccessToken).where(
-                OAuthAccessToken.access_token == bearer_token,
+                OAuthAccessToken.access_token.in_(oauth_token_lookup_values(bearer_token)),
                 OAuthAccessToken.revoked.is_(False),
                 OAuthAccessToken.expires_at > now,
             )
