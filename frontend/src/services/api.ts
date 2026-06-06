@@ -120,6 +120,40 @@ const api = axios.create({
   withCredentials: true,
 });
 
+function getErrorDetail(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
+async function getFetchErrorDetail(response: Response): Promise<string> {
+  const fallback = `HTTP error! status: ${response.status}`;
+  try {
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      if (typeof data?.detail === "string" && data.detail.trim()) {
+        return data.detail;
+      }
+    } else {
+      const text = await response.text();
+      if (text.trim()) {
+        return text;
+      }
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
 export interface AppVersionInfo {
   version: string;
   latest_version: string | null;
@@ -2174,11 +2208,15 @@ export const logsApi = {
     if (since) {
       params.since = since;
     }
-    const response = await api.get<{ logs: string; container: string }>(
-      `/logs/docker/${containerName}`,
-      { params },
-    );
-    return response.data.logs;
+    try {
+      const response = await api.get<{ logs: string; container: string }>(
+        `/logs/docker/${containerName}`,
+        { params },
+      );
+      return response.data.logs;
+    } catch (error) {
+      throw new Error(getErrorDetail(error, "Failed to load Docker logs"));
+    }
   },
 
   streamDockerLogs: (
@@ -2195,7 +2233,7 @@ export const logsApi = {
     })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          throw new Error(await getFetchErrorDetail(response));
         }
 
         const reader = response.body?.getReader();
