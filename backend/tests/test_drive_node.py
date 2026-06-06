@@ -929,16 +929,19 @@ class DriveNodeDownloadUrlTests(unittest.TestCase):
 
         with (
             patch("app.db.session.SessionLocal", return_value=db_mock),
-            patch("app.services.file_storage._storage_root") as mock_root,
+            patch("app.services.file_storage._safe_storage_path", return_value=storage_path_mock),
             patch(
                 "app.services.file_storage.build_download_url",
                 return_value="https://heym.run/api/files/dl/dltoken",
+            ),
+            patch(
+                "app.services.workflow_executor.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
             ),
             patch("httpx.Client") as mock_client_cls,
             patch("secrets.token_urlsafe", return_value="dltoken"),
         ):
             mock_client_cls.return_value.__enter__.return_value.get.return_value = http_response
-            mock_root.return_value.__truediv__ = MagicMock(return_value=storage_path_mock)
 
             result = executor.execute(
                 workflow_id=uuid.uuid4(),
@@ -958,6 +961,7 @@ class DriveNodeDownloadUrlTests(unittest.TestCase):
     ) -> MagicMock:
         resp = MagicMock()
         resp.content = content
+        resp.status_code = 200
         resp.headers = {
             "content-type": content_type,
             "content-disposition": content_disposition,
@@ -1038,6 +1042,87 @@ class DriveNodeDownloadUrlTests(unittest.TestCase):
         self.assertEqual(nr["status"], "success")
         self.assertEqual(nr["output"]["filename"], "data.csv")
 
+    def test_download_url_rejects_unsafe_content_disposition_filename(self) -> None:
+        """Remote filenames cannot escape the generated-file directory."""
+        owner_id = uuid.uuid4()
+        file_bytes = b"evil"
+        db = MagicMock()
+        db.__enter__ = MagicMock(return_value=db)
+        db.__exit__ = MagicMock(return_value=False)
+        db.flush = MagicMock()
+        db.commit = MagicMock()
+        db.add = MagicMock()
+
+        http_resp = self._make_http_response(
+            file_bytes,
+            content_type="text/plain",
+            content_disposition='attachment; filename="../evil.txt"',
+        )
+        storage_path = self._make_storage_path()
+
+        nr = self._run_download_workflow(
+            {
+                "label": "dl",
+                "driveOperation": "downloadUrl",
+                "driveSourceUrl": "https://example.com/file.txt",
+            },
+            owner_id,
+            db,
+            http_resp,
+            storage_path,
+        )
+
+        self.assertEqual(nr["status"], "error")
+        self.assertIn("Filename cannot contain path components", nr["error"])
+        storage_path.write_bytes.assert_not_called()
+
+    def test_download_url_rejects_private_ip_before_fetch(self) -> None:
+        """Private/internal targets are blocked before httpx connects."""
+        from app.services.workflow_executor import WorkflowExecutor
+
+        owner_id = uuid.uuid4()
+        nodes, edges = _make_workflow(
+            {
+                "label": "dl",
+                "driveOperation": "downloadUrl",
+                "driveSourceUrl": "http://127.0.0.1/metadata",
+            }
+        )
+        executor = WorkflowExecutor(nodes=nodes, edges=edges)
+        executor.trace_user_id = owner_id
+
+        with patch("httpx.Client") as mock_client_cls:
+            result = executor.execute(
+                workflow_id=uuid.uuid4(),
+                initial_inputs={"headers": {}, "query": {}, "body": {"text": "hi"}},
+            )
+
+        nr = next((r for r in result.node_results if r["node_type"] == "drive"), None)
+        self.assertIsNotNone(nr)
+        self.assertEqual(nr["status"], "error")
+        self.assertIn("private or reserved", nr["error"])
+        mock_client_cls.assert_not_called()
+
+    def test_download_url_rejects_redirect_to_private_ip_before_following(self) -> None:
+        """Redirect targets are validated before a follow-up request is made."""
+        from app.services.workflow_executor import _fetch_drive_download_url
+
+        redirect_resp = MagicMock()
+        redirect_resp.status_code = 302
+        redirect_resp.headers = {"location": "http://127.0.0.1/metadata"}
+        redirect_resp.raise_for_status = MagicMock()
+
+        client = MagicMock()
+        client.get.return_value = redirect_resp
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+
+        with patch("httpx.Client", return_value=client):
+            with self.assertRaisesRegex(ValueError, "private or reserved"):
+                _fetch_drive_download_url("http://93.184.216.34/start")
+
+        client.get.assert_called_once_with("http://93.184.216.34/start")
+
     def test_download_url_missing_url_raises(self) -> None:
         """Empty driveSourceUrl results in an error."""
         owner_id = uuid.uuid4()
@@ -1100,6 +1185,10 @@ class DriveNodeDownloadUrlTests(unittest.TestCase):
             patch("app.db.session.SessionLocal", return_value=db),
             patch("app.services.file_storage._storage_root"),
             patch("app.services.file_storage.build_download_url", return_value=""),
+            patch(
+                "app.services.workflow_executor.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+            ),
             patch("httpx.Client") as mock_client_cls,
         ):
             mock_client_cls.return_value.__enter__.return_value.get.side_effect = raise_http_error

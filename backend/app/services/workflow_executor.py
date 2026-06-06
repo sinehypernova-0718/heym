@@ -3,6 +3,7 @@ import asyncio
 import copy
 import gc
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ import random
 import re
 import shlex
 import signal
+import socket
 import time
 import uuid
 from collections import deque
@@ -21,7 +23,7 @@ from datetime import datetime, timedelta, timezone, tzinfo
 from functools import lru_cache
 from threading import Event, Lock, Thread, local
 from typing import Any
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 from simpleeval import DEFAULT_FUNCTIONS, EvalWithCompoundTypes, SimpleEval
@@ -43,6 +45,8 @@ from app.services.timezone_utils import get_configured_timezone, normalize_datet
 from app.services.websocket_utils import send_websocket_message
 
 logger = logging.getLogger(__name__)
+
+_DRIVE_DOWNLOAD_MAX_REDIRECTS = 5
 
 
 # Dict methods that commonly collide with JSON keys when using dot access (e.g. `$data.items`).
@@ -107,6 +111,70 @@ def run_async(coro):
             return loop.run_until_complete(coro)
     except RuntimeError:
         return asyncio.run(coro)
+
+
+def _host_has_private_address(hostname: str) -> bool:
+    host = hostname.strip("[]")
+    if "%" in host:
+        host = host.split("%", 1)[0]
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            resolved = socket.getaddrinfo(hostname, None)
+        except socket.gaierror as exc:
+            raise ValueError(
+                f"Drive Node: failed to resolve download URL host: {hostname}"
+            ) from exc
+        addresses = []
+        for family, _, _, _, sockaddr in resolved:
+            if family not in (socket.AF_INET, socket.AF_INET6):
+                continue
+            addresses.append(ipaddress.ip_address(sockaddr[0].split("%", 1)[0]))
+
+    if not addresses:
+        raise ValueError(f"Drive Node: failed to resolve download URL host: {hostname}")
+
+    return any(
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+        for address in addresses
+    )
+
+
+def _validate_drive_download_url(raw_url: str) -> str:
+    from app.config import settings
+
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("Drive Node: source URL must use http or https")
+    if not parsed.hostname:
+        raise ValueError("Drive Node: source URL must include a host")
+    if not settings.drive_download_allow_private_ips and _host_has_private_address(parsed.hostname):
+        raise ValueError("Drive Node: source URL resolves to a private or reserved address")
+    return raw_url
+
+
+def _fetch_drive_download_url(source_url: str) -> httpx.Response:
+    current_url = _validate_drive_download_url(source_url)
+    with httpx.Client(timeout=30, follow_redirects=False) as client:
+        for _ in range(_DRIVE_DOWNLOAD_MAX_REDIRECTS + 1):
+            response = client.get(current_url)
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                response.raise_for_status()
+                return response
+
+            location = response.headers.get("location")
+            if not location:
+                response.raise_for_status()
+                return response
+            current_url = _validate_drive_download_url(urljoin(current_url, location))
+
+    raise ValueError("Drive Node: too many redirects while downloading URL")
 
 
 def _ensure_additional_properties(schema: dict) -> dict:
@@ -8734,7 +8802,12 @@ class WorkflowExecutor:
 
                 from app.db.models import FileAccessToken, GeneratedFile
                 from app.db.session import SessionLocal
-                from app.services.file_storage import _storage_root, build_download_url
+                from app.services.file_storage import (
+                    _normalize_storage_filename,
+                    _safe_storage_path,
+                    _storage_root,
+                    build_download_url,
+                )
 
                 operation = node_data.get("driveOperation", "")
                 if not operation:
@@ -8769,9 +8842,7 @@ class WorkflowExecutor:
                         raise ValueError("Drive Node: source URL is required for downloadUrl")
 
                     try:
-                        with httpx.Client(timeout=30, follow_redirects=True) as _client:
-                            _resp = _client.get(source_url)
-                            _resp.raise_for_status()
+                        _resp = _fetch_drive_download_url(source_url)
                         file_bytes = _resp.content
                         content_type = _resp.headers.get("content-type", "application/octet-stream")
                         mime_type = content_type.split(";")[0].strip()
@@ -8789,6 +8860,7 @@ class WorkflowExecutor:
                             filename = _url_path.split("/")[-1] if _url_path else ""
                         if not filename:
                             filename = "downloaded_file"
+                        filename = _normalize_storage_filename(filename)
                         if not mime_type or mime_type == "application/octet-stream":
                             _guessed = _mimetypes.guess_type(filename)[0]
                             if _guessed:
@@ -8809,7 +8881,7 @@ class WorkflowExecutor:
                     with SessionLocal() as db:
                         _file_uuid = uuid.uuid4()
                         _rel_path = f"{owner_id}/{_file_uuid}/{filename}"
-                        _abs_path = _storage_root() / _rel_path
+                        _abs_path = _safe_storage_path(_rel_path)
                         _abs_path.parent.mkdir(parents=True, exist_ok=True)
                         _abs_path.write_bytes(file_bytes)
 
@@ -9266,9 +9338,10 @@ class WorkflowExecutor:
 
                             import secrets as _secrets
 
+                            out_filename = _normalize_storage_filename(out_filename)
                             new_uuid = uuid.uuid4()
                             rel_path = f"{owner_id}/{new_uuid}/{out_filename}"
-                            abs_path = _storage_root() / rel_path
+                            abs_path = _safe_storage_path(rel_path)
                             abs_path.parent.mkdir(parents=True, exist_ok=True)
                             abs_path.write_bytes(out_bytes)
 
