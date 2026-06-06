@@ -1100,8 +1100,68 @@ class DriveNodeDownloadUrlTests(unittest.TestCase):
         nr = next((r for r in result.node_results if r["node_type"] == "drive"), None)
         self.assertIsNotNone(nr)
         self.assertEqual(nr["status"], "error")
-        self.assertIn("private or reserved", nr["error"])
+        self.assertIn("globally routable", nr["error"])
         mock_client_cls.assert_not_called()
+
+    def test_download_url_rejects_non_global_resolved_address_before_fetch(self) -> None:
+        """Non-global DNS answers such as carrier-grade NAT are blocked."""
+        from app.services.workflow_executor import WorkflowExecutor
+
+        owner_id = uuid.uuid4()
+        nodes, edges = _make_workflow(
+            {
+                "label": "dl",
+                "driveOperation": "downloadUrl",
+                "driveSourceUrl": "https://example.com/metadata",
+            }
+        )
+        executor = WorkflowExecutor(nodes=nodes, edges=edges)
+        executor.trace_user_id = owner_id
+
+        with (
+            patch(
+                "app.services.workflow_executor.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("100.64.0.1", 0))],
+            ),
+            patch("httpx.Client") as mock_client_cls,
+        ):
+            result = executor.execute(
+                workflow_id=uuid.uuid4(),
+                initial_inputs={"headers": {}, "query": {}, "body": {"text": "hi"}},
+            )
+
+        nr = next((r for r in result.node_results if r["node_type"] == "drive"), None)
+        self.assertIsNotNone(nr)
+        self.assertEqual(nr["status"], "error")
+        self.assertIn("globally routable", nr["error"])
+        mock_client_cls.assert_not_called()
+
+    def test_download_url_connects_to_validated_address_with_original_host(self) -> None:
+        """The validated address is pinned for the HTTP request."""
+        from app.services.workflow_executor import _fetch_drive_download_url
+
+        response = self._make_http_response(b"ok", content_type="text/plain")
+        client = MagicMock()
+        client.get.return_value = response
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch(
+                "app.services.workflow_executor.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+            ) as mock_getaddrinfo,
+            patch("httpx.Client", return_value=client),
+        ):
+            result = _fetch_drive_download_url("https://example.com/downloads/file.txt")
+
+        self.assertIs(result, response)
+        mock_getaddrinfo.assert_called_once()
+        client.get.assert_called_once_with(
+            "https://93.184.216.34/downloads/file.txt",
+            headers={"Host": "example.com"},
+            extensions={"sni_hostname": "example.com"},
+        )
 
     def test_download_url_rejects_redirect_to_private_ip_before_following(self) -> None:
         """Redirect targets are validated before a follow-up request is made."""
@@ -1118,10 +1178,14 @@ class DriveNodeDownloadUrlTests(unittest.TestCase):
         client.__exit__ = MagicMock(return_value=False)
 
         with patch("httpx.Client", return_value=client):
-            with self.assertRaisesRegex(ValueError, "private or reserved"):
+            with self.assertRaisesRegex(ValueError, "globally routable"):
                 _fetch_drive_download_url("http://93.184.216.34/start")
 
-        client.get.assert_called_once_with("http://93.184.216.34/start")
+        client.get.assert_called_once_with(
+            "http://93.184.216.34/start",
+            headers={"Host": "93.184.216.34"},
+            extensions=None,
+        )
 
     def test_download_url_missing_url_raises(self) -> None:
         """Empty driveSourceUrl results in an error."""
