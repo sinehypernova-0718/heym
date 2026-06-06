@@ -1565,6 +1565,11 @@ async def list_workflow_shares(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow not found",
         )
+    if workflow.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only owner can list shares",
+        )
 
     result = await db.execute(
         select(WorkflowShare, User)
@@ -1600,6 +1605,11 @@ async def create_workflow_share(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow not found",
+        )
+    if workflow.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only owner can add shares",
         )
 
     result = await db.execute(select(User).where(User.email == share_data.email))
@@ -1650,6 +1660,11 @@ async def remove_workflow_share(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow not found",
+        )
+    if workflow.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only owner can remove shares",
         )
 
     result = await db.execute(
