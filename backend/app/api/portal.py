@@ -264,6 +264,7 @@ async def portal_execute(
         credentials_context=credentials_context,
         global_variables_context=global_variables_context,
         trace_user_id=workflow.owner_id,
+        actor_user_id=workflow.owner_id,
         conversation_history=conversation_history_dicts if conversation_history_dicts else None,
     )
 
@@ -428,6 +429,7 @@ async def portal_execute_stream(
                 credentials_context=credentials_context,
                 global_variables_context=global_variables_context,
                 trace_user_id=workflow.owner_id,
+                actor_user_id=workflow.owner_id,
                 conversation_history=conversation_history_dicts
                 if conversation_history_dicts
                 else None,

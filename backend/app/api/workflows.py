@@ -2243,6 +2243,7 @@ async def execute_workflow_endpoint(
             credentials_context=credentials_context,
             global_variables_context=global_variables_context,
             trace_user_id=trace_user_id,
+            actor_user_id=credentials_owner_id,
             cancel_event=cancel_event,
         )
     except WorkflowCancelledError:
@@ -2815,6 +2816,7 @@ async def execute_workflow_stream(
                 credentials_context=credentials_context,
                 global_variables_context=global_variables_context,
                 trace_user_id=trace_user_id,
+                actor_user_id=credentials_owner_id,
                 cancel_event=cancel_event,
                 executor_holder=executor_holder,
                 sse_node_config=workflow.sse_node_config or {},

@@ -18,7 +18,7 @@ from app.api.workflows import (
     execute_workflow_stream,
     parse_execute_body,
 )
-from app.db.models import DataTable, DataTableRow
+from app.db.models import Credential, CredentialType, DataTable, DataTableRow
 from app.models.schemas import PortalExecuteRequest
 from app.services.workflow_executor import (
     ExecutionResult,
@@ -621,6 +621,42 @@ class _FakeQuery:
     def first(self) -> object:
         return self._result
 
+    def join(self, *_args: object) -> "_FakeQuery":
+        return self
+
+    def all(self) -> list[object]:
+        return [] if self._result is None else [self._result]
+
+
+class _SequenceQuery:
+    def __init__(
+        self, *, first_result: object = None, all_result: list[object] | None = None
+    ) -> None:
+        self._first_result = first_result
+        self._all_result = all_result if all_result is not None else []
+
+    def filter(self, *_args: object) -> "_SequenceQuery":
+        return self
+
+    def join(self, *_args: object) -> "_SequenceQuery":
+        return self
+
+    def first(self) -> object:
+        return self._first_result
+
+    def all(self) -> list[object]:
+        return self._all_result
+
+
+class _SequenceSession:
+    def __init__(self, queries: list[_SequenceQuery]) -> None:
+        self._queries = list(queries)
+
+    def query(self, *_models: object) -> _SequenceQuery:
+        if not self._queries:
+            raise AssertionError("Unexpected query")
+        return self._queries.pop(0)
+
 
 class _FakeDataTableSession:
     def __init__(self, table: object, existing_row: object | None = None) -> None:
@@ -653,6 +689,82 @@ class _FakeDataTableSession:
 
 
 class WorkflowExecutorDataTableNodeTests(unittest.TestCase):
+    def test_credential_lookup_returns_none_without_actor_access(self) -> None:
+        actor_id = uuid.uuid4()
+        credential_id = uuid.uuid4()
+        fake_db = _SequenceSession(
+            [
+                _SequenceQuery(first_result=None),
+                _SequenceQuery(first_result=None),
+                _SequenceQuery(first_result=None),
+            ]
+        )
+        executor = WorkflowExecutor(nodes=[], edges=[], actor_user_id=actor_id)
+
+        credential = executor._get_accessible_credential(fake_db, credential_id)
+
+        self.assertIsNone(credential)
+
+    def test_credential_lookup_allows_direct_share(self) -> None:
+        actor_id = uuid.uuid4()
+        credential = Credential(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            name="Shared",
+            type=CredentialType.openai,
+            encrypted_config="encrypted",
+        )
+        fake_db = _SequenceSession(
+            [
+                _SequenceQuery(first_result=None),
+                _SequenceQuery(first_result=credential),
+            ]
+        )
+        executor = WorkflowExecutor(nodes=[], edges=[], actor_user_id=actor_id)
+
+        result = executor._get_accessible_credential(fake_db, credential.id)
+
+        self.assertIs(result, credential)
+
+    def test_data_table_lookup_rejects_write_with_read_only_team_share(self) -> None:
+        actor_id = uuid.uuid4()
+        table = SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            columns=[],
+        )
+        fake_db = _SequenceSession(
+            [
+                _SequenceQuery(first_result=None),
+                _SequenceQuery(all_result=[]),
+                _SequenceQuery(all_result=[(table, "read")]),
+            ]
+        )
+        executor = WorkflowExecutor(nodes=[], edges=[], actor_user_id=actor_id)
+
+        with self.assertRaisesRegex(ValueError, "Write access required"):
+            executor._get_accessible_data_table(fake_db, table.id, "insert")
+
+    def test_data_table_lookup_allows_read_with_team_share(self) -> None:
+        actor_id = uuid.uuid4()
+        table = SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            columns=[],
+        )
+        fake_db = _SequenceSession(
+            [
+                _SequenceQuery(first_result=None),
+                _SequenceQuery(all_result=[]),
+                _SequenceQuery(all_result=[(table, "read")]),
+            ]
+        )
+        executor = WorkflowExecutor(nodes=[], edges=[], actor_user_id=actor_id)
+
+        result = executor._get_accessible_data_table(fake_db, table.id, "getAll")
+
+        self.assertIs(result, table)
+
     def test_upsert_insert_coerces_row_data_without_local_import_scope_error(self) -> None:
         table_id = uuid.uuid4()
         table = SimpleNamespace(

@@ -1436,6 +1436,7 @@ class WorkflowExecutor:
         global_variables_context: dict[str, object] | None = None,
         workflow_id: uuid.UUID | None = None,
         trace_user_id: uuid.UUID | None = None,
+        actor_user_id: uuid.UUID | None = None,
         conversation_history: list[dict[str, str]] | None = None,
         agent_progress_queue: queue.Queue | None = None,
         sub_workflow_invocation_depth: int = 0,
@@ -1463,6 +1464,7 @@ class WorkflowExecutor:
         self.global_variables_context = global_variables_context or {}
         self.workflow_id = workflow_id
         self.trace_user_id = trace_user_id
+        self.actor_user_id = actor_user_id
         self.conversation_history = conversation_history
         self._sub_workflow_invocation_depth = sub_workflow_invocation_depth
         # True when this executor is running a workflow that was invoked (directly or
@@ -1519,6 +1521,143 @@ class WorkflowExecutor:
                 has_input = any(edge["target"] == node_id for edge in self.edges)
                 if not has_input:
                     self.skipped_nodes.add(node_id)
+
+    def _get_accessible_credential(self, db, credential_id: object):
+        from app.db.models import Credential, CredentialShare, CredentialTeamShare, TeamMember
+
+        if self.actor_user_id is None:
+            return db.query(Credential).filter(Credential.id == credential_id).first()
+
+        credential = (
+            db.query(Credential)
+            .filter(
+                Credential.id == credential_id,
+                Credential.owner_id == self.actor_user_id,
+            )
+            .first()
+        )
+        if credential is not None:
+            return credential
+
+        credential = (
+            db.query(Credential)
+            .join(CredentialShare, CredentialShare.credential_id == Credential.id)
+            .filter(
+                Credential.id == credential_id,
+                CredentialShare.user_id == self.actor_user_id,
+            )
+            .first()
+        )
+        if credential is not None:
+            return credential
+
+        return (
+            db.query(Credential)
+            .join(CredentialTeamShare, CredentialTeamShare.credential_id == Credential.id)
+            .join(TeamMember, TeamMember.team_id == CredentialTeamShare.team_id)
+            .filter(
+                Credential.id == credential_id,
+                TeamMember.user_id == self.actor_user_id,
+            )
+            .first()
+        )
+
+    def _get_accessible_vector_store(self, db, vector_store_id: object):
+        from app.db.models import (
+            TeamMember,
+            VectorStore,
+            VectorStoreShare,
+            VectorStoreTeamShare,
+        )
+
+        if self.actor_user_id is None:
+            return db.query(VectorStore).filter(VectorStore.id == vector_store_id).first()
+
+        store = (
+            db.query(VectorStore)
+            .filter(
+                VectorStore.id == vector_store_id,
+                VectorStore.owner_id == self.actor_user_id,
+            )
+            .first()
+        )
+        if store is not None:
+            return store
+
+        store = (
+            db.query(VectorStore)
+            .join(VectorStoreShare, VectorStoreShare.vector_store_id == VectorStore.id)
+            .filter(
+                VectorStore.id == vector_store_id,
+                VectorStoreShare.user_id == self.actor_user_id,
+            )
+            .first()
+        )
+        if store is not None:
+            return store
+
+        return (
+            db.query(VectorStore)
+            .join(VectorStoreTeamShare, VectorStoreTeamShare.vector_store_id == VectorStore.id)
+            .join(TeamMember, TeamMember.team_id == VectorStoreTeamShare.team_id)
+            .filter(
+                VectorStore.id == vector_store_id,
+                TeamMember.user_id == self.actor_user_id,
+            )
+            .first()
+        )
+
+    def _get_accessible_data_table(self, db, data_table_id: object, operation: str):
+        from app.db.models import DataTable, DataTableShare, DataTableTeamShare, TeamMember
+
+        write_required = operation not in ("find", "getAll", "getById")
+        if self.actor_user_id is None:
+            return db.query(DataTable).filter(DataTable.id == data_table_id).first()
+
+        table = (
+            db.query(DataTable)
+            .filter(
+                DataTable.id == data_table_id,
+                DataTable.owner_id == self.actor_user_id,
+            )
+            .first()
+        )
+        if table is not None:
+            return table
+
+        has_read_share = False
+        user_shares = (
+            db.query(DataTable, DataTableShare.permission)
+            .join(DataTableShare, DataTableShare.table_id == DataTable.id)
+            .filter(
+                DataTable.id == data_table_id,
+                DataTableShare.user_id == self.actor_user_id,
+            )
+            .all()
+        )
+        for table, permission in user_shares:
+            has_read_share = True
+            if not write_required or permission == "write":
+                return table
+
+        team_shares = (
+            db.query(DataTable, DataTableTeamShare.permission)
+            .join(DataTableTeamShare, DataTableTeamShare.table_id == DataTable.id)
+            .join(TeamMember, TeamMember.team_id == DataTableTeamShare.team_id)
+            .filter(
+                DataTable.id == data_table_id,
+                TeamMember.user_id == self.actor_user_id,
+            )
+            .all()
+        )
+        for table, permission in team_shares:
+            has_read_share = True
+            if not write_required or permission == "write":
+                return table
+
+        if has_read_share and write_required:
+            raise ValueError("Write access required for this operation")
+        return None
 
     def get_node_label(self, node_id: str) -> str:
         node = self.nodes.get(node_id)
@@ -2091,6 +2230,7 @@ class WorkflowExecutor:
     ) -> dict:
         return {
             "workflow_id": str(self.workflow_id) if self.workflow_id else None,
+            "actor_user_id": str(self.actor_user_id) if self.actor_user_id else None,
             "nodes": copy.deepcopy(list(self.nodes.values())),
             "edges": copy.deepcopy(self.edges),
             "workflow_cache": copy.deepcopy(self.workflow_cache),
@@ -2125,6 +2265,7 @@ class WorkflowExecutor:
     def build_notification_snapshot(self) -> dict[str, Any]:
         return {
             "workflow_id": str(self.workflow_id) if self.workflow_id else None,
+            "actor_user_id": str(self.actor_user_id) if self.actor_user_id else None,
             "nodes": copy.deepcopy(list(self.nodes.values())),
             "edges": copy.deepcopy(self.edges),
             "workflow_cache": copy.deepcopy(self.workflow_cache),
@@ -2476,7 +2617,6 @@ class WorkflowExecutor:
         if fallback_credential_id and fallback_model:
             attempts.append((fallback_credential_id, fallback_model))
 
-        from app.db.models import Credential
         from app.db.session import SessionLocal
         from app.services.encryption import decrypt_config
 
@@ -2518,16 +2658,12 @@ class WorkflowExecutor:
 
             try:
                 with SessionLocal() as db:
-                    guardrail_cred = (
-                        db.query(Credential)
-                        .filter(Credential.id == guardrail_credential_id)
-                        .first()
-                    )
+                    guardrail_cred = self._get_accessible_credential(db, guardrail_credential_id)
                     if not guardrail_cred:
                         return {
                             "text": "",
                             "model": model,
-                            "error": "Guardrail credential not found.",
+                            "error": "Guardrail credential not found or not accessible.",
                         }
                     guardrail_credential_type = guardrail_cred.type
                     gcred_cfg = decrypt_config(guardrail_cred.encrypted_config)
@@ -2645,7 +2781,7 @@ class WorkflowExecutor:
             base_url = None
             try:
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == cid).first()
+                    cred = self._get_accessible_credential(db, cid)
                     if cred:
                         credential_type = cred.type
                         config = decrypt_config(cred.encrypted_config)
@@ -3025,6 +3161,7 @@ class WorkflowExecutor:
             global_variables_context=merged_global,
             workflow_id=uuid.UUID(workflow_id_str),
             trace_user_id=self.trace_user_id,
+            actor_user_id=self.actor_user_id,
             sub_workflow_invocation_depth=self._sub_workflow_invocation_depth + 1,
             cancel_event=sub_cancel_event,
             invoked_by_agent=True,
@@ -4009,7 +4146,6 @@ class WorkflowExecutor:
         if fallback_credential_id and fallback_model:
             attempts.append((fallback_credential_id, fallback_model))
 
-        from app.db.models import Credential
         from app.db.session import SessionLocal
         from app.services.encryption import decrypt_config
         from app.services.llm_service import execute_llm, execute_llm_with_tools
@@ -4050,16 +4186,12 @@ class WorkflowExecutor:
 
             try:
                 with SessionLocal() as db:
-                    guardrail_cred = (
-                        db.query(Credential)
-                        .filter(Credential.id == guardrail_credential_id)
-                        .first()
-                    )
+                    guardrail_cred = self._get_accessible_credential(db, guardrail_credential_id)
                     if not guardrail_cred:
                         return {
                             "text": "",
                             "model": model,
-                            "error": "Guardrail credential not found.",
+                            "error": "Guardrail credential not found or not accessible.",
                         }
                     guardrail_credential_type = guardrail_cred.type
                     gcred_cfg = decrypt_config(guardrail_cred.encrypted_config)
@@ -4369,7 +4501,7 @@ class WorkflowExecutor:
             base_url = None
             try:
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == cid).first()
+                    cred = self._get_accessible_credential(db, cid)
                     if cred:
                         credential_type = cred.type
                         config = decrypt_config(cred.encrypted_config)
@@ -6659,6 +6791,7 @@ class WorkflowExecutor:
                         global_variables_context=merged_global,
                         workflow_id=uuid.UUID(execute_workflow_id),
                         trace_user_id=self.trace_user_id,
+                        actor_user_id=self.actor_user_id,
                         sub_workflow_invocation_depth=self._sub_workflow_invocation_depth + 1,
                         cancel_event=_exec_node_cancel_event,
                         invoked_by_agent=self._invoked_by_agent,
@@ -6856,13 +6989,12 @@ class WorkflowExecutor:
                 if not credential_id:
                     raise ValueError("Slack node requires a credential")
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
 
                 webhook_url = ""
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         config = decrypt_config(cred.encrypted_config)
                         webhook_url = config.get("webhook_url", "")
@@ -6897,13 +7029,12 @@ class WorkflowExecutor:
                 if chat_id in (None, ""):
                     raise ValueError("Telegram node requires chatId")
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
 
                 telegram_config: dict = {}
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         telegram_config = decrypt_config(cred.encrypted_config)
 
@@ -6951,13 +7082,12 @@ class WorkflowExecutor:
                 if not credential_id:
                     raise ValueError("Send Email node requires an SMTP credential")
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
 
                 smtp_config: dict = {}
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         smtp_config = decrypt_config(cred.encrypted_config)
 
@@ -7036,13 +7166,12 @@ class WorkflowExecutor:
 
                 redis_key = self.evaluate_message_template(key_template, inputs, node_id)
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
 
                 redis_config: dict = {}
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         redis_config = decrypt_config(cred.encrypted_config)
 
@@ -7451,7 +7580,6 @@ class WorkflowExecutor:
                 output = {"note": node_data.get("note", "")}
 
             elif node_type == "rag":
-                from app.db.models import Credential, VectorStore
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
                 from app.services.vector_store import create_vector_store_service
@@ -7467,11 +7595,11 @@ class WorkflowExecutor:
                 qdrant_config: dict = {}
                 collection_name: str = ""
                 with SessionLocal() as db:
-                    store = db.query(VectorStore).filter(VectorStore.id == vector_store_id).first()
+                    store = self._get_accessible_vector_store(db, vector_store_id)
                     if not store:
-                        raise ValueError("Vector store not found")
+                        raise ValueError("Vector store not found or not accessible")
                     collection_name = store.collection_name
-                    cred = db.query(Credential).filter(Credential.id == store.credential_id).first()
+                    cred = self._get_accessible_credential(db, store.credential_id)
                     if cred:
                         qdrant_config = decrypt_config(cred.encrypted_config)
 
@@ -7545,10 +7673,8 @@ class WorkflowExecutor:
 
                         cohere_config: dict = {}
                         with SessionLocal() as db:
-                            reranker_cred = (
-                                db.query(Credential)
-                                .filter(Credential.id == reranker_credential_id)
-                                .first()
+                            reranker_cred = self._get_accessible_credential(
+                                db, reranker_credential_id
                             )
                             if reranker_cred:
                                 cohere_config = decrypt_config(reranker_cred.encrypted_config)
@@ -7621,13 +7747,12 @@ class WorkflowExecutor:
                 if not operation:
                     raise ValueError("Grist node requires an operation")
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
 
                 grist_config: dict = {}
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         grist_config = decrypt_config(cred.encrypted_config)
 
@@ -7922,7 +8047,6 @@ class WorkflowExecutor:
             elif node_type == "googleSheets":
                 import json as _json
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
                 from app.services.google_sheets_service import GoogleSheetsService
@@ -7933,7 +8057,7 @@ class WorkflowExecutor:
 
                 gs_config: dict = {}
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         gs_config = decrypt_config(cred.encrypted_config)
 
@@ -8018,7 +8142,6 @@ class WorkflowExecutor:
             elif node_type == "bigquery":
                 import json as _json
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.bigquery_service import BigQueryService
                 from app.services.encryption import decrypt_config
@@ -8029,7 +8152,7 @@ class WorkflowExecutor:
 
                 bq_config: dict = {}
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         bq_config = decrypt_config(cred.encrypted_config)
 
@@ -8101,13 +8224,12 @@ class WorkflowExecutor:
                 if not credential_id:
                     raise ValueError("RabbitMQ node requires a credential")
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
 
                 rabbitmq_config: dict = {}
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         rabbitmq_config = decrypt_config(cred.encrypted_config)
 
@@ -8193,13 +8315,12 @@ class WorkflowExecutor:
                 if not credential_id:
                     raise ValueError("Crawler node requires a FlareSolverr credential")
 
-                from app.db.models import Credential
                 from app.db.session import SessionLocal
                 from app.services.encryption import decrypt_config
 
                 flaresolverr_url = ""
                 with SessionLocal() as db:
-                    cred = db.query(Credential).filter(Credential.id == credential_id).first()
+                    cred = self._get_accessible_credential(db, credential_id)
                     if cred:
                         config = decrypt_config(cred.encrypted_config)
                         flaresolverr_url = config.get("flaresolverr_url", "")
@@ -8307,12 +8428,7 @@ class WorkflowExecutor:
                 output = self._execute_playwright_node(node_data, inputs, node_id, node_label)
 
             elif node_type == "dataTable":
-                from app.db.models import (
-                    DataTable,
-                    DataTableRow,
-                    DataTableShare,
-                    DataTableTeamShare,
-                )
+                from app.db.models import DataTableRow
                 from app.db.session import SessionLocal
 
                 data_table_id = node_data.get("dataTableId")
@@ -8324,45 +8440,12 @@ class WorkflowExecutor:
                     raise ValueError("DataTable node requires an operation")
 
                 with SessionLocal() as db:
-                    # Check access
-                    table = db.query(DataTable).filter(DataTable.id == data_table_id).first()
+                    table = self._get_accessible_data_table(db, data_table_id, operation)
                     if not table:
-                        raise ValueError(f"DataTable not found: {data_table_id}")
+                        raise ValueError(f"DataTable not found or not accessible: {data_table_id}")
 
-                    owner_id = (
-                        self.workflow_owner_id if hasattr(self, "workflow_owner_id") else None
-                    )
-                    if owner_id and str(table.owner_id) != str(owner_id):
-                        user_share = (
-                            db.query(DataTableShare)
-                            .filter(
-                                DataTableShare.table_id == data_table_id,
-                                DataTableShare.user_id == owner_id,
-                            )
-                            .first()
-                        )
-                        if not user_share:
-                            team_share = (
-                                db.query(DataTableTeamShare)
-                                .filter(
-                                    DataTableTeamShare.table_id == data_table_id,
-                                )
-                                .first()
-                            )
-                            if not team_share:
-                                raise ValueError("No access to this DataTable")
-                            if (
-                                operation not in ("find", "getAll", "getById")
-                                and team_share.permission != "write"
-                            ):
-                                raise ValueError("Write access required for this operation")
-                        elif (
-                            operation not in ("find", "getAll", "getById")
-                            and user_share.permission != "write"
-                        ):
-                            raise ValueError("Write access required for this operation")
-
-                        columns = table.columns or []
+                    owner_id = self.actor_user_id
+                    columns = table.columns or []
 
                     def _coerce_output(data: dict, cols: list) -> dict:
                         """Coerce stored row data to proper types on read."""
@@ -9880,6 +9963,7 @@ def execute_workflow(
     credentials_context: dict[str, str] | None = None,
     global_variables_context: dict[str, object] | None = None,
     trace_user_id: uuid.UUID | None = None,
+    actor_user_id: uuid.UUID | None = None,
     conversation_history: list[dict[str, str]] | None = None,
     cancel_event: Event | None = None,
     public_base_url: str = "",
@@ -9893,6 +9977,7 @@ def execute_workflow(
         global_variables_context=global_variables_context,
         workflow_id=workflow_id,
         trace_user_id=trace_user_id,
+        actor_user_id=actor_user_id,
         conversation_history=conversation_history,
         cancel_event=cancel_event,
         public_base_url=public_base_url,
@@ -9910,6 +9995,18 @@ def execute_workflow(
     return result
 
 
+def _snapshot_actor_user_id(
+    snapshot: dict, explicit_actor_user_id: uuid.UUID | None = None
+) -> uuid.UUID | None:
+    if explicit_actor_user_id is not None:
+        return explicit_actor_user_id
+    for key in ("actor_user_id", "credentials_owner_id"):
+        value = snapshot.get(key)
+        if value:
+            return uuid.UUID(str(value))
+    return None
+
+
 def resume_workflow_execution(
     *,
     snapshot: dict,
@@ -9917,6 +10014,7 @@ def resume_workflow_execution(
     credentials_context: dict[str, str] | None = None,
     global_variables_context: dict[str, object] | None = None,
     trace_user_id: uuid.UUID | None = None,
+    actor_user_id: uuid.UUID | None = None,
 ) -> ExecutionResult:
     workflow_id_value = snapshot.get("workflow_id")
     if not workflow_id_value:
@@ -9932,6 +10030,7 @@ def resume_workflow_execution(
         global_variables_context=global_variables_context,
         workflow_id=workflow_id,
         trace_user_id=trace_user_id,
+        actor_user_id=_snapshot_actor_user_id(snapshot, actor_user_id),
         conversation_history=snapshot.get("conversation_history"),
         sub_workflow_invocation_depth=int(snapshot.get("sub_workflow_invocation_depth", 0)),
         invoked_by_agent=bool(snapshot.get("invoked_by_agent", False)),
@@ -10344,6 +10443,7 @@ def execute_llm_batch_notification_branch(
         global_variables_context=global_variables_context,
         workflow_id=workflow_id,
         trace_user_id=trace_user_id,
+        actor_user_id=_snapshot_actor_user_id(snapshot),
         conversation_history=snapshot.get("conversation_history"),
         agent_progress_queue=agent_progress_queue,
         sub_workflow_invocation_depth=int(snapshot.get("sub_workflow_invocation_depth", 0)),
@@ -10569,6 +10669,7 @@ def execute_hitl_notification_branch(
         global_variables_context=global_variables_context,
         workflow_id=workflow_id,
         trace_user_id=trace_user_id,
+        actor_user_id=_snapshot_actor_user_id(snapshot),
         conversation_history=snapshot.get("conversation_history"),
         sub_workflow_invocation_depth=int(snapshot.get("sub_workflow_invocation_depth", 0)),
         invoked_by_agent=bool(snapshot.get("invoked_by_agent", False)),
@@ -10887,6 +10988,7 @@ def execute_workflow_streaming(
     credentials_context: dict[str, str] | None = None,
     global_variables_context: dict[str, object] | None = None,
     trace_user_id: uuid.UUID | None = None,
+    actor_user_id: uuid.UUID | None = None,
     conversation_history: list[dict[str, str]] | None = None,
     cancel_event: Event | None = None,
     executor_holder: dict | None = None,
@@ -10905,6 +11007,7 @@ def execute_workflow_streaming(
         global_variables_context=global_variables_context,
         workflow_id=workflow_id,
         trace_user_id=trace_user_id,
+        actor_user_id=actor_user_id,
         conversation_history=conversation_history,
         agent_progress_queue=event_queue,
         cancel_event=cancel_event,
