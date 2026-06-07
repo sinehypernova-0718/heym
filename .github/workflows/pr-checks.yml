@@ -30,7 +30,7 @@ jobs:
 
       - name: Frontend lint
         working-directory: frontend
-        run: bun run lint
+        run: bun run lint:check
 
       - name: Frontend typecheck
         working-directory: frontend

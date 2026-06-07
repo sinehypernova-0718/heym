@@ -406,7 +406,15 @@ class PortalExecuteStreamHeartbeatTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await stream.__anext__(), ": heartbeat\n\n")
 
             release_executor.set()
-            self.assertIn('"type": "execution_complete"', await stream.__anext__())
+            complete_chunk = ""
+            for _ in range(100):
+                chunk = await stream.__anext__()
+                if '"type": "execution_complete"' in chunk:
+                    complete_chunk = chunk
+                    break
+                self.assertEqual(chunk, ": heartbeat\n\n")
+
+            self.assertIn('"type": "execution_complete"', complete_chunk)
             with self.assertRaises(StopAsyncIteration):
                 await stream.__anext__()
 

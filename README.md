@@ -21,6 +21,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 [![Commons Clause](https://img.shields.io/badge/Condition-Commons%20Clause-orange.svg?style=flat-square)](COMMONS-CLAUSE.md)
+[![Heym Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fheymrun%2Fheym%2Fmain%2Ffrontend%2Fpackage.json&query=%24.version&label=Heym&prefix=v&color=blueviolet&style=flat-square)](https://github.com/heymrun/heym/releases)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?style=flat-square&logo=vue.js&logoColor=white)](https://vuejs.org)
@@ -559,6 +560,7 @@ heym/
 | `BACKEND_PORT` | Backend server port | `10105` |
 | `FRONTEND_PORT` | Frontend server port | `4017` |
 | `ALLOW_REGISTER` | Enable user registration | `true` |
+| `REQUEST_BODY_MAX_SIZE_MB` | Maximum backend HTTP request body size; defaults to `100`, one MB above `FILE_MAX_SIZE_MB` to allow multipart overhead | `100` |
 
 ---
 
@@ -656,7 +658,7 @@ Commercial use, enterprise licensing, and professional support are available.
 ## Contributors
 
 <a href="https://github.com/heymrun/heym/graphs/contributors">
-  <img alt="Heym contributors" src="https://contrib.rocks/image?repo=heymrun/heym" />
+  <img alt="Heym contributors" src="https://contrib.rocks/image?repo=heymrun/heym&amp;v=0.0.36" />
 </a>
 
 </div>

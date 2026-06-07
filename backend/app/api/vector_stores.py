@@ -38,6 +38,7 @@ from app.models.schemas import (
 )
 from app.services.encryption import decrypt_config
 from app.services.file_processor import create_file_processor
+from app.services.upload_limits import read_upload_file_limited
 from app.services.vector_store import create_vector_store_service
 
 router = APIRouter()
@@ -536,7 +537,7 @@ async def upload_file_to_vector_store(
             detail=f"File type not allowed. Allowed: {', '.join(allowed_extensions)}",
         )
 
-    file_content = await file.read()
+    file_content = await read_upload_file_limited(file)
     file_size = len(file_content)
 
     cred_result = await db.execute(select(Credential).where(Credential.id == store.credential_id))

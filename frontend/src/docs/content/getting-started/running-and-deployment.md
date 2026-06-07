@@ -37,6 +37,7 @@ Key environment variables:
 | `ALLOW_REGISTER` | Open user registration (`false` in prod, `true` in dev) |
 | `DOCKER_LOGS_ENABLED` | Enables Docker-backed Logs tab access when set to `true`; also requires Docker socket access |
 | `DOCKER_LOGS_ALLOWED_EMAILS` | Comma-separated list of trusted user emails allowed to access Docker logs when `DOCKER_LOGS_ENABLED=true` |
+| `REQUEST_BODY_MAX_SIZE_MB` | Maximum HTTP request body size accepted before endpoint handlers run; defaults to `100`, one MB above `FILE_MAX_SIZE_MB` to leave room for multipart overhead |
 
 Database connection defaults (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`) are documented in `.env.example`.
 

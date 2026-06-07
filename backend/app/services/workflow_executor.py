@@ -3,6 +3,7 @@ import asyncio
 import copy
 import gc
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ import random
 import re
 import shlex
 import signal
+import socket
 import time
 import uuid
 from collections import deque
@@ -21,7 +23,7 @@ from datetime import datetime, timedelta, timezone, tzinfo
 from functools import lru_cache
 from threading import Event, Lock, Thread, local
 from typing import Any
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 from simpleeval import DEFAULT_FUNCTIONS, EvalWithCompoundTypes, SimpleEval
@@ -43,6 +45,9 @@ from app.services.timezone_utils import get_configured_timezone, normalize_datet
 from app.services.websocket_utils import send_websocket_message
 
 logger = logging.getLogger(__name__)
+
+_DRIVE_DOWNLOAD_MAX_REDIRECTS = 5
+_DRIVE_DOWNLOAD_REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 
 
 # Dict methods that commonly collide with JSON keys when using dot access (e.g. `$data.items`).
@@ -107,6 +112,116 @@ def run_async(coro):
             return loop.run_until_complete(coro)
     except RuntimeError:
         return asyncio.run(coro)
+
+
+@dataclass(frozen=True)
+class _DriveDownloadTarget:
+    original_url: str
+    request_url: str
+    host_header: str
+    sni_hostname: str | None
+
+
+def _format_host_for_url(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
+    if isinstance(address, ipaddress.IPv6Address):
+        return f"[{address.compressed}]"
+    return address.compressed
+
+
+def _format_host_header(hostname: str, scheme: str, port: int | None) -> str:
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    if port is not None and port != (443 if scheme == "https" else 80):
+        return f"{hostname}:{port}"
+    return hostname
+
+
+def _resolve_drive_download_addresses(
+    hostname: str,
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    host = hostname.strip("[]")
+    if "%" in host:
+        host = host.split("%", 1)[0]
+
+    try:
+        return [ipaddress.ip_address(host)]
+    except ValueError:
+        pass
+
+    try:
+        resolved = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"Drive Node: failed to resolve download URL host: {hostname}") from exc
+
+    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    seen: set[str] = set()
+    for family, _, _, _, sockaddr in resolved:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            continue
+        address = ipaddress.ip_address(sockaddr[0].split("%", 1)[0])
+        address_key = address.compressed
+        if address_key in seen:
+            continue
+        seen.add(address_key)
+        addresses.append(address)
+
+    if not addresses:
+        raise ValueError(f"Drive Node: failed to resolve download URL host: {hostname}")
+    return addresses
+
+
+def _resolve_drive_download_target(raw_url: str) -> _DriveDownloadTarget:
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("Drive Node: source URL must use http or https")
+    if not parsed.hostname:
+        raise ValueError("Drive Node: source URL must include a host")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Drive Node: source URL includes an invalid port") from exc
+
+    addresses = _resolve_drive_download_addresses(parsed.hostname)
+    global_addresses = [address for address in addresses if address.is_global]
+    if not global_addresses:
+        raise ValueError("Drive Node: source URL must resolve to a globally routable address")
+
+    address = global_addresses[0]
+    request_netloc = _format_host_for_url(address)
+    if port is not None:
+        request_netloc = f"{request_netloc}:{port}"
+    request_url = parsed._replace(netloc=request_netloc).geturl()
+
+    hostname = parsed.hostname
+    sni_hostname = hostname.encode("idna").decode("ascii") if parsed.scheme == "https" else None
+    return _DriveDownloadTarget(
+        original_url=raw_url,
+        request_url=request_url,
+        host_header=_format_host_header(hostname, parsed.scheme, port),
+        sni_hostname=sni_hostname,
+    )
+
+
+def _fetch_drive_download_url(source_url: str) -> httpx.Response:
+    current_url = source_url
+    for _ in range(_DRIVE_DOWNLOAD_MAX_REDIRECTS + 1):
+        target = _resolve_drive_download_target(current_url)
+        headers = {"Host": target.host_header}
+        extensions = {"sni_hostname": target.sni_hostname} if target.sni_hostname else None
+
+        with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
+            response = client.get(target.request_url, headers=headers, extensions=extensions)
+            if response.status_code not in _DRIVE_DOWNLOAD_REDIRECT_STATUS_CODES:
+                response.raise_for_status()
+                return response
+
+            location = response.headers.get("location")
+            if not location:
+                response.raise_for_status()
+                return response
+            current_url = urljoin(target.original_url, location)
+
+    raise ValueError("Drive Node: too many redirects while downloading URL")
 
 
 def _ensure_additional_properties(schema: dict) -> dict:
@@ -8734,7 +8849,12 @@ class WorkflowExecutor:
 
                 from app.db.models import FileAccessToken, GeneratedFile
                 from app.db.session import SessionLocal
-                from app.services.file_storage import _storage_root, build_download_url
+                from app.services.file_storage import (
+                    _normalize_storage_filename,
+                    _safe_storage_path,
+                    _storage_root,
+                    build_download_url,
+                )
 
                 operation = node_data.get("driveOperation", "")
                 if not operation:
@@ -8769,9 +8889,7 @@ class WorkflowExecutor:
                         raise ValueError("Drive Node: source URL is required for downloadUrl")
 
                     try:
-                        with httpx.Client(timeout=30, follow_redirects=True) as _client:
-                            _resp = _client.get(source_url)
-                            _resp.raise_for_status()
+                        _resp = _fetch_drive_download_url(source_url)
                         file_bytes = _resp.content
                         content_type = _resp.headers.get("content-type", "application/octet-stream")
                         mime_type = content_type.split(";")[0].strip()
@@ -8789,6 +8907,7 @@ class WorkflowExecutor:
                             filename = _url_path.split("/")[-1] if _url_path else ""
                         if not filename:
                             filename = "downloaded_file"
+                        filename = _normalize_storage_filename(filename)
                         if not mime_type or mime_type == "application/octet-stream":
                             _guessed = _mimetypes.guess_type(filename)[0]
                             if _guessed:
@@ -8809,7 +8928,7 @@ class WorkflowExecutor:
                     with SessionLocal() as db:
                         _file_uuid = uuid.uuid4()
                         _rel_path = f"{owner_id}/{_file_uuid}/{filename}"
-                        _abs_path = _storage_root() / _rel_path
+                        _abs_path = _safe_storage_path(_rel_path)
                         _abs_path.parent.mkdir(parents=True, exist_ok=True)
                         _abs_path.write_bytes(file_bytes)
 
@@ -9266,9 +9385,10 @@ class WorkflowExecutor:
 
                             import secrets as _secrets
 
+                            out_filename = _normalize_storage_filename(out_filename)
                             new_uuid = uuid.uuid4()
                             rel_path = f"{owner_id}/{new_uuid}/{out_filename}"
-                            abs_path = _storage_root() / rel_path
+                            abs_path = _safe_storage_path(rel_path)
                             abs_path.parent.mkdir(parents=True, exist_ok=True)
                             abs_path.write_bytes(out_bytes)
 
