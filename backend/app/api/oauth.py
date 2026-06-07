@@ -200,7 +200,7 @@ def _validate_pkce_request(
     client: OAuthClient,
     code_challenge: str,
     code_challenge_method: str,
-) -> None:
+) -> tuple[str, str]:
     challenge = code_challenge.strip()
     method = code_challenge_method.strip()
 
@@ -230,6 +230,8 @@ def _validate_pkce_request(
                 "error_description": "Public OAuth clients must use PKCE with S256",
             },
         )
+
+    return challenge, method
 
 
 async def _issue_tokens(db: AsyncSession, client_id: str, user_id, scope: str) -> dict:
@@ -381,7 +383,9 @@ async def authorize_get(
     if client is None or redirect_uri not in client.redirect_uris:
         raise HTTPException(400, detail="Invalid client_id or redirect_uri")
 
-    _validate_pkce_request(client, code_challenge, code_challenge_method)
+    code_challenge, code_challenge_method = _validate_pkce_request(
+        client, code_challenge, code_challenge_method
+    )
 
     csrf_token = _generate_csrf_token(client_id)
     return HTMLResponse(
@@ -421,7 +425,9 @@ async def authorize_post(
     if client is None or redirect_uri not in client.redirect_uris:
         raise HTTPException(400, detail="Invalid client")
 
-    _validate_pkce_request(client, code_challenge, code_challenge_method)
+    code_challenge, code_challenge_method = _validate_pkce_request(
+        client, code_challenge, code_challenge_method
+    )
 
     # Verify CSRF token
     if not _verify_csrf_token(client_id, csrf_token):

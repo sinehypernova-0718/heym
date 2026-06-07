@@ -1,25 +1,78 @@
 import base64
 import hashlib
+import json
 import unittest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlencode, urlparse
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
+from app.api.mcp import get_mcp_user
+from app.api.mcp_servers import _get_named_server_context
 from app.api.oauth import (
+    _generate_csrf_token,
     _issue_tokens,
     _validate_pkce_request,
     _verify_pkce,
+    authorize_get,
+    authorize_post,
     register_client,
+    token_endpoint,
 )
-from app.db.models import OAuthAccessToken
+from app.db.models import OAuthAccessToken, OAuthAuthorizationCode
 from app.services.oauth_tokens import hash_oauth_token, oauth_token_lookup_values
 
 
 def _pkce_challenge(verifier: str) -> str:
     digest = hashlib.sha256(verifier.encode()).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
+def _query_result(value: object) -> MagicMock:
+    return MagicMock(scalar_one_or_none=MagicMock(return_value=value))
+
+
+def _request(
+    *,
+    method: str = "POST",
+    path: str = "/",
+    data: dict[str, str] | None = None,
+    query_string: bytes = b"",
+    headers: list[tuple[bytes, bytes]] | None = None,
+) -> Request:
+    body = urlencode(data or {}).encode()
+    request_headers = headers or []
+    if data is not None:
+        request_headers = [
+            *request_headers,
+            (b"content-type", b"application/x-www-form-urlencoded"),
+        ]
+
+    async def receive() -> dict[str, object]:
+        return {
+            "type": "http.request",
+            "body": body,
+            "more_body": False,
+        }
+
+    return Request(
+        {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "headers": request_headers,
+            "query_string": query_string,
+        },
+        receive,
+    )
+
+
+def _compiled_in_values(statement: object, param_name: str) -> list[str]:
+    compiled = statement.compile()
+    values = compiled.params[param_name]
+    return list(values)
 
 
 class OAuthPKCETests(unittest.TestCase):
@@ -39,7 +92,7 @@ class OAuthPKCETests(unittest.TestCase):
     def test_confidential_client_may_skip_pkce(self) -> None:
         client = SimpleNamespace(is_confidential=True)
 
-        _validate_pkce_request(client, "", "")
+        self.assertEqual(_validate_pkce_request(client, "", ""), ("", ""))
 
     def test_unsupported_pkce_method_is_rejected(self) -> None:
         client = SimpleNamespace(is_confidential=True)
@@ -49,6 +102,113 @@ class OAuthPKCETests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail["error"], "invalid_request")
+
+    def test_pkce_values_are_normalized_for_storage(self) -> None:
+        client = SimpleNamespace(is_confidential=False)
+        challenge = _pkce_challenge("verifier")
+
+        self.assertEqual(
+            _validate_pkce_request(client, f" {challenge} ", " S256 "),
+            (challenge, "S256"),
+        )
+
+
+class OAuthEndpointFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_authorize_endpoint_rejects_public_client_without_pkce(self) -> None:
+        client = SimpleNamespace(
+            client_id="public-client",
+            client_name="Public Client",
+            redirect_uris=["https://client.example/callback"],
+            is_confidential=False,
+        )
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=_query_result(client))
+
+        with self.assertRaises(HTTPException) as ctx:
+            await authorize_get(
+                request=_request(method="GET", path="/authorize"),
+                client_id=client.client_id,
+                redirect_uri=client.redirect_uris[0],
+                db=db,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.detail["error"], "invalid_request")
+
+    async def test_authorize_and_token_endpoints_exchange_public_pkce_code(self) -> None:
+        client = SimpleNamespace(
+            client_id="public-client",
+            client_name="Public Client",
+            redirect_uris=["https://client.example/callback"],
+            is_confidential=False,
+        )
+        user = SimpleNamespace(id=uuid.uuid4(), email="user@example.com", hashed_password="hash")
+        verifier = "correct-horse-battery-staple"
+        challenge = _pkce_challenge(verifier)
+
+        added: list[object] = []
+        db = AsyncMock()
+        db.add = MagicMock(side_effect=added.append)
+        db.flush = AsyncMock()
+        db.execute = AsyncMock(side_effect=[
+            _query_result(client),
+            _query_result(user),
+        ])
+
+        authorize_response = None
+        with patch("app.api.oauth.verify_password", return_value=True):
+            authorize_response = await authorize_post(
+                request=_request(
+                    path="/authorize",
+                    data={
+                        "client_id": client.client_id,
+                        "redirect_uri": client.redirect_uris[0],
+                        "scope": "mcp",
+                        "state": "state-123",
+                        "code_challenge": f" {challenge} ",
+                        "code_challenge_method": " S256 ",
+                        "csrf_token": _generate_csrf_token(client.client_id),
+                        "email": user.email,
+                        "password": "secret",
+                    },
+                ),
+                db=db,
+            )
+
+        self.assertEqual(authorize_response.status_code, 302)
+        auth_code = next(obj for obj in added if isinstance(obj, OAuthAuthorizationCode))
+        self.assertEqual(auth_code.code_challenge, challenge)
+        self.assertEqual(auth_code.code_challenge_method, "S256")
+
+        redirect_params = parse_qs(urlparse(authorize_response.headers["location"]).query)
+        self.assertEqual(redirect_params["code"], [auth_code.code])
+        self.assertEqual(redirect_params["state"], ["state-123"])
+
+        db.execute = AsyncMock(side_effect=[
+            _query_result(client),
+            _query_result(auth_code),
+        ])
+        token_response = await token_endpoint(
+            request=_request(
+                path="/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": client.client_id,
+                    "code": auth_code.code,
+                    "redirect_uri": client.redirect_uris[0],
+                    "code_verifier": verifier,
+                },
+            ),
+            db=db,
+        )
+
+        self.assertTrue(auth_code.used)
+        self.assertEqual(token_response.status_code, 200)
+        token_body = json.loads(token_response.body.decode())
+        self.assertEqual(token_body["token_type"], "bearer")
+        token_record = next(obj for obj in added if isinstance(obj, OAuthAccessToken))
+        self.assertEqual(token_record.access_token, hash_oauth_token(token_body["access_token"]))
+        self.assertEqual(token_record.refresh_token, hash_oauth_token(token_body["refresh_token"]))
 
 
 class OAuthTokenStorageTests(unittest.IsolatedAsyncioTestCase):
@@ -96,3 +256,64 @@ class OAuthRegistrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(ctx.exception.detail["error"], "invalid_client_metadata")
         db.add.assert_not_called()
+
+
+class MCPBearerTokenLookupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_default_mcp_auth_queries_hash_and_legacy_plaintext_token(self) -> None:
+        raw_token = "legacy-access-token"
+        user = SimpleNamespace(id=uuid.uuid4())
+        token_record = SimpleNamespace(user_id=user.id)
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[
+            _query_result(token_record),
+            _query_result(user),
+        ])
+
+        result = await get_mcp_user(
+            request=_request(
+                method="GET",
+                path="/api/mcp/tools",
+                headers=[(b"authorization", f"Bearer {raw_token}".encode())],
+            ),
+            x_mcp_key=None,
+            db=db,
+        )
+
+        self.assertIs(result, user)
+        token_query = db.execute.call_args_list[0].args[0]
+        self.assertEqual(
+            _compiled_in_values(token_query, "access_token_1"),
+            list(oauth_token_lookup_values(raw_token)),
+        )
+
+    async def test_named_mcp_server_auth_queries_hash_and_legacy_plaintext_token(self) -> None:
+        raw_token = "legacy-server-token"
+        server_id = uuid.uuid4()
+        user = SimpleNamespace(id=uuid.uuid4())
+        server = SimpleNamespace(id=server_id, user_id=user.id)
+        token_record = SimpleNamespace(user_id=user.id)
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[
+            _query_result(token_record),
+            _query_result(user),
+            _query_result(server),
+        ])
+
+        result_user, result_server = await _get_named_server_context(
+            server_id=server_id,
+            request=_request(
+                method="GET",
+                path=f"/api/mcp/servers/{server_id}/tools",
+                headers=[(b"authorization", f"Bearer {raw_token}".encode())],
+            ),
+            x_mcp_key=None,
+            db=db,
+        )
+
+        self.assertIs(result_user, user)
+        self.assertIs(result_server, server)
+        token_query = db.execute.call_args_list[0].args[0]
+        self.assertEqual(
+            _compiled_in_values(token_query, "access_token_1"),
+            list(oauth_token_lookup_values(raw_token)),
+        )
