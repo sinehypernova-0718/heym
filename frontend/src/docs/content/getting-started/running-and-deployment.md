@@ -35,7 +35,7 @@ Key environment variables:
 | `FRONTEND_PORT` | Frontend port — defaults to `4017` |
 | `FRONTEND_URL` | **Required in production.** Public URL of the app (scheme + host, e.g. `https://heym.example.com`). Used for Google Sheets OAuth redirect URI and similar; must match the URL users use in the browser. |
 | `ALLOW_REGISTER` | Open user registration (`false` in prod, `true` in dev) |
-| `DOCKER_LOGS_ENABLED` | Enables Docker-backed Logs tab access when set to `true`; also requires mounting `/var/run/docker.sock` |
+| `DOCKER_LOGS_ENABLED` | Enables Docker-backed Logs tab access when set to `true`; also requires Docker socket access |
 | `DOCKER_LOGS_ALLOWED_EMAILS` | Comma-separated list of trusted user emails allowed to access Docker logs when `DOCKER_LOGS_ENABLED=true` |
 
 Database connection defaults (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`) are documented in `.env.example`.
@@ -144,11 +144,12 @@ docker pull ghcr.io/heymrun/heym:latest
 docker run --rm \
   --env-file .env \
   -p 4017:4017 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$(pwd)/data/files:/app/data/files" \
   ghcr.io/heymrun/heym:latest
 ```
 
-> **Docker socket access is opt-in.** Mounting `/var/run/docker.sock` gives the backend broad control over the host Docker daemon. If you accept that trust boundary and need the Logs tab to read container logs, set `DOCKER_LOGS_ENABLED=true`, set `DOCKER_LOGS_ALLOWED_EMAILS` to a comma-separated list of trusted user emails that are allowed to access Docker logs, and add `-v /var/run/docker.sock:/var/run/docker.sock`. MCP stdio tools that run `docker` commands may also need this mount. Create the trusted admin account before enabling Docker logs, or keep `ALLOW_REGISTER=false`, so an unverified self-registration cannot claim an allow-listed email.
+> **Docker socket access.** Mounting `/var/run/docker.sock` gives the backend broad control over the host Docker daemon. The default Docker Compose service and the direct `docker run` example include it for Docker-based MCP stdio tools that run `docker` commands. The Logs tab still requires `DOCKER_LOGS_ENABLED=true` and `DOCKER_LOGS_ALLOWED_EMAILS` with a comma-separated list of trusted user emails. Create the trusted admin account before enabling Docker logs, or keep `ALLOW_REGISTER=false`, so an unverified self-registration cannot claim an allow-listed email.
 
 **Minimum environment variables for direct image runs:**
 
@@ -165,7 +166,7 @@ docker run --rm \
 | `FRONTEND_URL` | Recommended | Public browser URL, especially for OAuth callbacks |
 | `CORS_ORIGINS` | Recommended | Allowed browser origins |
 | `ALLOW_REGISTER` | Recommended | Set `false` in production unless open signup is intended |
-| `DOCKER_LOGS_ENABLED` | Optional | Set `true` only when also mounting the Docker socket for Logs tab access |
+| `DOCKER_LOGS_ENABLED` | Optional | Set `true` to allow the Logs tab to use Docker socket access |
 | `DOCKER_LOGS_ALLOWED_EMAILS` | Required when `DOCKER_LOGS_ENABLED=true` | Comma-separated list of trusted user emails allowed to access Docker logs |
 
 **Notes:**
