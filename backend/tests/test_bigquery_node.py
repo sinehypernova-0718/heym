@@ -198,7 +198,11 @@ class TestBigQueryExecutorBranch(unittest.TestCase):
                 "app.services.encryption.decrypt_config",
                 return_value={"client_id": "x", "client_secret": "y"},
             ):
-                executor = WorkflowExecutor(nodes=nodes, edges=edges)
+                executor = WorkflowExecutor(
+                    nodes=nodes,
+                    edges=edges,
+                    actor_user_id=_uuid.uuid4(),
+                )
                 result = executor.execute(workflow_id=_uuid.uuid4(), initial_inputs=inputs)
         self.assertEqual(result.status, "error")
         bq_result = next((r for r in result.node_results if r["node_label"] == "bqNode"), None)
@@ -234,7 +238,11 @@ class TestBigQueryExecutorBranch(unittest.TestCase):
                     "app.services.bigquery_service.BigQueryService.run_query",
                     return_value=expected_output,
                 ) as mock_query:
-                    executor = WorkflowExecutor(nodes=nodes, edges=edges)
+                    executor = WorkflowExecutor(
+                        nodes=nodes,
+                        edges=edges,
+                        actor_user_id=_uuid.uuid4(),
+                    )
                     result = executor.execute(workflow_id=_uuid.uuid4(), initial_inputs=inputs)
         mock_query.assert_called_once_with("my-project", "SELECT 1", 100)
         self.assertEqual(result.status, "success")
@@ -269,7 +277,11 @@ class TestBigQueryExecutorBranch(unittest.TestCase):
                     "app.services.bigquery_service.BigQueryService.insert_rows",
                     return_value=expected_output,
                 ) as mock_insert:
-                    executor = WorkflowExecutor(nodes=nodes, edges=edges)
+                    executor = WorkflowExecutor(
+                        nodes=nodes,
+                        edges=edges,
+                        actor_user_id=_uuid.uuid4(),
+                    )
                     result = executor.execute(workflow_id=_uuid.uuid4(), initial_inputs=inputs)
         mock_insert.assert_called_once_with(
             "my-project", "my-dataset", "users", [{"id": 1, "name": "Alice"}]
@@ -306,7 +318,11 @@ class TestBigQueryExecutorBranch(unittest.TestCase):
                     "app.services.bigquery_service.BigQueryService.insert_rows",
                     return_value=expected_output,
                 ) as mock_insert:
-                    executor = WorkflowExecutor(nodes=nodes, edges=edges)
+                    executor = WorkflowExecutor(
+                        nodes=nodes,
+                        edges=edges,
+                        actor_user_id=_uuid.uuid4(),
+                    )
                     result = executor.execute(workflow_id=_uuid.uuid4(), initial_inputs=inputs)
         mock_insert.assert_called_once_with(
             "my-project", "my-dataset", "users", [{"name": "Alice", "age": "30"}]

@@ -78,11 +78,13 @@ class _FakeWorkflowExecutor:
         global_variables_context: dict[str, object] | None = None,
         workflow_id: uuid.UUID | None = None,
         trace_user_id: uuid.UUID | None = None,
+        actor_user_id: uuid.UUID | None = None,
         conversation_history: list[dict[str, str]] | None = None,
         agent_progress_queue: object | None = None,
         cancel_event: object | None = None,
         public_base_url: str = "",  # noqa: ARG002
     ) -> None:
+        del actor_user_id
         self.nodes = {node["id"]: node for node in nodes}
         self.edges = list(edges)
         self._active_edges = list(edges)

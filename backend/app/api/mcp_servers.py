@@ -470,6 +470,7 @@ async def _dispatch_named_server_jsonrpc(
                 credentials_context=credentials_context,
                 global_variables_context=global_variables_context,
                 trace_user_id=user.id,
+                actor_user_id=user.id,
                 cancel_event=cancel_event,
             )
 

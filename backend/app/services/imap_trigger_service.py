@@ -435,6 +435,7 @@ class ImapTriggerManager:
                 credentials_context=credentials_context,
                 global_variables_context=global_variables_context,
                 trace_user_id=fresh_workflow.owner_id,
+                actor_user_id=fresh_workflow.owner_id,
             )
 
             history_entry = ExecutionHistory(
