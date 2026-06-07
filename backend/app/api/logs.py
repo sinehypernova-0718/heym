@@ -6,12 +6,49 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.config import settings
 from app.db.models import User
 from app.db.session import get_db
 
 router = APIRouter()
 
 ALLOWED_CONTAINERS = {"heym-backend", "heym-frontend", "heym-postgres"}
+
+
+def _docker_logs_allowed_emails() -> set[str]:
+    return {
+        email.strip().lower()
+        for email in settings.docker_logs_allowed_emails.split(",")
+        if email.strip()
+    }
+
+
+def require_docker_logs_access(current_user: User) -> None:
+    if not settings.docker_logs_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Docker log access is disabled. Set DOCKER_LOGS_ENABLED=true and mount "
+                "the Docker socket to enable it."
+            ),
+        )
+
+    allowed_emails = _docker_logs_allowed_emails()
+    if not allowed_emails:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Docker log access is enabled but no allowed user emails are configured. "
+                "Set DOCKER_LOGS_ALLOWED_EMAILS to enable access for specific users."
+            ),
+        )
+
+    current_email = current_user.email.strip().lower()
+    if current_email not in allowed_emails:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to read Docker logs.",
+        )
 
 
 def get_docker_client():
@@ -45,6 +82,7 @@ async def get_docker_logs(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    require_docker_logs_access(current_user)
     validate_container_name(container_name)
 
     client = get_docker_client()
@@ -76,6 +114,7 @@ async def stream_docker_logs(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
+    require_docker_logs_access(current_user)
     validate_container_name(container_name)
 
     client = get_docker_client()
