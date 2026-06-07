@@ -190,16 +190,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Register before CORS so oversized-request 413 responses still receive CORS headers.
+app.add_middleware(
+    RequestBodySizeLimitMiddleware,
+    max_body_size=settings.request_body_max_size_mb * 1024 * 1024,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-app.add_middleware(
-    RequestBodySizeLimitMiddleware,
-    max_body_size=settings.request_body_max_size_mb * 1024 * 1024,
 )
 app.add_middleware(WinstonLoggingMiddleware)
 app.add_middleware(HeymIdentityMiddleware)

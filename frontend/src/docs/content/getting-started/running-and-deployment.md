@@ -35,7 +35,7 @@ Key environment variables:
 | `FRONTEND_PORT` | Frontend port — defaults to `4017` |
 | `FRONTEND_URL` | **Required in production.** Public URL of the app (scheme + host, e.g. `https://heym.example.com`). Used for Google Sheets OAuth redirect URI and similar; must match the URL users use in the browser. |
 | `ALLOW_REGISTER` | Open user registration (`false` in prod, `true` in dev) |
-| `REQUEST_BODY_MAX_SIZE_MB` | Maximum HTTP request body size accepted by the backend before endpoint handlers run; defaults to `100` |
+| `REQUEST_BODY_MAX_SIZE_MB` | Maximum HTTP request body size accepted before endpoint handlers run; defaults to `100`, one MB above `FILE_MAX_SIZE_MB` to leave room for multipart overhead |
 
 Database connection defaults (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`) are documented in `.env.example`.
 

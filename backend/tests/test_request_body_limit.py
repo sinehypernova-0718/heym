@@ -1,6 +1,8 @@
 import json
 import unittest
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.middleware.request_body_limit import RequestBodySizeLimitMiddleware
 
 
@@ -23,6 +25,13 @@ def _response_status(sent: list[dict]) -> int:
 def _response_json(sent: list[dict]) -> dict:
     body = b"".join(message.get("body", b"") for message in sent)
     return json.loads(body.decode("utf-8"))
+
+
+def _response_headers(sent: list[dict]) -> dict[bytes, bytes]:
+    for message in sent:
+        if message["type"] == "http.response.start":
+            return dict(message["headers"])
+    raise AssertionError(f"No response start sent: {sent}")
 
 
 class RequestBodySizeLimitMiddlewareTests(unittest.IsolatedAsyncioTestCase):
@@ -49,6 +58,42 @@ class RequestBodySizeLimitMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             _response_json(sent)["detail"],
             "Request body exceeds the configured size limit.",
+        )
+
+    async def test_cors_wrapper_adds_headers_to_rejected_request(self) -> None:
+        async def app(scope, receive, send) -> None:
+            raise AssertionError("app should not be called")
+
+        middleware = CORSMiddleware(
+            RequestBodySizeLimitMiddleware(app, max_body_size=4),
+            allow_origins=["https://app.example"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        sent: list[dict] = []
+
+        async def receive() -> dict:
+            raise AssertionError("receive should not be called")
+
+        async def send(message: dict) -> None:
+            sent.append(message)
+
+        await middleware(
+            _http_scope(
+                [
+                    (b"origin", b"https://app.example"),
+                    (b"content-length", b"5"),
+                ]
+            ),
+            receive,
+            send,
+        )
+
+        self.assertEqual(_response_status(sent), 413)
+        self.assertEqual(
+            _response_headers(sent).get(b"access-control-allow-origin"),
+            b"https://app.example",
         )
 
     async def test_rejects_streaming_body_once_limit_is_exceeded(self) -> None:

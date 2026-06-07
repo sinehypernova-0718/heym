@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import unittest
 import uuid
 from threading import Event
@@ -60,10 +59,5 @@ class WorkflowAssistantStreamHeartbeatTests(unittest.IsolatedAsyncioTestCase):
                     break
                 self.assertEqual(chunk, ": heartbeat\n\n")
 
-            for _ in range(100):
-                with contextlib.suppress(StopAsyncIteration):
-                    self.assertEqual(await stream.__anext__(), ": heartbeat\n\n")
-                    continue
-                break
-            else:
-                self.fail("Stream did not stop after emitting the done event")
+            with self.assertRaises(StopAsyncIteration):
+                await stream.__anext__()
