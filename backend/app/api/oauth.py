@@ -511,10 +511,12 @@ async def _handle_auth_code_grant(request: Request, form: dict, db: AsyncSession
     client = await _authenticate_client(form, request, db)
 
     result = await db.execute(
-        select(OAuthAuthorizationCode).where(
+        select(OAuthAuthorizationCode)
+        .where(
             OAuthAuthorizationCode.code == code_str,
             OAuthAuthorizationCode.used.is_(False),
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     auth_code = result.scalar_one_or_none()
 
@@ -578,12 +580,12 @@ async def _handle_refresh_token_grant(request: Request, form: dict, db: AsyncSes
     client = await _authenticate_client(form, request, db)
 
     result = await db.execute(
-        select(OAuthAccessToken).where(
-            OAuthAccessToken.refresh_token.in_(
-                oauth_token_lookup_values(str(refresh_token_str))
-            ),
+        select(OAuthAccessToken)
+        .where(
+            OAuthAccessToken.refresh_token.in_(oauth_token_lookup_values(str(refresh_token_str))),
             OAuthAccessToken.revoked.is_(False),
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     token_record = result.scalar_one_or_none()
 

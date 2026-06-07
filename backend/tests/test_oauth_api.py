@@ -150,10 +150,12 @@ class OAuthEndpointFlowTests(unittest.IsolatedAsyncioTestCase):
         db = AsyncMock()
         db.add = MagicMock(side_effect=added.append)
         db.flush = AsyncMock()
-        db.execute = AsyncMock(side_effect=[
-            _query_result(client),
-            _query_result(user),
-        ])
+        db.execute = AsyncMock(
+            side_effect=[
+                _query_result(client),
+                _query_result(user),
+            ]
+        )
 
         authorize_response = None
         with patch("app.api.oauth.verify_password", return_value=True):
@@ -184,10 +186,12 @@ class OAuthEndpointFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(redirect_params["code"], [auth_code.code])
         self.assertEqual(redirect_params["state"], ["state-123"])
 
-        db.execute = AsyncMock(side_effect=[
-            _query_result(client),
-            _query_result(auth_code),
-        ])
+        db.execute = AsyncMock(
+            side_effect=[
+                _query_result(client),
+                _query_result(auth_code),
+            ]
+        )
         token_response = await token_endpoint(
             request=_request(
                 path="/token",
@@ -264,10 +268,12 @@ class MCPBearerTokenLookupTests(unittest.IsolatedAsyncioTestCase):
         user = SimpleNamespace(id=uuid.uuid4())
         token_record = SimpleNamespace(user_id=user.id)
         db = AsyncMock()
-        db.execute = AsyncMock(side_effect=[
-            _query_result(token_record),
-            _query_result(user),
-        ])
+        db.execute = AsyncMock(
+            side_effect=[
+                _query_result(token_record),
+                _query_result(user),
+            ]
+        )
 
         result = await get_mcp_user(
             request=_request(
@@ -293,11 +299,13 @@ class MCPBearerTokenLookupTests(unittest.IsolatedAsyncioTestCase):
         server = SimpleNamespace(id=server_id, user_id=user.id)
         token_record = SimpleNamespace(user_id=user.id)
         db = AsyncMock()
-        db.execute = AsyncMock(side_effect=[
-            _query_result(token_record),
-            _query_result(user),
-            _query_result(server),
-        ])
+        db.execute = AsyncMock(
+            side_effect=[
+                _query_result(token_record),
+                _query_result(user),
+                _query_result(server),
+            ]
+        )
 
         result_user, result_server = await _get_named_server_context(
             server_id=server_id,
