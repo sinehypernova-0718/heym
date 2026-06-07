@@ -11,11 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException, Request
 
 from app.api.ai_assistant import run_execute_workflow_tool
+from app.api.mcp import get_credentials_context_for_user
 from app.api.portal import portal_cancel_execution, portal_execute_stream
 from app.api.workflows import (
     collect_referenced_workflows,
     execute_workflow_endpoint,
     execute_workflow_stream,
+    get_credentials_context,
     parse_execute_body,
 )
 from app.db.models import Credential, CredentialType, DataTable, DataTableRow
@@ -611,6 +613,14 @@ class _ScalarResult:
         return self._value
 
 
+class _ScalarsResult:
+    def __init__(self, values: list[object]) -> None:
+        self._values = values
+
+    def scalars(self) -> object:
+        return SimpleNamespace(all=lambda: self._values)
+
+
 class _FakeQuery:
     def __init__(self, result: object) -> None:
         self._result = result
@@ -689,6 +699,12 @@ class _FakeDataTableSession:
 
 
 class WorkflowExecutorDataTableNodeTests(unittest.TestCase):
+    def test_resource_lookup_requires_actor_user_id(self) -> None:
+        executor = WorkflowExecutor(nodes=[], edges=[])
+
+        with self.assertRaisesRegex(ValueError, "actor_user_id"):
+            executor._get_accessible_credential(_SequenceSession([]), uuid.uuid4())
+
     def test_credential_lookup_returns_none_without_actor_access(self) -> None:
         actor_id = uuid.uuid4()
         credential_id = uuid.uuid4()
@@ -725,6 +741,38 @@ class WorkflowExecutorDataTableNodeTests(unittest.TestCase):
         result = executor._get_accessible_credential(fake_db, credential.id)
 
         self.assertIs(result, credential)
+
+    def test_shared_vector_store_uses_backing_credential_without_separate_share(self) -> None:
+        actor_id = uuid.uuid4()
+        credential = Credential(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            name="Qdrant",
+            type=CredentialType.qdrant,
+            encrypted_config="encrypted",
+        )
+        store = SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            credential_id=credential.id,
+            collection_name="shared_collection",
+        )
+        fake_db = _SequenceSession(
+            [
+                _SequenceQuery(first_result=None),
+                _SequenceQuery(first_result=store),
+                _SequenceQuery(first_result=credential),
+            ]
+        )
+        executor = WorkflowExecutor(nodes=[], edges=[], actor_user_id=actor_id)
+
+        accessible_store = executor._get_accessible_vector_store(fake_db, store.id)
+        backing_credential = executor._get_vector_store_backing_credential(
+            fake_db, accessible_store.credential_id
+        )
+
+        self.assertIs(accessible_store, store)
+        self.assertIs(backing_credential, credential)
 
     def test_data_table_lookup_rejects_write_with_read_only_team_share(self) -> None:
         actor_id = uuid.uuid4()
@@ -792,7 +840,7 @@ class WorkflowExecutorDataTableNodeTests(unittest.TestCase):
                 },
             }
         ]
-        executor = WorkflowExecutor(nodes=nodes, edges=[])
+        executor = WorkflowExecutor(nodes=nodes, edges=[], actor_user_id=table.owner_id)
 
         with patch("app.db.session.SessionLocal", return_value=fake_db):
             result = executor.execute_node("dt", {})
@@ -805,6 +853,55 @@ class WorkflowExecutorDataTableNodeTests(unittest.TestCase):
             fake_db.added_rows[0].data,
             {"username": "ada", "githubToken": "tok", "targetRepo": ""},
         )
+
+
+class CredentialContextTeamShareTests(unittest.IsolatedAsyncioTestCase):
+    async def test_workflow_credentials_context_includes_team_shared_credentials(self) -> None:
+        user_id = uuid.uuid4()
+        credential = SimpleNamespace(
+            id=uuid.uuid4(),
+            name="Team Bearer",
+            type=CredentialType.bearer,
+            encrypted_config="encrypted",
+        )
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _ScalarsResult([]),
+                _ScalarsResult([]),
+                _ScalarsResult([credential]),
+            ]
+        )
+
+        with patch("app.api.workflows.decrypt_config", return_value={"bearer_token": "tok"}):
+            context = await get_credentials_context(db, user_id)
+
+        self.assertEqual(context, {"Team Bearer": "Bearer tok"})
+
+    async def test_mcp_credentials_context_includes_team_shared_credentials(self) -> None:
+        user_id = uuid.uuid4()
+        credential = SimpleNamespace(
+            id=uuid.uuid4(),
+            name="Team Header",
+            type=CredentialType.header,
+            encrypted_config="encrypted",
+        )
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _ScalarsResult([]),
+                _ScalarsResult([]),
+                _ScalarsResult([credential]),
+            ]
+        )
+
+        with patch(
+            "app.api.mcp.decrypt_config",
+            return_value={"header_key": "X-API-Key", "header_value": "secret"},
+        ):
+            context = await get_credentials_context_for_user(db, user_id)
+
+        self.assertEqual(context, {"Team Header": "X-API-Key: secret"})
 
 
 class ParseExecuteBodyXTriggerSourceTests(unittest.IsolatedAsyncioTestCase):

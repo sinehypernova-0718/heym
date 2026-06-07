@@ -1525,14 +1525,13 @@ class WorkflowExecutor:
     def _get_accessible_credential(self, db, credential_id: object):
         from app.db.models import Credential, CredentialShare, CredentialTeamShare, TeamMember
 
-        if self.actor_user_id is None:
-            return db.query(Credential).filter(Credential.id == credential_id).first()
+        actor_user_id = self._require_actor_user_id("Credential")
 
         credential = (
             db.query(Credential)
             .filter(
                 Credential.id == credential_id,
-                Credential.owner_id == self.actor_user_id,
+                Credential.owner_id == actor_user_id,
             )
             .first()
         )
@@ -1544,7 +1543,7 @@ class WorkflowExecutor:
             .join(CredentialShare, CredentialShare.credential_id == Credential.id)
             .filter(
                 Credential.id == credential_id,
-                CredentialShare.user_id == self.actor_user_id,
+                CredentialShare.user_id == actor_user_id,
             )
             .first()
         )
@@ -1557,10 +1556,15 @@ class WorkflowExecutor:
             .join(TeamMember, TeamMember.team_id == CredentialTeamShare.team_id)
             .filter(
                 Credential.id == credential_id,
-                TeamMember.user_id == self.actor_user_id,
+                TeamMember.user_id == actor_user_id,
             )
             .first()
         )
+
+    def _get_vector_store_backing_credential(self, db, credential_id: object):
+        from app.db.models import Credential
+
+        return db.query(Credential).filter(Credential.id == credential_id).first()
 
     def _get_accessible_vector_store(self, db, vector_store_id: object):
         from app.db.models import (
@@ -1570,14 +1574,13 @@ class WorkflowExecutor:
             VectorStoreTeamShare,
         )
 
-        if self.actor_user_id is None:
-            return db.query(VectorStore).filter(VectorStore.id == vector_store_id).first()
+        actor_user_id = self._require_actor_user_id("Vector store")
 
         store = (
             db.query(VectorStore)
             .filter(
                 VectorStore.id == vector_store_id,
-                VectorStore.owner_id == self.actor_user_id,
+                VectorStore.owner_id == actor_user_id,
             )
             .first()
         )
@@ -1589,7 +1592,7 @@ class WorkflowExecutor:
             .join(VectorStoreShare, VectorStoreShare.vector_store_id == VectorStore.id)
             .filter(
                 VectorStore.id == vector_store_id,
-                VectorStoreShare.user_id == self.actor_user_id,
+                VectorStoreShare.user_id == actor_user_id,
             )
             .first()
         )
@@ -1602,7 +1605,7 @@ class WorkflowExecutor:
             .join(TeamMember, TeamMember.team_id == VectorStoreTeamShare.team_id)
             .filter(
                 VectorStore.id == vector_store_id,
-                TeamMember.user_id == self.actor_user_id,
+                TeamMember.user_id == actor_user_id,
             )
             .first()
         )
@@ -1611,14 +1614,13 @@ class WorkflowExecutor:
         from app.db.models import DataTable, DataTableShare, DataTableTeamShare, TeamMember
 
         write_required = operation not in ("find", "getAll", "getById")
-        if self.actor_user_id is None:
-            return db.query(DataTable).filter(DataTable.id == data_table_id).first()
+        actor_user_id = self._require_actor_user_id("DataTable")
 
         table = (
             db.query(DataTable)
             .filter(
                 DataTable.id == data_table_id,
-                DataTable.owner_id == self.actor_user_id,
+                DataTable.owner_id == actor_user_id,
             )
             .first()
         )
@@ -1631,7 +1633,7 @@ class WorkflowExecutor:
             .join(DataTableShare, DataTableShare.table_id == DataTable.id)
             .filter(
                 DataTable.id == data_table_id,
-                DataTableShare.user_id == self.actor_user_id,
+                DataTableShare.user_id == actor_user_id,
             )
             .all()
         )
@@ -1646,7 +1648,7 @@ class WorkflowExecutor:
             .join(TeamMember, TeamMember.team_id == DataTableTeamShare.team_id)
             .filter(
                 DataTable.id == data_table_id,
-                TeamMember.user_id == self.actor_user_id,
+                TeamMember.user_id == actor_user_id,
             )
             .all()
         )
@@ -1658,6 +1660,13 @@ class WorkflowExecutor:
         if has_read_share and write_required:
             raise ValueError("Write access required for this operation")
         return None
+
+    def _require_actor_user_id(self, resource_label: str) -> uuid.UUID:
+        if self.actor_user_id is None:
+            raise ValueError(
+                f"{resource_label} lookup requires actor_user_id; refusing unrestricted lookup."
+            )
+        return self.actor_user_id
 
     def get_node_label(self, node_id: str) -> str:
         node = self.nodes.get(node_id)
@@ -7599,7 +7608,7 @@ class WorkflowExecutor:
                     if not store:
                         raise ValueError("Vector store not found or not accessible")
                     collection_name = store.collection_name
-                    cred = self._get_accessible_credential(db, store.credential_id)
+                    cred = self._get_vector_store_backing_credential(db, store.credential_id)
                     if cred:
                         qdrant_config = decrypt_config(cred.encrypted_config)
 

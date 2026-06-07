@@ -1795,12 +1795,13 @@ async def remove_workflow_team_share(
 async def get_credentials_context(
     db: AsyncSession, user_id: uuid.UUID, include_shared: bool = True
 ) -> dict[str, str]:
-    from app.db.models import CredentialShare
+    from app.db.models import CredentialShare, CredentialTeamShare, TeamMember
 
     owned_result = await db.execute(select(Credential).where(Credential.owner_id == user_id))
     owned_credentials = owned_result.scalars().all()
 
     shared_credentials = []
+    team_shared_credentials = []
     if include_shared:
         shared_result = await db.execute(
             select(Credential)
@@ -1809,7 +1810,21 @@ async def get_credentials_context(
         )
         shared_credentials = shared_result.scalars().all()
 
-    all_credentials = list(owned_credentials) + list(shared_credentials)
+        team_shared_result = await db.execute(
+            select(Credential)
+            .join(CredentialTeamShare, CredentialTeamShare.credential_id == Credential.id)
+            .join(TeamMember, TeamMember.team_id == CredentialTeamShare.team_id)
+            .where(TeamMember.user_id == user_id)
+        )
+        team_shared_credentials = team_shared_result.scalars().all()
+
+    all_credentials = []
+    seen_ids: set[uuid.UUID] = set()
+    for cred in [*owned_credentials, *shared_credentials, *team_shared_credentials]:
+        if cred.id in seen_ids:
+            continue
+        seen_ids.add(cred.id)
+        all_credentials.append(cred)
 
     context: dict[str, str] = {}
     for cred in all_credentials:
