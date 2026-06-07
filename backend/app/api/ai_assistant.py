@@ -1288,6 +1288,7 @@ async def run_execute_workflow_tool(
             test_run=False,
             credentials_context=credentials_context,
             trace_user_id=user_id,
+            actor_user_id=user_id,
             cancel_event=cancel_event,
         )
         history_entry_id: str | None = None

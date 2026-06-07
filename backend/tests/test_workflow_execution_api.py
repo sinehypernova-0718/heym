@@ -261,6 +261,62 @@ class RunExecuteWorkflowToolCancellationTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class RunExecuteWorkflowToolActorForwardingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_forwards_actor_user_id_to_execute_workflow(self) -> None:
+        user_id = uuid.uuid4()
+        workflow = SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            name="Demo",
+            nodes=[{"id": "n1", "type": "input"}],
+            edges=[],
+        )
+        execution_result = ExecutionResult(
+            workflow_id=workflow.id,
+            status="success",
+            outputs={},
+            execution_time_ms=1.0,
+        )
+
+        db = MagicMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+
+        with (
+            patch(
+                "app.api.ai_assistant.get_workflow_for_user",
+                AsyncMock(return_value=workflow),
+            ),
+            patch(
+                "app.api.ai_assistant.collect_referenced_workflows",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.api.ai_assistant.get_credentials_context",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.api.ai_assistant.upsert_workflow_analytics_snapshot",
+                AsyncMock(),
+            ),
+            patch(
+                "app.api.ai_assistant.execute_workflow",
+                MagicMock(return_value=execution_result),
+            ) as mock_execute,
+        ):
+            result = await run_execute_workflow_tool(
+                db=db,
+                user_id=user_id,
+                workflow_id_str=str(workflow.id),
+                inputs={},
+                public_base_url="http://localhost",
+            )
+
+        self.assertEqual(json.loads(result)["status"], "success")
+        mock_execute.assert_called_once()
+        self.assertEqual(mock_execute.call_args.kwargs["actor_user_id"], user_id)
+
+
 class PortalCancelExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_cancel_requested_when_active_execution_exists(self) -> None:
         workflow_id = uuid.uuid4()

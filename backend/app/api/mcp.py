@@ -624,6 +624,7 @@ async def call_mcp_tool(
             credentials_context=credentials_context,
             global_variables_context=global_variables_context,
             trace_user_id=mcp_user.id,
+            actor_user_id=mcp_user.id,
             cancel_event=cancel_event,
         )
 
@@ -793,6 +794,7 @@ async def _dispatch_mcp_jsonrpc(
                 test_run=False,
                 credentials_context=credentials_context,
                 trace_user_id=mcp_user.id,
+                actor_user_id=mcp_user.id,
                 cancel_event=cancel_event,
             )
 
