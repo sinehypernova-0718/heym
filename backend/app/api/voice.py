@@ -17,6 +17,7 @@ from app.services.elevenlabs_service import (
     text_to_speech,
 )
 from app.services.encryption import decrypt_config
+from app.services.upload_limits import read_upload_file_limited
 
 router = APIRouter()
 
@@ -127,7 +128,7 @@ async def transcribe(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     api_key, _ = await _resolve_credential(db, current_user, credential_id)
-    audio = await file.read()
+    audio = await read_upload_file_limited(file)
     try:
         return await speech_to_text(
             api_key, audio, file.filename or "audio.webm", file.content_type or "audio/webm"

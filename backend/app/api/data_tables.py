@@ -34,6 +34,7 @@ from app.models.schemas import (
     DataTableTeamShareResponse,
     DataTableUpdate,
 )
+from app.services.upload_limits import read_upload_file_limited
 
 router = APIRouter()
 
@@ -659,7 +660,7 @@ async def import_csv(
     columns = table.columns or []
     col_names = {col["name"] for col in columns}
 
-    content = await file.read()
+    content = await read_upload_file_limited(file)
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
