@@ -90,7 +90,11 @@ class TestTelegramExecutorBranch(unittest.TestCase):
             ),
             patch("app.services.workflow_executor.get_http_client", return_value=mock_http_client),
         ):
-            executor = WorkflowExecutor(nodes=nodes, edges=edges)
+            executor = WorkflowExecutor(
+                nodes=nodes,
+                edges=edges,
+                actor_user_id=uuid.uuid4(),
+            )
             result = executor.execute(workflow_id=uuid.uuid4(), initial_inputs=inputs)
 
         self.assertEqual(result.status, "success")
