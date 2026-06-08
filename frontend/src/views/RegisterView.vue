@@ -43,23 +43,23 @@ const passwordRequirements = computed((): PasswordRequirement[] => {
   return [
     {
       id: "length",
-      label: `At least ${minPasswordLength} characters`,
+      label: `${minPasswordLength} characters`,
       met: pwd.length >= minPasswordLength,
     },
     {
+      id: "digit",
+      label: "Number",
+      met: /[0-9]/.test(pwd),
+    },
+    {
       id: "uppercase",
-      label: "At least one uppercase letter",
+      label: "Uppercase letter",
       met: /[A-Z]/.test(pwd),
     },
     {
       id: "lowercase",
-      label: "At least one lowercase letter",
+      label: "Lowercase letter",
       met: /[a-z]/.test(pwd),
-    },
-    {
-      id: "digit",
-      label: "At least one number",
-      met: /[0-9]/.test(pwd),
     },
   ];
 });
@@ -132,7 +132,7 @@ const features = [
 </script>
 
 <template>
-  <div class="auth-container h-dvh flex items-center justify-center bg-background px-4 py-3 overflow-hidden relative">
+  <div class="auth-container min-h-screen flex items-center justify-center bg-background p-4 overflow-x-hidden relative">
     <div class="absolute inset-0 overflow-hidden">
       <div class="auth-blob auth-blob-1" />
       <div class="auth-blob auth-blob-2" />
@@ -145,22 +145,22 @@ const features = [
     <WorkflowHeroBackground />
 
     <div class="relative z-10 w-full max-w-full sm:max-w-md">
-      <Card class="auth-card relative w-full p-5 sm:p-6 animate-scale-in-bounce gradient-border-hover">
-        <div class="auth-header flex flex-col items-center mb-4">
+      <Card class="auth-card relative w-full p-5 md:p-6 lg:p-8 animate-scale-in-bounce gradient-border-hover">
+        <div class="flex flex-col items-center mb-6">
           <img
             src="/fav.svg"
             alt="Heym"
-            class="w-12 h-12 mb-3"
+            class="w-16 h-16 mb-4"
           >
-          <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-center">
+          <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-center">
             Create your account
           </h1>
-          <p class="text-muted-foreground text-xs sm:text-sm mt-1 text-center max-w-[280px]">
+          <p class="text-muted-foreground text-sm mt-1.5 text-center max-w-[280px]">
             Join thousands building AI workflows
           </p>
         </div>
 
-        <div class="features-list flex items-center justify-center flex-wrap gap-x-3 gap-y-1 mb-4 text-[11px] sm:text-xs text-muted-foreground">
+        <div class="features-list flex items-center justify-center flex-wrap gap-2 mb-5 text-xs text-muted-foreground">
           <div
             v-for="feature in features"
             :key="feature"
@@ -183,14 +183,14 @@ const features = [
           >
             <div
               v-if="error"
-              class="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs sm:text-sm flex items-center gap-2"
+              class="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-center gap-3"
             >
-              <div class="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse shrink-0" />
+              <div class="w-2 h-2 rounded-full bg-destructive animate-pulse" />
               <span class="font-medium">{{ error }}</span>
             </div>
           </Transition>
 
-          <div class="space-y-1.5">
+          <div class="space-y-2">
             <Label
               for="name"
               class="text-sm font-medium"
@@ -203,11 +203,11 @@ const features = [
               type="text"
               placeholder="John Doe"
               required
-              class="h-10"
+              class="h-11 min-h-[44px]"
             />
           </div>
 
-          <div class="space-y-1.5">
+          <div class="space-y-2">
             <Label
               for="email"
               class="text-sm font-medium"
@@ -220,12 +220,12 @@ const features = [
               type="email"
               placeholder="you@example.com"
               required
-              class="h-10"
+              class="h-11 min-h-[44px]"
             />
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <div class="space-y-1.5">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            <div class="space-y-2">
               <Label
                 for="password"
                 class="text-sm font-medium"
@@ -239,11 +239,11 @@ const features = [
                 autocomplete="new-password"
                 placeholder="New password"
                 required
-                class="h-10"
+                class="h-11 min-h-[44px]"
               />
             </div>
 
-            <div class="space-y-1.5">
+            <div class="space-y-2">
               <Label
                 for="confirmPassword"
                 class="text-sm font-medium"
@@ -257,28 +257,28 @@ const features = [
                 autocomplete="new-password"
                 placeholder="Confirm"
                 required
-                class="h-10"
+                class="h-11 min-h-[44px]"
               />
             </div>
           </div>
 
           <ul
-            class="password-requirements grid grid-cols-1 gap-x-2 gap-y-1 rounded-md border border-border/60 bg-muted/15 px-2.5 py-2"
+            class="password-requirements grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-xs"
             aria-label="Password requirements"
           >
             <li
               v-for="requirement in passwordRequirements"
               :key="requirement.id"
-              class="flex items-center gap-1.5 text-xs leading-normal"
+              class="flex items-center gap-1.5"
               :class="requirement.met ? 'text-primary' : 'text-muted-foreground'"
             >
               <CheckCircle2
                 v-if="requirement.met"
-                class="w-3 h-3 shrink-0"
+                class="w-3.5 h-3.5 shrink-0"
               />
               <Circle
                 v-else
-                class="w-3 h-3 shrink-0"
+                class="w-3.5 h-3.5 shrink-0"
               />
               <span>{{ requirement.label }}</span>
             </li>
@@ -287,7 +287,7 @@ const features = [
           <Button
             type="submit"
             variant="gradient"
-            class="w-full h-10 text-sm"
+            class="w-full h-12 min-h-[44px] text-base"
             :loading="loading"
           >
             Create account
@@ -295,7 +295,7 @@ const features = [
           </Button>
         </form>
 
-        <div class="divider relative my-4">
+        <div class="divider relative my-6">
           <div class="absolute inset-0 flex items-center">
             <div class="w-full border-t border-border" />
           </div>
@@ -306,7 +306,7 @@ const features = [
 
         <router-link
           to="/login"
-          class="login-link flex items-center justify-center gap-2 w-full h-10 rounded-lg border border-border bg-muted/30 text-sm font-medium text-foreground hover:bg-muted/50 hover:border-primary/30 transition-all duration-300"
+          class="login-link flex items-center justify-center gap-3 w-full h-12 min-h-[44px] rounded-xl border border-border bg-muted/30 text-sm font-medium text-foreground hover:bg-muted/50 hover:border-primary/30 transition-all duration-300"
         >
           <LogIn class="w-4 h-4 text-primary" />
           Sign in instead
@@ -344,29 +344,12 @@ const features = [
 
 .features-list {
   flex-wrap: wrap;
+  gap: 12px 16px;
 }
 
 @media (max-height: 720px) {
   .features-list {
     display: none;
-  }
-
-  .auth-header {
-    margin-bottom: 0.75rem;
-  }
-
-  .auth-header img {
-    width: 2.5rem;
-    height: 2.5rem;
-    margin-bottom: 0.5rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .features-list {
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
   }
 }
 </style>
