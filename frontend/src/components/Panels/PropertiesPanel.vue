@@ -6170,6 +6170,21 @@ onUnmounted(() => {
               </div>
 
               <div class="space-y-2 pt-2 border-t">
+                <Label>Request Timeout (seconds)</Label>
+                <Input
+                  type="number"
+                  :model-value="String(selectedNode.data.requestTimeoutSeconds ?? 60)"
+                  min="1"
+                  max="3600"
+                  placeholder="60"
+                  @update:model-value="updateNodeData('requestTimeoutSeconds', parseInt($event, 10) || 60)"
+                />
+                <p class="text-xs text-muted-foreground">
+                  Max seconds to wait for the model response before timing out
+                </p>
+              </div>
+
+              <div class="space-y-2 pt-2 border-t">
                 <Label>JSON Output Parser</Label>
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
@@ -6505,6 +6520,20 @@ onUnmounted(() => {
                   @update:model-value="updateNodeData('temperature', parseFloat($event as string))"
                 />
               </div>
+            </div>
+            <div class="space-y-2 pt-2 border-t">
+              <Label>Request Timeout (seconds)</Label>
+              <Input
+                type="number"
+                :model-value="String(selectedNode.data.requestTimeoutSeconds ?? 60)"
+                min="1"
+                max="3600"
+                placeholder="60"
+                @update:model-value="updateNodeData('requestTimeoutSeconds', parseInt($event, 10) || 60)"
+              />
+              <p class="text-xs text-muted-foreground">
+                Max seconds to wait for the model response before timing out
+              </p>
             </div>
             <div class="space-y-2 pt-2 border-t">
               <div class="flex items-center gap-2">

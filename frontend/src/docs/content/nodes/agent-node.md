@@ -170,6 +170,7 @@ def count_characters(text: str) -> int:
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `toolTimeoutSeconds` | number | Max seconds per tool execution (default: 30) |
+| `requestTimeoutSeconds` | number | Max seconds to wait for each model response before timing out (default: 60). Raise it for slow or self-hosted providers (LiteLLM, vLLM, local models) and long multi-step runs. |
 
 ## MCP Connections
 
