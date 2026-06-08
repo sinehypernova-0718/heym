@@ -14,6 +14,7 @@ def _make_executor(nodes: dict, edges: list) -> WorkflowExecutor:
     ex.nodes = nodes
     ex.edges = edges
     ex.node_results = {}
+    ex.actor_user_id = None
     return ex
 
 
@@ -226,6 +227,7 @@ class TestAgentNodeToolIntegration(unittest.TestCase):
         ex.conversation_history = None
         ex.workflow_cache = {}
         ex.trace_user_id = None
+        ex.actor_user_id = uuid.uuid4()
         ex.workflow_id = uuid.uuid4()
         ex.cancel_event = None
         ex._resolve_template = MagicMock(side_effect=lambda tmpl, *a, **kw: tmpl)

@@ -165,6 +165,7 @@ class CronScheduler:
                 credentials_context=credentials_context,
                 global_variables_context=global_variables_context,
                 trace_user_id=workflow.owner_id,
+                actor_user_id=workflow.owner_id,
                 public_base_url=public_base_url,
             )
             if result.allow_downstream_pending:

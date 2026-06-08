@@ -55,6 +55,7 @@ from app.services.execution_cancellation import (
 )
 from app.services.global_variables_service import get_global_variables_context
 from app.services.mcp_session import mcp_session_store, mcp_sse_channels
+from app.services.oauth_tokens import oauth_token_lookup_values
 from app.services.workflow_executor import execute_workflow
 
 router = APIRouter()
@@ -144,7 +145,7 @@ async def get_mcp_user(
         now = datetime.now(timezone.utc)
         result = await db.execute(
             select(OAuthAccessToken).where(
-                OAuthAccessToken.access_token == bearer_token,
+                OAuthAccessToken.access_token.in_(oauth_token_lookup_values(bearer_token)),
                 OAuthAccessToken.revoked.is_(False),
                 OAuthAccessToken.expires_at > now,
             )
@@ -275,7 +276,7 @@ def workflow_to_mcp_tool(workflow: Workflow) -> MCPTool:
 
 
 async def get_credentials_context_for_user(db: AsyncSession, user_id: uuid.UUID) -> dict[str, str]:
-    from app.db.models import CredentialShare
+    from app.db.models import CredentialShare, CredentialTeamShare, TeamMember
 
     owned_result = await db.execute(select(Credential).where(Credential.owner_id == user_id))
     owned_credentials = owned_result.scalars().all()
@@ -287,7 +288,21 @@ async def get_credentials_context_for_user(db: AsyncSession, user_id: uuid.UUID)
     )
     shared_credentials = shared_result.scalars().all()
 
-    all_credentials = list(owned_credentials) + list(shared_credentials)
+    team_shared_result = await db.execute(
+        select(Credential)
+        .join(CredentialTeamShare, CredentialTeamShare.credential_id == Credential.id)
+        .join(TeamMember, TeamMember.team_id == CredentialTeamShare.team_id)
+        .where(TeamMember.user_id == user_id)
+    )
+    team_shared_credentials = team_shared_result.scalars().all()
+
+    all_credentials = []
+    seen_ids: set[uuid.UUID] = set()
+    for cred in [*owned_credentials, *shared_credentials, *team_shared_credentials]:
+        if cred.id in seen_ids:
+            continue
+        seen_ids.add(cred.id)
+        all_credentials.append(cred)
 
     context: dict[str, str] = {}
     for cred in all_credentials:
@@ -610,6 +625,7 @@ async def call_mcp_tool(
             credentials_context=credentials_context,
             global_variables_context=global_variables_context,
             trace_user_id=mcp_user.id,
+            actor_user_id=mcp_user.id,
             cancel_event=cancel_event,
         )
 
@@ -779,6 +795,7 @@ async def _dispatch_mcp_jsonrpc(
                 test_run=False,
                 credentials_context=credentials_context,
                 trace_user_id=mcp_user.id,
+                actor_user_id=mcp_user.id,
                 cancel_event=cancel_event,
             )
 

@@ -18,10 +18,13 @@ from app.db.models import OAuthAccessToken, OAuthAuthorizationCode, OAuthClient,
 from app.db.session import get_db
 from app.services.auth import verify_password
 from app.services.auth_rate_limiter import oauth_register_limiter
+from app.services.oauth_tokens import hash_oauth_token, oauth_token_lookup_values
 
 router = APIRouter()
 
 _CSRF_MAX_AGE_SECONDS = 600  # 10-minute window
+_SUPPORTED_TOKEN_AUTH_METHODS = {"client_secret_post", "client_secret_basic", "none"}
+_SUPPORTED_PKCE_METHOD = "S256"
 
 
 def _generate_csrf_token(client_id: str) -> str:
@@ -190,7 +193,45 @@ async def _authenticate_client(form: dict, request: Request, db: AsyncSession) -
 def _verify_pkce(code_challenge: str, code_verifier: str) -> bool:
     digest = hashlib.sha256(code_verifier.encode()).digest()
     computed = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
-    return computed == code_challenge
+    return secrets.compare_digest(computed, code_challenge)
+
+
+def _validate_pkce_request(
+    client: OAuthClient,
+    code_challenge: str,
+    code_challenge_method: str,
+) -> tuple[str, str]:
+    challenge = code_challenge.strip()
+    method = code_challenge_method.strip()
+
+    if challenge or method:
+        if not challenge:
+            raise HTTPException(
+                400,
+                detail={
+                    "error": "invalid_request",
+                    "error_description": "code_challenge is required when using PKCE",
+                },
+            )
+        if method != _SUPPORTED_PKCE_METHOD:
+            raise HTTPException(
+                400,
+                detail={
+                    "error": "invalid_request",
+                    "error_description": "Only S256 PKCE is supported",
+                },
+            )
+
+    if not client.is_confidential and (not challenge or method != _SUPPORTED_PKCE_METHOD):
+        raise HTTPException(
+            400,
+            detail={
+                "error": "invalid_request",
+                "error_description": "Public OAuth clients must use PKCE with S256",
+            },
+        )
+
+    return challenge, method
 
 
 async def _issue_tokens(db: AsyncSession, client_id: str, user_id, scope: str) -> dict:
@@ -204,8 +245,8 @@ async def _issue_tokens(db: AsyncSession, client_id: str, user_id, scope: str) -
     )
 
     token = OAuthAccessToken(
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=hash_oauth_token(access_token),
+        refresh_token=hash_oauth_token(refresh_token),
         client_id=client_id,
         user_id=user_id,
         scope=scope,
@@ -278,6 +319,18 @@ async def register_client(
     is_confidential = False
 
     token_auth_method = body.get("token_endpoint_auth_method", "none")
+    if (
+        not isinstance(token_auth_method, str)
+        or token_auth_method not in _SUPPORTED_TOKEN_AUTH_METHODS
+    ):
+        raise HTTPException(
+            400,
+            detail={
+                "error": "invalid_client_metadata",
+                "error_description": "Unsupported token_endpoint_auth_method",
+            },
+        )
+
     if token_auth_method in ("client_secret_post", "client_secret_basic"):
         client_secret = secrets.token_urlsafe(32)
         client_secret_hash = bcrypt.hashpw(client_secret.encode(), bcrypt.gensalt()).decode()
@@ -330,6 +383,10 @@ async def authorize_get(
     if client is None or redirect_uri not in client.redirect_uris:
         raise HTTPException(400, detail="Invalid client_id or redirect_uri")
 
+    code_challenge, code_challenge_method = _validate_pkce_request(
+        client, code_challenge, code_challenge_method
+    )
+
     csrf_token = _generate_csrf_token(client_id)
     return HTMLResponse(
         _render_consent_page(
@@ -367,6 +424,10 @@ async def authorize_post(
     client = await _get_client(db, client_id)
     if client is None or redirect_uri not in client.redirect_uris:
         raise HTTPException(400, detail="Invalid client")
+
+    code_challenge, code_challenge_method = _validate_pkce_request(
+        client, code_challenge, code_challenge_method
+    )
 
     # Verify CSRF token
     if not _verify_csrf_token(client_id, csrf_token):
@@ -450,10 +511,12 @@ async def _handle_auth_code_grant(request: Request, form: dict, db: AsyncSession
     client = await _authenticate_client(form, request, db)
 
     result = await db.execute(
-        select(OAuthAuthorizationCode).where(
+        select(OAuthAuthorizationCode)
+        .where(
             OAuthAuthorizationCode.code == code_str,
             OAuthAuthorizationCode.used.is_(False),
         )
+        .with_for_update()
     )
     auth_code = result.scalar_one_or_none()
 
@@ -469,7 +532,24 @@ async def _handle_auth_code_grant(request: Request, form: dict, db: AsyncSession
         raise HTTPException(400, detail={"error": "invalid_grant"})
 
     # PKCE verification
+    if not client.is_confidential and not auth_code.code_challenge:
+        raise HTTPException(
+            400,
+            detail={
+                "error": "invalid_grant",
+                "error_description": "PKCE is required for public clients",
+            },
+        )
+
     if auth_code.code_challenge:
+        if auth_code.code_challenge_method != _SUPPORTED_PKCE_METHOD:
+            raise HTTPException(
+                400,
+                detail={
+                    "error": "invalid_grant",
+                    "error_description": "Unsupported PKCE method",
+                },
+            )
         if not code_verifier:
             raise HTTPException(
                 400,
@@ -500,10 +580,12 @@ async def _handle_refresh_token_grant(request: Request, form: dict, db: AsyncSes
     client = await _authenticate_client(form, request, db)
 
     result = await db.execute(
-        select(OAuthAccessToken).where(
-            OAuthAccessToken.refresh_token == refresh_token_str,
+        select(OAuthAccessToken)
+        .where(
+            OAuthAccessToken.refresh_token.in_(oauth_token_lookup_values(str(refresh_token_str))),
             OAuthAccessToken.revoked.is_(False),
         )
+        .with_for_update()
     )
     token_record = result.scalar_one_or_none()
 

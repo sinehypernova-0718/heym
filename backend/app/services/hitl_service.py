@@ -215,6 +215,7 @@ async def persist_pending_hitl_execution(
 
     expires_at = datetime.now(timezone.utc) + timedelta(hours=HITL_TTL_HOURS)
     snapshot = copy.deepcopy(execution_result.resume_snapshot)
+    snapshot["actor_user_id"] = snapshot.get("actor_user_id") or str(credentials_owner_id)
     snapshot["credentials_owner_id"] = str(credentials_owner_id)
     snapshot["trace_user_id"] = str(trace_user_id) if trace_user_id else None
     snapshot["trigger_source"] = trigger_source
@@ -297,6 +298,7 @@ async def persist_pending_hitl_execution(
         merged_snapshot = copy.deepcopy(updated_snapshot)
         for key in (
             "credentials_owner_id",
+            "actor_user_id",
             "trace_user_id",
             "trigger_source",
             "public_base_url",
