@@ -2729,6 +2729,7 @@ class WorkflowExecutor:
         batch_mode_enabled: bool = False,
         on_batch_status_update: Callable[[dict[str, Any]], None] | None = None,
         should_abort: Callable[[], str | None] | None = None,
+        request_timeout: float = 60.0,
     ) -> dict:
         if not credential_id or not model:
             return {
@@ -2996,6 +2997,7 @@ class WorkflowExecutor:
                             conversation_history=self.conversation_history,
                             on_status_update=on_batch_status_update,
                             should_abort=should_abort,
+                            request_timeout=request_timeout,
                         )
                     )
                 else:
@@ -3016,6 +3018,7 @@ class WorkflowExecutor:
                             image_input=image_input,
                             trace_context=trace_context,
                             conversation_history=self.conversation_history,
+                            request_timeout=request_timeout,
                         )
                     )
                 out = dict(result)
@@ -4080,6 +4083,7 @@ class WorkflowExecutor:
         max_tokens = node_data.get("maxTokens")
         tools = node_data.get("tools") or []
         tool_timeout_seconds = float(node_data.get("toolTimeoutSeconds") or 30)
+        request_timeout_seconds = float(node_data.get("requestTimeoutSeconds") or 60)
         max_tool_iterations = int(node_data.get("maxToolIterations") or 30)
         image_input_enabled = bool(node_data.get("imageInputEnabled", False))
         image_input_template = node_data.get("imageInput", "")
@@ -4715,6 +4719,7 @@ class WorkflowExecutor:
                             initial_prompt_tokens=resume_prompt_tokens,
                             initial_completion_tokens=resume_completion_tokens,
                             should_abort=should_abort_tool_loop,
+                            request_timeout=request_timeout_seconds,
                         )
                     )
                 else:
@@ -4734,6 +4739,7 @@ class WorkflowExecutor:
                             trace_context=trace_context,
                             conversation_history=conversation_history,
                             skills_included=skills_used or None,
+                            request_timeout=request_timeout_seconds,
                         )
                     )
             except Exception as e:
@@ -6638,6 +6644,7 @@ class WorkflowExecutor:
                     batch_mode_enabled=batch_mode_enabled,
                     on_batch_status_update=batch_status_callback if batch_mode_enabled else None,
                     should_abort=batch_should_abort if batch_mode_enabled else None,
+                    request_timeout=float(node_data.get("requestTimeoutSeconds") or 60),
                 )
                 trace_id = self._pop_internal_trace_id(output)
                 if output.get("error"):

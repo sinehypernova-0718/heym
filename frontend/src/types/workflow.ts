@@ -373,6 +373,8 @@ export interface NodeData {
   agentProvidedFields?: string[];
   maxToolIterations?: number;
   toolTimeoutSeconds?: number;
+  /** Per-node LLM request timeout in seconds (passed to the model client). Default 60. */
+  requestTimeoutSeconds?: number;
   variableName?: string;
   variableValue?: string;
   variableType?: VariableType;

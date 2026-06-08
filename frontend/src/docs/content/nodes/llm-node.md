@@ -38,6 +38,7 @@ If the selected provider or model does not support batch execution, the Properti
 | `userMessage` | string | User message. Default: `$input.text` |
 | `temperature` | number | 0.0–2.0 (default: 0.7) |
 | `maxTokens` | number | Max response tokens (optional) |
+| `requestTimeoutSeconds` | number | Max seconds to wait for the model response before timing out (default: 60). Raise it for slow or self-hosted providers (LiteLLM, vLLM, local models). |
 
 ### Image & Output
 

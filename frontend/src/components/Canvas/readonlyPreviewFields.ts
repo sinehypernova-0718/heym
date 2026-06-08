@@ -91,6 +91,7 @@ const FIELD_LABELS: Record<string, string> = {
   errorMessage: "Error Message",
   httpStatusCode: "HTTP Status Code",
   toolTimeoutSeconds: "Tool Timeout (s)",
+  requestTimeoutSeconds: "Request Timeout (s)",
   maxToolIterations: "Max Iterations",
   duration: "Duration (ms)",
   ragOperation: "RAG Operation",
