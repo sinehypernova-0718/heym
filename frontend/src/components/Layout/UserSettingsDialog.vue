@@ -477,7 +477,7 @@ async function handleChangePassword(): Promise<void> {
             </span>
           </div>
 
-          <dl class="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5 text-sm">
+          <dl class="grid grid-cols-[max-content_1fr] items-baseline gap-x-4 gap-y-1.5 text-sm">
             <dt class="text-muted-foreground">
               Service name
             </dt>

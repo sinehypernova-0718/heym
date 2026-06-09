@@ -218,6 +218,7 @@ For a complete list of all features with short descriptions, see **[Full Feature
 | Data Tables | ✅ | ✅ | ✅ | ❌ |
 | Workflow Templates | ✅ | ✅ | ✅ | ✅ |
 | LLM trace inspection | ✅ | limited⁴ | ❌ | ✅ |
+| OpenTelemetry tracing export | ✅ | ✅¹⁷ | ❌¹⁷ | ❌¹⁷ |
 | LLM token cost tracking (USD) | ✅ | ❌¹⁶ | ❌¹⁶ | limited¹⁶ |
 | Built-in evals for AI workflows | ✅ | ✅ | ❌ | ❌ |
 | Parallel DAG execution | ✅ | limited⁹ | ❌ | ❌ |
@@ -243,6 +244,7 @@ For a complete list of all features with short descriptions, see **[Full Feature
 14. Make's official docs cover Webhooks modules and HTTP(S) request modules, but I couldn't find a native WebSocket trigger or send module
 15. As of April 22, 2026, n8n's official docs document HTTP batching and loop/wait patterns rather than a native LLM batch-status branch, Zapier's official ChatGPT app docs list no triggers and only a generic API Request beta, and Make's official OpenAI integration page exposes batch actions like create/watch completed but not a first-class status-branching LLM node, so n8n/Make are marked partial and Zapier is marked unavailable for this specific pattern
 16. n8n has no native LLM token cost tracking; community workaround workflows exist (e.g. "Token Estim8r") but require manual installation and post-execution API calls — an open feature request exists as of May 2026. Zapier exposes no per-execution token count or USD cost to users; AI steps consume tasks only, with no model pricing table. Make switched to a credits model in August 2025 that partially reflects token consumption for Make-hosted AI, but third-party connections using your own API key are billed as 1 operation = 1 credit with no token counting, and there is no per-execution USD breakdown by model
+17. Heym emits native OpenTelemetry spans (one per workflow run plus one per node) over OTLP/HTTP to any compatible backend, with W3C trace-context propagation and no instrumentation code, configured via `HEYM_OTEL_*` env vars and disabled by default. n8n has a documented OpenTelemetry tracing setup for workflow and node executions (blog.n8n.io). Zapier and Make.com do not document OpenTelemetry export of their workflow/scenario executions as of June 2026
 
 </details>
 
