@@ -1,0 +1,80 @@
+# OpenTelemetry Tracing
+
+Heym can emit [OpenTelemetry](https://opentelemetry.io/) traces for every workflow run and every node execution. Each run produces a root span with child spans per node, so you can see which step failed, how long it took, what it called, and what came back. Spans are exported over OTLP/HTTP to any compatible backend such as Jaeger, Grafana Tempo, Honeycomb, Datadog, New Relic, or Grafana Cloud.
+
+Tracing is **disabled by default**. When it is off there is no measurable overhead and no spans are created.
+
+## Enabling Tracing
+
+Set the following environment variables on the backend, then restart it:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HEYM_OTEL_ENABLED` | `false` | Master switch. Set to `true` to turn tracing on. |
+| `HEYM_OTEL_EXPORTER_OTLP_ENDPOINT` | `""` | OTLP/HTTP base endpoint, for example `http://collector:4318`. Heym posts spans to `<endpoint>/v1/traces`. |
+| `HEYM_OTEL_EXPORTER_OTLP_HEADERS` | `""` | Comma-separated `key=value` headers for exporter auth, for example `authorization=Bearer <token>`. |
+| `HEYM_OTEL_SERVICE_NAME` | `heym` | The `service.name` resource attribute. |
+| `HEYM_OTEL_TRACES_SAMPLER_RATIO` | `1.0` | Head sampling ratio between `0.0` and `1.0`, applied with a parent-based sampler. |
+| `HEYM_OTEL_CAPTURE_NODE_IO` | `false` | When `true`, attach truncated node input and output payloads to node spans. Off by default for privacy. |
+
+Minimal example:
+
+```bash
+HEYM_OTEL_ENABLED=true
+HEYM_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+You can confirm the active configuration in the app under **Settings → Observability** (open it from the gear icon in the header). That panel is read-only and never displays exporter secrets.
+
+## What Gets Traced
+
+### Workflow root span
+
+Name: `heym.workflow.execute`
+
+| Attribute | Description |
+|-----------|-------------|
+| `heym.workflow.id` | The workflow UUID. |
+| `heym.node.count` | Number of nodes in the workflow. |
+| `heym.workflow.test_mode` | `true` for test runs. |
+| `heym.sub_workflow.depth` | Nesting depth when invoked as a sub-workflow. |
+| `heym.workflow.status` | Final status of the run. A failed run sets the span status to `ERROR`. |
+
+### Node span
+
+Name: `heym.node.execute`, created as a child of the workflow span.
+
+| Attribute | Description |
+|-----------|-------------|
+| `heym.node.id` | The node id. |
+| `heym.node.type` | The node type, for example `agent`, `llm`, `http`. |
+| `heym.node.label` | The node label shown on the canvas. |
+| `heym.node.status` | `success` or `error`. Errors set the span status to `ERROR`. |
+| `heym.node.duration_ms` | Node execution time in milliseconds. |
+| `heym.llm.model` | Model name for LLM and agent nodes, when available. |
+| `heym.llm.prompt_tokens` / `heym.llm.completion_tokens` / `heym.llm.total_tokens` | Token usage for LLM and agent nodes, when available. |
+
+Node spans nest correctly under the workflow span even when nodes run in parallel, because the workflow context is propagated into worker threads.
+
+## Trace Context Propagation
+
+Heym follows the [W3C Trace Context](https://www.w3.org/TR/trace-context/) standard so traces stay connected across service boundaries.
+
+- **Inbound webhooks:** when an incoming request carries a `traceparent` header, the workflow run is recorded as a child of that trace. This links Heym runs to the upstream system that triggered them.
+- **Outbound HTTP:** the HTTP node injects `traceparent` into requests it makes, so downstream services can continue the same trace.
+- **Sub-workflows:** a sub-workflow run is parented to the node that invoked it, preserving the call hierarchy in one trace.
+
+Triggers without an inbound context (such as Cron, IMAP, RabbitMQ, and WebSocket) start a fresh trace per run.
+
+## Reliability
+
+- A slow or unreachable collector never blocks workflow execution. Spans are batched and exported in the background.
+- If tracing fails to initialize (for example, a bad endpoint), the backend logs the error and continues with tracing disabled rather than failing to start.
+- OTLP auth headers are read from the environment only. They are never stored in the database and never returned by the status API.
+
+## Related
+
+- [Settings](./user-settings.md) – The Observability tab that shows tracing status
+- [Triggers](./triggers.md) – How workflows start, including webhooks
+- [Execution History](./execution-history.md) – Heym's built-in per-run history view
+- [HTTP](../nodes/http-node.md) – The node that propagates trace context to downstream calls

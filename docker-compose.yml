@@ -43,6 +43,15 @@ services:
       OAUTH_ISSUER: ${OAUTH_ISSUER}
       DOCKER_LOGS_ENABLED: ${DOCKER_LOGS_ENABLED:-false}
       DOCKER_LOGS_ALLOWED_EMAILS: ${DOCKER_LOGS_ALLOWED_EMAILS:-}
+      # OpenTelemetry tracing. When run inside compose, the backend reaches the
+      # bundled Jaeger by its service name (not localhost, which is the host-only
+      # value used by run.sh). Toggle with HEYM_OTEL_ENABLED in .env.
+      HEYM_OTEL_ENABLED: ${HEYM_OTEL_ENABLED:-false}
+      HEYM_OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      HEYM_OTEL_SERVICE_NAME: ${HEYM_OTEL_SERVICE_NAME:-heym}
+      HEYM_OTEL_EXPORTER_OTLP_HEADERS: ${HEYM_OTEL_EXPORTER_OTLP_HEADERS:-}
+      HEYM_OTEL_TRACES_SAMPLER_RATIO: ${HEYM_OTEL_TRACES_SAMPLER_RATIO:-1.0}
+      HEYM_OTEL_CAPTURE_NODE_IO: ${HEYM_OTEL_CAPTURE_NODE_IO:-false}
     volumes:
       # Required for Docker-based MCP stdio tools. Docker Logs API access is still
       # gated by DOCKER_LOGS_ENABLED and DOCKER_LOGS_ALLOWED_EMAILS.
