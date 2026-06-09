@@ -175,11 +175,80 @@ class WorkflowSpanTest(_EnabledTracingTestBase):
         self.assertEqual(node.context.trace_id, root.context.trace_id)
 
 
+class StreamingRootSpanTest(_EnabledTracingTestBase):
+    def test_streaming_wrapper_opens_root_span_and_nests_nodes(self) -> None:
+        """The canvas/portal streaming path must still emit heym.workflow.execute."""
+        from app.services import workflow_executor as wfe
+
+        captured: dict = {}
+
+        def fake_impl(*, otel_root_context=None, **_kwargs):
+            captured["ctx"] = otel_root_context
+
+            def _make_node_span() -> list:
+                tracer = tracing.get_tracer()
+                with tracer.start_as_current_span("heym.node.execute") as s:
+                    s.set_attribute("heym.node.type", "set")
+                return [{"type": "node_complete"}]
+
+            if otel_root_context is not None:
+                events = tracing.run_with_context(otel_root_context, _make_node_span)
+            else:
+                events = _make_node_span()
+            yield from events
+
+        with patch.object(wfe, "_execute_workflow_streaming_impl", fake_impl):
+            events = list(
+                wfe.execute_workflow_streaming(
+                    workflow_id=uuid.uuid4(), nodes=[{"id": "n1"}], edges=[], inputs={}
+                )
+            )
+
+        self.assertEqual(len(events), 1)
+        self.assertIsNotNone(captured["ctx"])
+        spans = self.exporter.get_finished_spans()
+        root = next(s for s in spans if s.name == "heym.workflow.execute")
+        node = next(s for s in spans if s.name == "heym.node.execute")
+        self.assertEqual(node.parent.span_id, root.context.span_id)
+        self.assertEqual(node.context.trace_id, root.context.trace_id)
+
+
+class CaptureNodeIoTest(_EnabledTracingTestBase):
+    def test_node_io_attached_only_when_enabled(self) -> None:
+        from app.api import config as config_api
+
+        executor = _make_executor()
+        io_result = NodeResult(
+            node_id="n1",
+            node_label="My Node",
+            node_type="set",
+            status="success",
+            output={"value": 42},
+            execution_time_ms=1.0,
+        )
+        with (
+            patch.object(config_api.settings, "otel_capture_node_io", True),
+            patch.object(executor, "_execute_node_inner", return_value=io_result),
+        ):
+            executor.execute_node("n1", {"in": "hello"})
+        attrs = dict(
+            [s for s in self.exporter.get_finished_spans() if s.name == "heym.node.execute"][
+                0
+            ].attributes
+        )
+        self.assertIn("heym.node.input", attrs)
+        self.assertIn("heym.node.output", attrs)
+        self.assertIn("hello", attrs["heym.node.input"])
+        self.assertIn("42", attrs["heym.node.output"])
+
+
 class ObservabilityStatusEndpointTest(unittest.IsolatedAsyncioTestCase):
     async def test_status_disabled_shape(self) -> None:
-        from app.api.config import get_observability_status
+        from app.api import config as config_api
 
-        status = await get_observability_status(_user=object())
+        # Patch off explicitly so the test does not depend on the ambient .env.
+        with patch.object(config_api.settings, "otel_enabled", False):
+            status = await config_api.get_observability_status(_user=object())
         dumped = status.model_dump()
         self.assertFalse(dumped["enabled"])
         self.assertEqual(dumped["instrumented"], [])

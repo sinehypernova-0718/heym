@@ -124,6 +124,14 @@ def get_tracer() -> Tracer:
     return trace.get_tracer("heym.workflow")
 
 
+def capture_node_io_enabled() -> bool:
+    """Whether node input/output payloads should be attached to node spans.
+
+    Off by default for privacy; payloads can contain user data or secrets.
+    """
+    return is_enabled() and settings.otel_capture_node_io
+
+
 def capture_context() -> object:
     """Snapshot the active OTel context for re-attachment in a worker thread."""
     return otel_context.get_current()
