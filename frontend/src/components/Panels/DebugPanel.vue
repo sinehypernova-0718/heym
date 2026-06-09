@@ -548,11 +548,39 @@ function getOutputText(output: unknown): string | null {
   return typeof t === "string" ? t : null;
 }
 
+function stringifyCompact(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function getConsoleLogOutputText(output: unknown): string | null {
+  const o = output as Record<string, unknown> | undefined;
+  if (!o || !Object.prototype.hasOwnProperty.call(o, "logMessage")) {
+    return null;
+  }
+  return stringifyCompact(o.logMessage);
+}
+
 function getMarkdownDisplayText(output: unknown): string | null {
   if (typeof output === "string") {
     return output;
   }
   return getOutputText(output);
+}
+
+interface ResultOutputDisplayTarget {
+  node_type: string;
+  output: unknown;
+}
+
+function getMarkdownDisplayTextForResult(result: ResultOutputDisplayTarget): string | null {
+  if (result.node_type === "consoleLog") {
+    const logged = getConsoleLogOutputText(result.output);
+    if (logged !== null) return logged;
+  }
+  return getMarkdownDisplayText(result.output);
 }
 
 function getGenericResultOutputText(output: unknown): string {
@@ -561,6 +589,14 @@ function getGenericResultOutputText(output: unknown): string {
     return text;
   }
   return JSON.stringify(output);
+}
+
+function getGenericResultOutputTextForResult(result: ResultOutputDisplayTarget): string {
+  if (result.node_type === "consoleLog") {
+    const logged = getConsoleLogOutputText(result.output);
+    if (logged !== null) return logged;
+  }
+  return getGenericResultOutputText(result.output);
 }
 
 function renderExecutionMarkdown(content: string): string {
@@ -2760,13 +2796,13 @@ function renderContent(content: string): string {
                 class="text-muted-foreground text-xs mt-1 min-w-0 max-w-full"
               >
                 <div
-                  v-if="showMarkdownInExecutionLog && getMarkdownDisplayText(result.output) !== null"
+                  v-if="showMarkdownInExecutionLog && getMarkdownDisplayTextForResult(result) !== null"
                   class="execution-markdown-output break-words font-sans min-w-0 max-w-full"
                 >
                   <!-- eslint-disable vue/no-v-html -->
                   <div
                     class="execution-markdown-output-inner min-w-0 max-w-full"
-                    v-html="renderExecutionMarkdown(getMarkdownDisplayText(result.output)!)"
+                    v-html="renderExecutionMarkdown(getMarkdownDisplayTextForResult(result)!)"
                   />
                   <!-- eslint-enable vue/no-v-html -->
                 </div>
@@ -2774,7 +2810,7 @@ function renderContent(content: string): string {
                   v-else
                   class="break-all whitespace-pre-wrap"
                 >
-                  {{ getGenericResultOutputText(result.output) }}
+                  {{ getGenericResultOutputTextForResult(result) }}
                 </div>
               </div>
             </template>

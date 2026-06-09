@@ -53,6 +53,7 @@ class RunbookDemoExecutionTest(unittest.TestCase):
         # The consoleLog node logs the resolved $input.text.upper() to the heym.workflow logger.
         joined = "\n".join(captured.output)
         self.assertIn(RUNBOOK_EXPECTED_LOG, joined)
+        self.assertEqual(results["consoleLog"]["output"]["logMessage"], RUNBOOK_EXPECTED_LOG)
 
 
 if __name__ == "__main__":
