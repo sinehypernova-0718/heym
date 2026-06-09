@@ -8,6 +8,9 @@ import type { EdgeChange, NodeChange, OnConnectStartParams } from "@vue-flow/cor
 import { MiniMap } from "@vue-flow/minimap";
 import { FileJson, LayoutGrid } from "lucide-vue-next";
 import ShareTemplateModal from "@/features/templates/components/ShareTemplateModal.vue";
+import TemplatesBrowseDialog from "@/features/templates/components/TemplatesBrowseDialog.vue";
+import CanvasEmptyState from "@/features/runbook/components/CanvasEmptyState.vue";
+import { useRunbookPlayer } from "@/features/runbook/useRunbookPlayer";
 
 import type { NodeType, WorkflowEdge, WorkflowNode } from "@/types/workflow";
 
@@ -41,6 +44,16 @@ import "@vue-flow/minimap/dist/style.css";
 
 const workflowStore = useWorkflowStore();
 const router = useRouter();
+const { isRunbookPlaying, playRunbookInPlace } = useRunbookPlayer();
+const showTemplatesBrowse = ref(false);
+
+function handleRunRunbook(): void {
+  void playRunbookInPlace();
+}
+
+function handleBrowseTemplates(): void {
+  showTemplatesBrowse.value = true;
+}
 const { showToast } = useToast();
 const { onConnect, onConnectStart, onConnectEnd, onNodeDragStop, onPaneClick, onEdgesChange, onNodesChange, fitView, updateNodeInternals, getNodes, getSelectedNodes, getSelectedEdges, addSelectedNodes, removeSelectedNodes, nodesSelectionActive, onMove } = useVueFlow();
 
@@ -1411,6 +1424,20 @@ watch(
   }
 );
 
+// Runbook: re-measure node handles repeatedly while the demo plays, so edges to
+// freshly slid-in nodes attach flush to the ports once their entrance animation
+// settles (a one-shot measure catches the last node mid-slide and looks broken).
+watch(isRunbookPlaying, (playing) => {
+  if (!playing) return;
+  const interval = window.setInterval(() => {
+    if (!isRunbookPlaying.value) {
+      window.clearInterval(interval);
+      return;
+    }
+    updateNodeInternals();
+  }, 500);
+});
+
 // Auto-center canvas when debug panel height changes (after CSS height transition + layout)
 watch(
   () => workflowStore.debugPanelHeight,
@@ -1558,6 +1585,11 @@ watch(
     @dragover="handleDragOver"
     @dragleave="handleDragLeave"
   >
+    <CanvasEmptyState
+      v-if="workflowStore.nodes.length === 0 && !isRunbookPlaying"
+      @run-runbook="handleRunRunbook"
+      @browse-templates="handleBrowseTemplates"
+    />
     <Transition
       enter-active-class="transition-opacity duration-200"
       leave-active-class="transition-opacity duration-200"
@@ -1622,7 +1654,10 @@ watch(
         :gap="24"
         :size="1.5"
       />
-      <Controls position="bottom-left">
+      <Controls
+        v-show="!isRunbookPlaying"
+        position="bottom-left"
+      >
         <ControlButton
           title="Tidy Up - Auto arrange nodes"
           @click="tidyUp"
@@ -1633,7 +1668,7 @@ watch(
 
       <Transition name="minimap-fade">
         <MiniMap
-          v-show="showMiniMap"
+          v-show="showMiniMap && !isRunbookPlaying"
           position="bottom-right"
           :pannable="true"
           :zoomable="true"
@@ -1676,6 +1711,11 @@ watch(
       :open="extractDialogOpen"
       @close="extractDialogOpen = false"
       @extracted="handleExtracted"
+    />
+
+    <TemplatesBrowseDialog
+      :open="showTemplatesBrowse"
+      @close="showTemplatesBrowse = false"
     />
 
     <AgentMemoryGraphDialog

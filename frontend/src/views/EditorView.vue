@@ -19,6 +19,9 @@ import type { Team, TeamShare } from "@/types/team";
 import WorkflowCanvas from "@/components/Canvas/WorkflowCanvas.vue";
 import ContextualShowcase from "@/features/showcase/components/ContextualShowcase.vue";
 import ShareTemplateModal from "@/features/templates/components/ShareTemplateModal.vue";
+import { useRunbookPlayer } from "@/features/runbook/useRunbookPlayer";
+import RunbookCursor from "@/features/runbook/components/RunbookCursor.vue";
+import { RUNBOOK_QUERY_FLAG, RUNBOOK_QUERY_VALUE } from "@/features/runbook/runbookScript";
 import WorkflowCommandPalette from "@/components/Dialogs/WorkflowCommandPalette.vue";
 import WebPortalSettingsDialog from "@/components/Dialogs/WebPortalSettingsDialog.vue";
 import WorkflowEditHistoryDialog from "@/components/Dialogs/WorkflowEditHistoryDialog.vue";
@@ -49,6 +52,7 @@ import { useWorkflowStore, type ValidationError } from "@/stores/workflow";
 
 const route = useRoute();
 const router = useRouter();
+const { startRunbookNewWorkflow, playRunbookInPlace } = useRunbookPlayer();
 const authStore = useAuthStore();
 const showcaseStore = useShowcaseStore();
 const themeStore = useThemeStore();
@@ -532,6 +536,22 @@ onMounted(async () => {
         params: { id: workflowId.value },
         query: nextQuery,
       });
+    }
+
+    // Auto-play the Runbook demo when navigated here with ?runbook=play.
+    if (
+      route.query[RUNBOOK_QUERY_FLAG] === RUNBOOK_QUERY_VALUE &&
+      workflowStore.nodes.length === 0
+    ) {
+      const runbookQuery = { ...route.query };
+      delete runbookQuery[RUNBOOK_QUERY_FLAG];
+      await router.replace({
+        name: "editor",
+        params: { id: workflowId.value },
+        query: runbookQuery,
+      });
+      await nextTick();
+      void playRunbookInPlace();
     }
   } finally {
     loading.value = false;
@@ -1034,6 +1054,11 @@ function openWorkflowFromPalette(workflowId: string, event?: MouseEvent | Keyboa
   } else {
     router.push({ name: "editor", params: { id: workflowId } });
   }
+}
+
+async function handleRunbookFromPalette(): Promise<void> {
+  showCommandPalette.value = false;
+  await startRunbookNewWorkflow();
 }
 
 function handleTabSelectFromPalette(tabId: string, event?: MouseEvent | KeyboardEvent): void {
@@ -2052,6 +2077,7 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
       @select="openWorkflowFromPalette"
       @tab-select="handleTabSelectFromPalette"
       @doc-select="onDocSelectFromPalette"
+      @runbook="handleRunbookFromPalette"
       @close="showCommandPalette = false"
     />
 
@@ -2070,6 +2096,8 @@ function onDocSelectFromPalette(categoryId: string, slug: string, event?: MouseE
       :show-desktop-trigger="false"
       :show-mobile-trigger="false"
     />
+
+    <RunbookCursor />
   </div>
 </template>
 

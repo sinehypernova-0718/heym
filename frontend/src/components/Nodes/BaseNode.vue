@@ -358,6 +358,7 @@ const hasThrowErrorWarning = computed(() => {
     :class="cn(
       'node-base px-4 pt-5 pb-3.5 border rounded-xl min-w-[190px] transition-all duration-200 relative overflow-hidden',
       outputStackPaddingClass,
+      props.data.__runbookEntrance && 'runbook-node-enter',
       isInactive && 'border-muted-foreground/30 bg-muted/50',
       selected && !isRunning && !isSuccess && !isError && 'ring-2 ring-offset-2 ring-offset-background shadow-lg',
       isRunning && 'animate-heartbeat ring-2 ring-success ring-offset-2 ring-offset-background border-success',
@@ -872,5 +873,26 @@ const hasThrowErrorWarning = computed(() => {
   box-shadow:
     0 8px 24px hsl(0 0% 0% / 0.25),
     0 2px 8px hsl(0 0% 0% / 0.15);
+}
+
+.runbook-node-enter {
+  animation: runbook-node-enter 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes runbook-node-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-48px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runbook-node-enter {
+    animation: none;
+  }
 }
 </style>

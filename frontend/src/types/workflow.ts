@@ -419,6 +419,8 @@ export interface NodeData {
   retryWaitSeconds?: number;
   onErrorEnabled?: boolean;
   retryAttempt?: number;
+  /** Transient UI flag: triggers the Runbook slide-in entrance animation in BaseNode. */
+  __runbookEntrance?: boolean;
   rabbitmqOperation?: string;
   rabbitmqExchange?: string;
   rabbitmqRoutingKey?: string;

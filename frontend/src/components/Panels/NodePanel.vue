@@ -20,6 +20,7 @@ import { templatesApi } from "@/services/api";
 import { useAuthStore } from "@/stores/auth";
 import { useWorkflowStore } from "@/stores/workflow";
 import { NODE_DEFINITIONS } from "@/types/node";
+import { useRunbookPlayer } from "@/features/runbook/useRunbookPlayer";
 
 const workflowStore = useWorkflowStore();
 const authStore = useAuthStore();
@@ -186,7 +187,15 @@ const icons = {
 
 const allNodeTypes = Object.values(NODE_DEFINITIONS);
 
+const { isRunbookPlaying } = useRunbookPlayer();
+
+/** While the runbook demo plays, the panel shows only the nodes it builds. */
+const RUNBOOK_PANEL_NODE_TYPES: NodeType[] = ["textInput", "wait", "consoleLog"];
+
 const nodeTypes = computed(() => {
+  if (isRunbookPlaying.value) {
+    return RUNBOOK_PANEL_NODE_TYPES.map((type) => NODE_DEFINITIONS[type]);
+  }
   const query = searchQuery.value.toLowerCase().trim();
   if (!query) return allNodeTypes;
   return allNodeTypes.filter(
@@ -460,6 +469,7 @@ function handleDoubleClick(type: NodeType): void {
 
 <template>
   <div
+    data-runbook-panel
     :class="cn(
       'node-panel w-80 sm:w-72 md:w-[280px] border-r border-border/40 p-4 flex flex-col h-full transition-all max-w-full overflow-x-hidden',
       hasPendingAction && 'ring-2 ring-primary/40 ring-inset'
@@ -479,7 +489,10 @@ function handleDoubleClick(type: NodeType): void {
         <span class="hidden sm:inline">{{ paletteRows.length }} available</span>
       </span>
     </div>
-    <div class="relative mb-4 shrink-0">
+    <div
+      v-if="!isRunbookPlaying"
+      class="relative mb-4 shrink-0"
+    >
       <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
       <input
         ref="searchInputRef"
@@ -504,7 +517,7 @@ function handleDoubleClick(type: NodeType): void {
       </button>
     </div>
     <div class="flex-1 overflow-y-auto min-h-0 scrollbar-thin">
-      <div class="space-y-2 pr-1">
+      <div :class="cn('space-y-2 pr-1', isRunbookPlaying && 'pl-1.5')">
         <div
           v-for="(node, index) in nodeTypes"
           :key="node.type"
@@ -513,7 +526,8 @@ function handleDoubleClick(type: NodeType): void {
           :class="cn(
             'node-item flex items-center gap-3 p-3 rounded-xl border border-border/40 cursor-grab transition-all duration-200 min-h-[44px]',
             'hover:border-primary/40 hover:bg-accent/50 hover:shadow-sm active:cursor-grabbing',
-            selectedIndex === index && 'border-primary bg-accent ring-2 ring-primary/20'
+            selectedIndex === index && 'border-primary bg-accent ring-2 ring-primary/20',
+            isRunbookPlaying && 'runbook-pulse-sm border-primary/50'
           )
           "
           @mousedown="handleMouseDown"
@@ -544,7 +558,7 @@ function handleDoubleClick(type: NodeType): void {
             </div>
           </div>
         </div>
-        <template v-if="filteredNodeTemplates.length > 0 || templatesLoadError">
+        <template v-if="!isRunbookPlaying && (filteredNodeTemplates.length > 0 || templatesLoadError)">
           <div class="pt-4 pb-1">
             <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
               <LayoutTemplate class="w-3.5 h-3.5" />

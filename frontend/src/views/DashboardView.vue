@@ -28,6 +28,7 @@ import {
 import AnalyticsDashboard from "@/components/Analytics/AnalyticsDashboard.vue";
 import CredentialsPanel from "@/components/Credentials/CredentialsPanel.vue";
 import TemplatesPage from "@/features/templates/components/TemplatesPage.vue";
+import { useRunbookPlayer } from "@/features/runbook/useRunbookPlayer";
 import GlobalVariablesPanel from "@/components/GlobalVariables/GlobalVariablesPanel.vue";
 import DockerLogsViewer from "@/components/LogsTab/DockerLogsViewer.vue";
 import FolderTreeItem from "@/components/Folders/FolderTreeItem.vue";
@@ -72,6 +73,7 @@ import type { FolderTree, NodeData, WorkflowEdge, WorkflowListItem, WorkflowNode
 
 const router = useRouter();
 const route = useRoute();
+const { startRunbookNewWorkflow } = useRunbookPlayer();
 const authStore = useAuthStore();
 const folderStore = useFolderStore();
 const quickDrawerStore = useQuickDrawerStore();
@@ -467,6 +469,11 @@ function openWorkflowFromPalette(workflowId: string, event?: MouseEvent | Keyboa
   } else {
     router.push({ name: "editor", params: { id: workflowId } });
   }
+}
+
+async function handleRunbookFromPalette(): Promise<void> {
+  showCommandPalette.value = false;
+  await startRunbookNewWorkflow();
 }
 
 function handleTabSelectFromPalette(tabId: string, event?: MouseEvent | KeyboardEvent): void {
@@ -2210,6 +2217,7 @@ async function restoreFromTrash(workflowId: string, event: Event): Promise<void>
         @doc-select="onDocSelectFromPalette"
         @template-select="onTemplateSelectFromPalette"
         @node-template-select="onNodeTemplateSelectFromPalette"
+        @runbook="handleRunbookFromPalette"
         @close="showCommandPalette = false"
       />
 
