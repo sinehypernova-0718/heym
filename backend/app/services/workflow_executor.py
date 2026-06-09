@@ -8554,6 +8554,8 @@ class WorkflowExecutor:
                 )
                 first_input = next(iter(inputs.values()), {})
                 output = first_input if isinstance(first_input, dict) else {"value": first_input}
+                output = dict(output)
+                output["logMessage"] = self._unwrap_value(resolved)
 
             elif node_type == "playwright":
                 output = self._execute_playwright_node(node_data, inputs, node_id, node_label)
