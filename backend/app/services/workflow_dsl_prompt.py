@@ -233,6 +233,27 @@ In workflow expressions:
 - LLM user message: `"Slack user $slackEvent.event.user said: $slackEvent.event.text"`
 - Condition: `$slackEvent.event.type == "message"`
 
+### 3b. discordTrigger (Discord Interactions Entry Point)
+- **Purpose**: Receive Discord Interactions API webhooks (slash commands, buttons, modals) and trigger the workflow
+- **Inputs**: 0 | **Outputs**: 1
+- **WHEN TO USE**: When the workflow must react to Discord application interactions
+- **DO NOT use** `textInput` as the entry point for Discord-triggered workflows
+- **Data fields**:
+  - `label`: Node identifier (e.g., "discordEvent")
+  - `credentialId`: UUID of a `discord_trigger` credential containing the application public key
+- **Output fields available downstream**:
+  - `$<label>.interaction` — full Discord interaction payload
+  - `$<label>.type` — interaction type (e.g., `2` for slash commands)
+  - `$<label>.data` — command/button/modal data object
+  - `$<label>.data.options` — slash command options (when applicable)
+  - `$<label>.headers` — sanitized HTTP headers from Discord
+  - `$<label>.triggered_at` — ISO timestamp
+
+**Example node JSON:**
+```json
+{"id": "n1", "type": "discordTrigger", "position": {"x": 100, "y": 100}, "data": {"label": "discordEvent", "credentialId": "<discord_trigger_credential_id>"}}
+```
+
 ### 3a. imapTrigger (IMAP Email Trigger)
 - **Purpose**: Poll an IMAP inbox and trigger the workflow once for each newly arrived email
 - **Inputs**: 0 | **Outputs**: 1
@@ -1336,6 +1357,18 @@ You can enable both retry AND error branching. The node will first exhaust all r
 - Simple: `"Workflow completed successfully!"`
 - Dynamic: `"User $userInput.body.text processed at $now.format('HH:mm')"`
 - Error notification: `"Error in $errorHandler.errorNode: $errorHandler.error"`
+
+### 15b. discord (Send Discord Message)
+- **Purpose**: Send a message to a Discord channel via incoming webhook
+- **Inputs**: 1 | **Outputs**: 1
+- **Data fields**:
+  - `label`: Node identifier
+  - `credentialId`: UUID of the Discord credential (webhook URL stored in credential)
+  - `message`: Message text to send, supports expressions (e.g., `$previousNodeLabel.text`)
+  - `username`: Optional webhook display name override, supports expressions
+  - `avatarUrl`: Optional webhook avatar URL override, supports expressions
+
+**SETUP**: Requires a `discord` credential with webhook URL from Discord channel Integrations → Webhooks.
 
 ### 15a. telegram (Send Telegram Message)
 - **Purpose**: Send a Telegram bot message to a chat, group, channel, or user

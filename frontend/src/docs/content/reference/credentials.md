@@ -15,6 +15,8 @@ Credentials store API keys and secrets used by workflow nodes. You add them in t
 | [LLM](../nodes/llm-node.md), [Agent](../nodes/agent-node.md) | OpenAI, Google, Custom | API key for the model |
 | [HTTP](../nodes/http-node.md) | Bearer, Header | Auth for requests |
 | [Telegram](../nodes/telegram-node.md), [Telegram Trigger](../nodes/telegram-trigger-node.md) | Telegram | Bot token and optional webhook secret |
+| [Discord](../nodes/discord-node.md) | Discord | Incoming webhook URL |
+| [Discord Trigger](../nodes/discord-trigger-node.md) | Discord Trigger (Public Key) | Application public key for signature verification |
 | [RAG](../nodes/rag-node.md) | Qdrant | Vector store connection |
 | [Slack](../nodes/slack-node.md) | Slack | Webhook or API token |
 | [IMAP Trigger](../nodes/imap-trigger-node.md) | IMAP | Inbound mailbox connection |

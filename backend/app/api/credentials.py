@@ -42,6 +42,9 @@ def get_masked_value(credential_type: CredentialType, config: dict) -> str | Non
     if credential_type == CredentialType.discord:
         webhook_url = config.get("webhook_url", "")
         return mask_api_key(webhook_url)
+    if credential_type == CredentialType.discord_trigger:
+        public_key = config.get("public_key", "")
+        return mask_api_key(public_key)
     if credential_type == CredentialType.slack:
         webhook_url = config.get("webhook_url", "")
         return mask_api_key(webhook_url)
@@ -725,6 +728,12 @@ def validate_credential_config(credential_type: CredentialType, config: dict) ->
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Discord credential requires webhook_url",
+            )
+    elif credential_type == CredentialType.discord_trigger:
+        if "public_key" not in config or not str(config["public_key"]).strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Discord Trigger credential requires public_key",
             )
     elif credential_type == CredentialType.slack:
         if "webhook_url" not in config or not config["webhook_url"]:

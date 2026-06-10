@@ -21,6 +21,7 @@ export const BLOCKED_AS_TOOL_NODE_TYPES: ReadonlySet<NodeType> = new Set<NodeTyp
   "telegramTrigger",
   "websocketTrigger",
   "slackTrigger",
+  "discordTrigger",
   "imapTrigger",
   "mcpCall",
 ]);
@@ -34,6 +35,7 @@ export const NO_REGULAR_INPUT_NODE_TYPES: ReadonlySet<NodeType> = new Set<NodeTy
   "telegramTrigger",
   "websocketTrigger",
   "slackTrigger",
+  "discordTrigger",
   "imapTrigger",
 ]);
 

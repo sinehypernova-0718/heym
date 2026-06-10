@@ -306,6 +306,22 @@ export const NODE_DEFINITIONS: Record<NodeType, NodeDefinition> = {
       message: "$input.text",
     },
   },
+  discord: {
+    type: "discord",
+    label: "Discord",
+    description: "Send a message to Discord via webhook",
+    color: "node-discord",
+    icon: "MessageSquare",
+    inputs: 1,
+    outputs: 1,
+    defaultData: {
+      label: "discord",
+      credentialId: "",
+      message: "$input.text",
+      username: "",
+      avatarUrl: "",
+    },
+  },
   telegram: {
     type: "telegram",
     label: "Telegram",
@@ -331,6 +347,19 @@ export const NODE_DEFINITIONS: Record<NodeType, NodeDefinition> = {
     outputs: 1,
     defaultData: {
       label: "slackTrigger",
+      credentialId: "",
+    },
+  },
+  discordTrigger: {
+    type: "discordTrigger",
+    label: "Discord Trigger",
+    description: "Receive Discord interactions and trigger the workflow",
+    color: "node-discord",
+    icon: "MessageSquare",
+    inputs: 0,
+    outputs: 1,
+    defaultData: {
+      label: "discordTrigger",
       credentialId: "",
     },
   },

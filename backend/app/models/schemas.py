@@ -447,6 +447,7 @@ class CredentialType(str, Enum):
     bearer = "bearer"
     header = "header"
     discord = "discord"
+    discord_trigger = "discord_trigger"
     telegram = "telegram"
     slack = "slack"
     slack_trigger = "slack_trigger"
@@ -495,6 +496,10 @@ class CredentialConfigSlack(BaseModel):
 
 class CredentialConfigDiscord(BaseModel):
     webhook_url: str
+
+
+class CredentialConfigDiscordTrigger(BaseModel):
+    public_key: str
 
 
 class CredentialConfigTelegram(BaseModel):

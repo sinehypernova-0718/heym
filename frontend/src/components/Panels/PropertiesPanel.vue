@@ -82,6 +82,8 @@ const nodeIcons: Record<NodeType, ReturnType<typeof Type>> = {
   telegram: MessageSquare,
   slack: MessageSquare,
   slackTrigger: MessageSquare,
+  discord: MessageSquare,
+  discordTrigger: MessageSquare,
   imapTrigger: Inbox,
   sendEmail: Mail,
   errorHandler: AlertTriangle,
@@ -124,6 +126,8 @@ const nodeColorMap: Record<NodeType, string> = {
   telegram: "node-telegram",
   slack: "node-slack",
   slackTrigger: "node-slack",
+  discord: "node-discord",
+  discordTrigger: "node-discord",
   imapTrigger: "node-email",
   sendEmail: "node-email",
   errorHandler: "node-error",
@@ -166,6 +170,8 @@ const nodeDocSlugMap: Record<NodeType, string> = {
   telegram: "telegram-node",
   slack: "slack-node",
   slackTrigger: "slack-trigger-node",
+  discord: "discord-node",
+  discordTrigger: "discord-trigger-node",
   imapTrigger: "imap-trigger-node",
   sendEmail: "send-email-node",
   errorHandler: "error-handler-node",
@@ -213,6 +219,11 @@ const slackTriggerWebhookUrl = computed((): string => {
   return `${window.location.origin}/api/slack/webhook/${selectedNode.value.id}`;
 });
 
+const discordTriggerWebhookUrl = computed((): string => {
+  if (!selectedNode.value || selectedNode.value.type !== "discordTrigger") return "";
+  return `${window.location.origin}/api/discord/webhook/${selectedNode.value.id}`;
+});
+
 const telegramTriggerWebhookUrl = computed((): string => {
   if (!selectedNode.value || selectedNode.value.type !== "telegramTrigger") return "";
   return `${window.location.origin}/api/telegram/webhook/${selectedNode.value.id}`;
@@ -220,6 +231,10 @@ const telegramTriggerWebhookUrl = computed((): string => {
 
 function copySlackWebhookUrl(): void {
   navigator.clipboard.writeText(slackTriggerWebhookUrl.value);
+}
+
+function copyDiscordWebhookUrl(): void {
+  navigator.clipboard.writeText(discordTriggerWebhookUrl.value);
 }
 
 function copyTelegramWebhookUrl(): void {
@@ -323,6 +338,9 @@ const userMessageInputRef = ref<InstanceType<typeof ExpressionInput> | null>(nul
 const telegramChatIdInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
 const telegramMessageInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
 const slackMessageInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
+const discordMessageInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
+const discordUsernameInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
+const discordAvatarUrlInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
 const sendEmailBodyInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
 const conditionInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
 const redisKeyInputRef = ref<InstanceType<typeof ExpressionInput> | null>(null);
@@ -354,6 +372,8 @@ const jsonFormatError = ref(false);
 const telegramCredentials = ref<CredentialListItem[]>([]);
 const slackCredentials = ref<CredentialListItem[]>([]);
 const slackTriggerCredentials = ref<CredentialListItem[]>([]);
+const discordCredentials = ref<CredentialListItem[]>([]);
+const discordTriggerCredentials = ref<CredentialListItem[]>([]);
 const imapTriggerCredentials = ref<CredentialListItem[]>([]);
 const smtpCredentials = ref<CredentialListItem[]>([]);
 const redisCredentials = ref<CredentialListItem[]>([]);
@@ -602,6 +622,13 @@ watch(
         slackCredentials.value = [];
       }
     }
+    if (type === "discord") {
+      try {
+        discordCredentials.value = await credentialsApi.listByType("discord");
+      } catch {
+        discordCredentials.value = [];
+      }
+    }
 
     if (type === "telegram" || type === "telegramTrigger") {
       try {
@@ -699,6 +726,13 @@ watch(
         slackTriggerCredentials.value = await credentialsApi.listByType("slack_trigger");
       } catch {
         slackTriggerCredentials.value = [];
+      }
+    }
+    if (type === "discordTrigger") {
+      try {
+        discordTriggerCredentials.value = await credentialsApi.listByType("discord_trigger");
+      } catch {
+        discordTriggerCredentials.value = [];
       }
     }
 
@@ -1347,6 +1381,9 @@ function closeAllExpressionExpandDialogs(): void {
   telegramChatIdInputRef.value?.closeExpandDialog();
   telegramMessageInputRef.value?.closeExpandDialog();
   slackMessageInputRef.value?.closeExpandDialog();
+  discordMessageInputRef.value?.closeExpandDialog();
+  discordUsernameInputRef.value?.closeExpandDialog();
+  discordAvatarUrlInputRef.value?.closeExpandDialog();
   sendEmailBodyInputRef.value?.closeExpandDialog();
   conditionInputRef.value?.closeExpandDialog();
   redisKeyInputRef.value?.closeExpandDialog();
@@ -1503,6 +1540,16 @@ function openPrimaryExpandDialogForSelectedNode(): void {
       if (attempts > 20) return;
       if (slackMessageInputRef.value) {
         nextTick(() => slackMessageInputRef.value?.openExpandDialog());
+      } else {
+        setTimeout(() => tryOpenDialog(attempts + 1), 100);
+      }
+    };
+    nextTick(() => tryOpenDialog());
+  } else if (nodeType === "discord") {
+    const tryOpenDialog = (attempts = 0): void => {
+      if (attempts > 20) return;
+      if (discordMessageInputRef.value) {
+        nextTick(() => discordMessageInputRef.value?.openExpandDialog());
       } else {
         setTimeout(() => tryOpenDialog(attempts + 1), 100);
       }
@@ -1812,6 +1859,7 @@ function selectedNodeHasPrimaryEvaluateExpandTarget(): boolean {
     case "agent":
     case "mcpCall":
     case "slack":
+    case "discord":
     case "sendEmail":
     case "condition":
     case "execute": {
@@ -2916,6 +2964,21 @@ const slackCredentialOptions = computed(() => {
     selectedCredentialId,
     "Select Slack credential...",
     "Shared Slack credential (from owner)",
+  );
+});
+
+const discordCredentialOptions = computed(() => {
+  const node = selectedNode.value;
+  const selectedCredentialId =
+    node && node.type === "discord"
+      ? (node.data.credentialId as string | undefined)
+      : undefined;
+
+  return buildCredentialOptions(
+    discordCredentials.value,
+    selectedCredentialId,
+    "Select Discord credential...",
+    "Shared Discord credential (from owner)",
   );
 });
 
@@ -5649,6 +5712,67 @@ onUnmounted(() => {
             </div>
           </template>
 
+          <template v-if="selectedNode.type === 'discordTrigger'">
+            <div class="space-y-4">
+              <div class="space-y-2">
+                <Label>Public Key Credential</Label>
+                <Select
+                  :model-value="selectedNode.data.credentialId || ''"
+                  :options="discordTriggerCredentials.map((c) => ({ value: c.id, label: c.name }))"
+                  placeholder="Select Discord Trigger credential"
+                  @update:model-value="updateNodeData('credentialId', $event)"
+                />
+                <p
+                  v-if="!selectedNode.data.credentialId"
+                  class="text-xs text-amber-500 flex items-center gap-1"
+                >
+                  <AlertTriangle class="h-3 w-3" />
+                  No credential set — Discord requests will be rejected
+                </p>
+                <p
+                  v-else
+                  class="text-xs text-muted-foreground"
+                >
+                  Used to verify incoming Discord interaction signatures (Ed25519)
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                <Label>Interactions URL</Label>
+                <div class="flex gap-2">
+                  <Input
+                    :model-value="discordTriggerWebhookUrl"
+                    readonly
+                    class="font-mono text-xs"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    @click="copyDiscordWebhookUrl"
+                  >
+                    Copy
+                  </Button>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  Paste this URL into Discord Developer Portal → your application → Interactions Endpoint URL.
+                  PING verification is handled automatically.
+                </p>
+              </div>
+
+              <div class="space-y-2 pt-2 border-t">
+                <Label class="text-xs text-muted-foreground">Available output fields</Label>
+                <div class="text-xs text-muted-foreground space-y-1 font-mono">
+                  <div>${{ selectedNode.data.label }}.interaction — full Discord interaction payload</div>
+                  <div>${{ selectedNode.data.label }}.type — interaction type (2 = slash command)</div>
+                  <div>${{ selectedNode.data.label }}.data — command/button/modal data</div>
+                  <div>${{ selectedNode.data.label }}.data.options — slash command options</div>
+                  <div>${{ selectedNode.data.label }}.headers — sanitized HTTP headers</div>
+                  <div>${{ selectedNode.data.label }}.triggered_at — ISO timestamp</div>
+                </div>
+              </div>
+            </div>
+          </template>
+
           <template v-if="selectedNode.type === 'imapTrigger'">
             <div class="space-y-4">
               <div class="space-y-2">
@@ -7845,6 +7969,84 @@ onUnmounted(() => {
               <p class="text-xs text-muted-foreground">
                 Use $ expressions like {{ exampleRef }} or $error.message
               </p>
+            </div>
+          </template>
+
+          <template v-if="selectedNode.type === 'discord'">
+            <div class="space-y-2">
+              <Label>Credential</Label>
+              <Select
+                :model-value="selectedNode.data.credentialId || ''"
+                :options="discordCredentialOptions"
+                @update:model-value="updateNodeData('credentialId', $event)"
+              />
+              <p
+                v-if="!selectedNode.data.credentialId"
+                class="text-xs text-muted-foreground"
+              >
+                <a
+                  href="/?tab=credentials"
+                  class="text-primary hover:underline"
+                  @click.prevent="$router.push('/?tab=credentials')"
+                >Add credentials</a> in Dashboard
+              </p>
+            </div>
+
+            <div class="space-y-2">
+              <Label>Message</Label>
+              <ExpressionInput
+                ref="discordMessageInputRef"
+                :model-value="selectedNode.data.message || ''"
+                :placeholder="exampleRef"
+                :rows="3"
+                :nodes="workflowStore.nodes"
+                :node-results="workflowStore.nodeResults"
+                :edges="workflowStore.edges"
+                :current-node-id="selectedNode.id"
+                :dialog-node-label="selectedNodeEvaluateDialogLabel"
+                dialog-key-label="Message"
+                field-key="message"
+                @update:model-value="updateNodeData('message', $event)"
+              />
+              <p class="text-xs text-muted-foreground">
+                Use $ expressions like {{ exampleRef }} or $error.message
+              </p>
+            </div>
+
+            <div class="space-y-2">
+              <Label>Username (optional)</Label>
+              <ExpressionInput
+                ref="discordUsernameInputRef"
+                :model-value="selectedNode.data.username || ''"
+                placeholder="Heym Bot"
+                :rows="1"
+                :nodes="workflowStore.nodes"
+                :node-results="workflowStore.nodeResults"
+                :edges="workflowStore.edges"
+                :current-node-id="selectedNode.id"
+                :dialog-node-label="selectedNodeEvaluateDialogLabel"
+                dialog-key-label="Username"
+                field-key="username"
+                @update:model-value="updateNodeData('username', $event)"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <Label>Avatar URL (optional)</Label>
+              <ExpressionInput
+                ref="discordAvatarUrlInputRef"
+                :model-value="selectedNode.data.avatarUrl || ''"
+                placeholder="https://example.com/avatar.png"
+                :rows="1"
+                :nodes="workflowStore.nodes"
+                :node-results="workflowStore.nodeResults"
+                :edges="workflowStore.edges"
+                :current-node-id="selectedNode.id"
+                :dialog-node-label="selectedNodeEvaluateDialogLabel"
+                dialog-key-label="Avatar URL"
+                field-key="avatarUrl"
+                @update:model-value="updateNodeData('avatarUrl', $event)"
+              />
             </div>
           </template>
 
@@ -11545,7 +11747,7 @@ onUnmounted(() => {
           </template>
 
           <div
-            v-if="!['textInput', 'cron', 'sticky', 'errorHandler', 'output', 'throwError', 'telegramTrigger', 'websocketTrigger', 'slackTrigger', 'imapTrigger'].includes(selectedNode.type) && !(selectedNode.type === 'rabbitmq' && selectedNode.data.rabbitmqOperation === 'receive')"
+            v-if="!['textInput', 'cron', 'sticky', 'errorHandler', 'output', 'throwError', 'telegramTrigger', 'websocketTrigger', 'slackTrigger', 'discordTrigger', 'imapTrigger'].includes(selectedNode.type) && !(selectedNode.type === 'rabbitmq' && selectedNode.data.rabbitmqOperation === 'receive')"
             class="space-y-4 pt-4 border-t"
           >
             <Label class="text-muted-foreground">Error Handling</Label>

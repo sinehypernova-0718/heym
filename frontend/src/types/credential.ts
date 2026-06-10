@@ -4,6 +4,8 @@ export type CredentialType =
   | "custom"
   | "bearer"
   | "header"
+  | "discord"
+  | "discord_trigger"
   | "telegram"
   | "slack"
   | "slack_trigger"
@@ -92,6 +94,14 @@ export interface CredentialConfigSlack {
   webhook_url: string;
 }
 
+export interface CredentialConfigDiscord {
+  webhook_url: string;
+}
+
+export interface CredentialConfigDiscordTrigger {
+  public_key: string;
+}
+
 export interface CredentialConfigTelegram {
   bot_token: string;
   secret_token?: string;
@@ -169,6 +179,8 @@ export type CredentialConfig =
   | CredentialConfigHeader
   | CredentialConfigTelegram
   | CredentialConfigSlack
+  | CredentialConfigDiscord
+  | CredentialConfigDiscordTrigger
   | CredentialConfigSlackTrigger
   | CredentialConfigImap
   | CredentialConfigSmtp
@@ -199,6 +211,8 @@ export const CREDENTIAL_TYPE_LABELS: Record<CredentialType, string> = {
   bearer: "Authorization Bearer Token",
   header: "Header Authorization",
   telegram: "Telegram Bot",
+  discord: "Discord Webhook",
+  discord_trigger: "Discord Trigger (Public Key)",
   slack: "Slack Webhook",
   slack_trigger: "Slack Trigger (Signing Secret)",
   imap: "IMAP Email Inbox",
@@ -221,6 +235,8 @@ export const CREDENTIAL_TYPE_DESCRIPTIONS: Record<CredentialType, string> = {
   bearer: "Store a Bearer token for Authorization header",
   header: "Store custom HTTP headers (key:value)",
   telegram: "Connect a Telegram bot for inbound webhook triggers and outbound bot messages",
+  discord: "Send messages via Discord incoming webhooks",
+  discord_trigger: "Verify incoming Discord interaction webhooks using an application public key",
   slack: "Send messages via Slack incoming webhooks",
   slack_trigger: "Verify incoming Slack event webhooks using a signing secret",
   imap: "Poll an IMAP inbox for new emails and trigger workflows when mail arrives",

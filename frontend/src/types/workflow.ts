@@ -142,6 +142,7 @@ export type NodeType =
   | "jsonOutputMapper"
   | "telegram"
   | "slack"
+  | "discord"
   | "sendEmail"
   | "errorHandler"
   | "variable"
@@ -161,6 +162,7 @@ export type NodeType =
   | "dataTable"
   | "drive"
   | "slackTrigger"
+  | "discordTrigger"
   | "mcpCall";
 
 export type VariableType =
@@ -317,6 +319,8 @@ export interface NodeData {
   targetWorkflowName?: string;
   message?: string;
   chatId?: string;
+  username?: string;
+  avatarUrl?: string;
   duration?: number;
   cronExpression?: string;
   pollIntervalMinutes?: number;

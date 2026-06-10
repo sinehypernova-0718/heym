@@ -32,6 +32,7 @@ class CredentialType(str, PyEnum):
     bearer = "bearer"
     header = "header"
     discord = "discord"
+    discord_trigger = "discord_trigger"
     telegram = "telegram"
     slack = "slack"
     slack_trigger = "slack_trigger"
