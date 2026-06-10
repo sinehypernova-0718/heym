@@ -6656,7 +6656,7 @@ onUnmounted(() => {
                 type="number"
                 :model-value="String(selectedNode.data.toolTimeoutSeconds ?? 30)"
                 min="1"
-                max="300"
+                max="3600"
                 placeholder="30"
                 @update:model-value="updateNodeData('toolTimeoutSeconds', parseInt($event, 10) || 30)"
               />
@@ -6783,7 +6783,7 @@ onUnmounted(() => {
                         type="number"
                         :model-value="String(conn.timeoutSeconds ?? 30)"
                         min="1"
-                        max="300"
+                        max="3600"
                         placeholder="30"
                         @update:model-value="updateAgentMCPConnection(idx, 'timeoutSeconds', parseInt($event, 10) || 30)"
                       />
@@ -7052,7 +7052,7 @@ onUnmounted(() => {
                       type="number"
                       :model-value="String(skill.timeoutSeconds ?? 30)"
                       min="1"
-                      max="300"
+                      max="3600"
                       placeholder="30"
                       @update:model-value="updateAgentSkill(idx, 'timeoutSeconds', parseInt($event, 10) || 30)"
                     />
@@ -11376,7 +11376,7 @@ onUnmounted(() => {
                         type="number"
                         :model-value="String(selectedNode.data.connection?.timeoutSeconds ?? 30)"
                         min="1"
-                        max="300"
+                        max="3600"
                         placeholder="30"
                         @update:model-value="updateMCPCallConnectionField('timeoutSeconds', parseInt($event, 10) || 30)"
                       />
