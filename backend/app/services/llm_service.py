@@ -2240,7 +2240,11 @@ def _unified_tool_executor(
         from app.services.mcp_tool_executor import execute_mcp_tool
 
         connection = tool_def.get("_connection") or {}
-        return execute_mcp_tool(connection, name, args, timeout_seconds)
+        # The MCP connection's own "Timeout (s)" governs tool execution, mirroring
+        # the tool-listing path (workflow_executor._list_mcp_tools). Fall back to
+        # the agent-level toolTimeoutSeconds only when the connection has none.
+        mcp_timeout = float(connection.get("timeoutSeconds") or timeout_seconds)
+        return execute_mcp_tool(connection, name, args, mcp_timeout)
     if tool_def.get("_source") == "skill":
         from app.services.skill_python_executor import SkillExecutionResult, execute_skill_python
 
