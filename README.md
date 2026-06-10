@@ -197,6 +197,18 @@ For a complete list of all features with short descriptions, see **[Full Feature
 
 ---
 
+## ⭐ Stay Up To Date
+
+<div align="center">
+
+![Workflow Creation Demo](./docs/screenshots/heym-star.gif)
+
+</div>
+
+Heym Built for developers who want control and enterprise teams that need a trusted path to production. Star Heym ⭐ on GitHub to follow releases and help more builders discover it.
+
+---
+
 ## 🎯 Why Heym?
 
 | Capability | **Heym** | n8n | Zapier | Make.com |
