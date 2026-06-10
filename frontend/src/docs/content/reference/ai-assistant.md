@@ -77,7 +77,7 @@ The AI Assistant is powered by a **workflow DSL** (domain-specific language) tha
    - The list of available workflows if you use the Execute node
 3. The model returns a single workflow JSON block (with `nodes` and `edges`). The frontend parses it and applies it to the canvas.
 
-The DSL enforces camelCase labels, unified expression rules, and node-specific fields. If a field value is a single `$expr`, the backend preserves the native type; if the value mixes prose with `$refs`, the result is a string. The one-`$` rule still applies: no `$` inside parentheses. [User Settings](./user-settings.md) User Rules are injected into this system prompt so your preferences apply to every AI-generated workflow.
+The DSL enforces camelCase labels, unified expression rules, and node-specific fields. If a field value is a single `$expr`, the backend preserves the native type; if the value mixes prose with `$refs`, the result is a string. The one-`$` rule still applies: no `$` inside parentheses. [Settings](./user-settings.md) User Rules are injected into this system prompt so your preferences apply to every AI-generated workflow.
 
 If the current workflow contains Agent skills, the AI Assistant includes only each skill's `SKILL.md` in that workflow context. Attached `.py` files and binary skill assets are stripped before the request so the builder stays within model context limits even when skills contain large implementations.
 
@@ -85,7 +85,7 @@ If the current workflow contains Agent skills, the AI Assistant includes only ea
 
 - [Why Heym](../getting-started/why-heym.md) – Natural language workflow building vs other platforms
 - [Quick Start](../getting-started/quick-start.md) – Build your first workflow
-- [User Settings](./user-settings.md) – User Rules injected into AI Assistant system prompt
+- [Settings](./user-settings.md) – User Rules injected into AI Assistant system prompt
 - [Chat with Docs](./chat-with-docs.md) – Page-aware assistant inside the documentation area
 - [Core Concepts](../getting-started/core-concepts.md) – Workflows, nodes, and execution flow
 - [Agent Node](../nodes/agent-node.md) – LLM node with tools and MCP

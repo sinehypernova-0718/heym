@@ -197,6 +197,18 @@ For a complete list of all features with short descriptions, see **[Full Feature
 
 ---
 
+## ⭐ Stay Up To Date
+
+<div align="center">
+
+![Workflow Creation Demo](./docs/screenshots/heym-star.gif)
+
+</div>
+
+Heym Built for developers who want control and enterprise teams that need a trusted path to production. Star Heym ⭐ on GitHub to follow releases and help more builders discover it.
+
+---
+
 ## 🎯 Why Heym?
 
 | Capability | **Heym** | n8n | Zapier | Make.com |
@@ -630,7 +642,7 @@ Join our Discord to connect with the community, ask questions, share workflows, 
 
 ## 🧩 Share a Template
 
-Want to publish a workflow template for the community? You can now submit it directly from the **[Templates page](https://heym.run/templates)** — open the dialog, paste your workflow DSL, and send it for review. No pull request needed.
+Want to publish a workflow template for the community? You can now submit it directly from the **[Templates page](https://heym.run/submit)** — open the dialog, paste your workflow DSL, and send it for review. No pull request needed.
 
 If you'd rather contribute through code, please **[start a Discussion](https://github.com/heymrun/heym/discussions)** so we can talk it through together **before** opening a pull request.
 
@@ -669,7 +681,7 @@ Commercial use, enterprise licensing, and professional support are available.
 ## Contributors
 
 <a href="https://github.com/heymrun/heym/graphs/contributors">
-  <img alt="Heym contributors" src="https://contrib.rocks/image?repo=heymrun/heym&amp;v=0.0.38" />
+  <img alt="Heym contributors" src="https://contrib.rocks/image?repo=heymrun/heym&amp;v=0.0.39" />
 </a>
 
 </div>

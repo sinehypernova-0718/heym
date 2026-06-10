@@ -4,14 +4,14 @@ The Chat tab can read messages aloud and run a hands-free interactive voice mode
 
 ## Setup
 
-1. Open **User Settings** (your name, top right) → **Voice** tab.
+1. Open **Settings** (gear icon, top right) → **Voice** tab.
 2. Pick an **ElevenLabs credential**, or click **Add credential** to create one. The API key needs the **Text to Speech**, **Speech to Text**, and **Voices** permissions enabled in your ElevenLabs account.
 3. Choose a **Voice** from your ElevenLabs account.
 4. Click **Save Voice Settings**.
 
 If you press a voice button before setting this up, the Voice tab opens automatically so you can finish configuring.
 
-The ElevenLabs API key is stored encrypted and never reaches the browser — all calls are proxied through the Heym backend. See [Credentials](./credentials.md) and [User Settings](./user-settings.md).
+The ElevenLabs API key is stored encrypted and never reaches the browser — all calls are proxied through the Heym backend. See [Credentials](./credentials.md) and [Settings](./user-settings.md).
 
 ## Read a message aloud
 
@@ -37,4 +37,4 @@ Use the **mute** button to pause listening and the **✕** to exit (which releas
 
 - [Chat Tab](../tabs/chat-tab.md) – Dashboard chat where voice lives
 - [Credentials](./credentials.md) – How API keys are stored and referenced
-- [User Settings](./user-settings.md) – Where the Voice tab lives
+- [Settings](./user-settings.md) – Where the Voice tab lives

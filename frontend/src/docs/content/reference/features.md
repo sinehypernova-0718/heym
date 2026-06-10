@@ -34,7 +34,7 @@ See also [Triggers](./triggers.md), [Parallel Execution](./parallel-execution.md
 
 Heym provides `run.sh` for local development (database in Docker, FastAPI backend, Vite frontend) and `deploy.sh` for production with Docker Compose. Both use a `.env` file; key variables include `SECRET_KEY`, `ENCRYPTION_KEY`, `DATABASE_URL`, and `ALLOW_REGISTER`. Development runs on configurable frontend and backend ports; production serves the API under `/api` through the frontend container.
 
-See also [Security](./security.md), [Enterprise](./enterprise.md), and [User Settings](./user-settings.md).
+See also [Security](./security.md), [Enterprise](./enterprise.md), and [Settings](./user-settings.md).
 
 ---
 
@@ -461,11 +461,17 @@ Edit History tracks saved versions of a workflow (each Save creates a version). 
 
 See also [Execution History](./execution-history.md), [Workflow Structure](./workflow-structure.md), and [Canvas Features](./canvas-features.md).
 
-### [User Settings](./user-settings.md)
+### [Settings](./user-settings.md)
 
-User Settings (opened from your name in the header) includes Profile (display name, User Rules) and [Security](./security.md) (change password). User Rules are custom instructions injected into every AI request, including the workflow builder and [Chat](../tabs/chat-tab.md), so you can set language, tone, coding style, or workflow conventions once. Password policy and [MCP](../tabs/mcp-tab.md) API key management are also available from settings.
+The Settings dialog (opened from the gear icon in the header) has four tabs: Profile (display name, User Rules), [Security](./security.md) (change password), Voice ([ElevenLabs TTS/STT](./chat-voice.md)), and Observability (read-only [OpenTelemetry](./opentelemetry.md) status). User Rules are custom instructions injected into every AI request, including the workflow builder and [Chat](../tabs/chat-tab.md), so you can set language, tone, coding style, or workflow conventions once. Password policy and [MCP](../tabs/mcp-tab.md) API key management are also available.
 
-See also [Security](./security.md), [Chat](../tabs/chat-tab.md), and [AI Assistant](./ai-assistant.md).
+See also [Security](./security.md), [Chat Voice](./chat-voice.md), [OpenTelemetry Tracing](./opentelemetry.md), and [AI Assistant](./ai-assistant.md).
+
+### [OpenTelemetry Tracing](./opentelemetry.md)
+
+Heym can emit OpenTelemetry traces for every workflow run and node execution: a root `heym.workflow.execute` span per run and a child `heym.node.execute` span per node, with model and token usage attached to LLM and agent nodes. Spans export over OTLP/HTTP to any compatible backend (Jaeger, Grafana Tempo, Honeycomb, Datadog), and W3C trace context propagates across inbound webhooks, outbound HTTP, and sub-workflows. Tracing is disabled by default and configured with `HEYM_OTEL_*` environment variables; the active status is shown in the [Settings](./user-settings.md) Observability tab.
+
+See also [Execution History](./execution-history.md), [Traces](../tabs/traces-tab.md), and [Webhooks](./webhooks.md).
 
 ### [Download & Import](./download-import.md)
 
@@ -548,9 +554,9 @@ See also [Global Variables](./global-variables.md), [Variable](../nodes/variable
 
 ### [Chat](../tabs/chat-tab.md)
 
-The Chat tab provides a direct [LLM](../nodes/llm-node.md) chat interface. Select a [credential](./credentials.md) and model, then send messages to test models, prototype prompts, or ask questions without building a workflow. It supports streaming, markdown, inline images, copy, clear, and voice input. User Rules from [User Settings](./user-settings.md) apply automatically; [global variables](./global-variables.md) are available to the LLM as context.
+The Chat tab provides a direct [LLM](../nodes/llm-node.md) chat interface. Select a [credential](./credentials.md) and model, then send messages to test models, prototype prompts, or ask questions without building a workflow. It supports streaming, markdown, inline images, copy, clear, and voice input. User Rules from [Settings](./user-settings.md) apply automatically; [global variables](./global-variables.md) are available to the LLM as context.
 
-See also [AI Assistant](./ai-assistant.md), [Credentials](./credentials.md), and [User Settings](./user-settings.md).
+See also [AI Assistant](./ai-assistant.md), [Credentials](./credentials.md), and [Settings](./user-settings.md).
 
 <video src="/features/showcase/chat.webm" controls playsinline muted preload="metadata" style="width:100%;border-radius:12px;margin:16px 0"></video>
 <p class="github-video-link"><a href="../../../../public/features/showcase/chat.webm">▶ Watch Chat demo</a></p>
