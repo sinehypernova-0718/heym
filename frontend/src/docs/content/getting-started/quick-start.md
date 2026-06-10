@@ -45,7 +45,7 @@ Alternatively, use the [AI Assistant](../reference/ai-assistant.md) from the Deb
 
 - [Core Concepts](./core-concepts.md) – Workflows, nodes, and execution flow
 - [Running & Deployment](./running-and-deployment.md) – Start locally with `run.sh` or deploy with `deploy.sh`
-- [User Settings](../reference/user-settings.md) – Configure name, User Rules, and password
+- [Settings](../reference/user-settings.md) – Configure name, User Rules, and password
 - [Canvas Features](../reference/canvas-features.md) – Data pin, execution logs, enable/disable, extract to sub-workflow
 - [Keyboard Shortcuts](../reference/keyboard-shortcuts.md) – Canvas and editor shortcuts
 - [Expression DSL](../reference/expression-dsl.md) – Referencing data in node config

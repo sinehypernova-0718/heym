@@ -40,5 +40,5 @@ If you want to build or modify workflows directly, use the editor-side [AI Assis
 
 - [AI Assistant](./ai-assistant.md) – Editor chat for building workflows
 - [Credentials Tab](../tabs/credentials-tab.md) – Add LLM credentials used by the dialog
-- [User Settings](./user-settings.md) – Global User Rules applied to AI surfaces
+- [Settings](./user-settings.md) – Global User Rules applied to AI surfaces
 - [Quick Start](../getting-started/quick-start.md) – First workflow walkthrough
