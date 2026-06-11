@@ -2030,6 +2030,7 @@ function sanitizeIntegrationCredentialFields(node: WorkflowNode): WorkflowNode {
   const t = node.type;
   const integrationTypes = new Set([
     "slack",
+    "discord",
     "telegram",
     "imapTrigger",
     "telegramTrigger",
@@ -2040,6 +2041,7 @@ function sanitizeIntegrationCredentialFields(node: WorkflowNode): WorkflowNode {
     "crawler",
     "googleSheets",
     "slackTrigger",
+    "discordTrigger",
     "bigquery",
   ]);
   if (!integrationTypes.has(t) && t !== "playwright") {

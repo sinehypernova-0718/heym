@@ -967,6 +967,52 @@ class CredentialContextTeamShareTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(context, {"Team Header": "X-API-Key: secret"})
 
+    async def test_workflow_credentials_context_includes_discord_webhook_url(self) -> None:
+        user_id = uuid.uuid4()
+        credential = SimpleNamespace(
+            id=uuid.uuid4(),
+            name="Discord Alerts",
+            type=CredentialType.discord,
+            encrypted_config="encrypted",
+        )
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _ScalarsResult([credential]),
+                _ScalarsResult([]),
+                _ScalarsResult([]),
+            ]
+        )
+
+        webhook_url = "https://discord.com/api/webhooks/123/abc"
+        with patch("app.api.workflows.decrypt_config", return_value={"webhook_url": webhook_url}):
+            context = await get_credentials_context(db, user_id)
+
+        self.assertEqual(context, {"Discord Alerts": webhook_url})
+
+    async def test_mcp_credentials_context_includes_discord_webhook_url(self) -> None:
+        user_id = uuid.uuid4()
+        credential = SimpleNamespace(
+            id=uuid.uuid4(),
+            name="Discord Alerts",
+            type=CredentialType.discord,
+            encrypted_config="encrypted",
+        )
+        db = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _ScalarsResult([credential]),
+                _ScalarsResult([]),
+                _ScalarsResult([]),
+            ]
+        )
+
+        webhook_url = "https://discord.com/api/webhooks/123/abc"
+        with patch("app.api.mcp.decrypt_config", return_value={"webhook_url": webhook_url}):
+            context = await get_credentials_context_for_user(db, user_id)
+
+        self.assertEqual(context, {"Discord Alerts": webhook_url})
+
 
 class ParseExecuteBodyXTriggerSourceTests(unittest.IsolatedAsyncioTestCase):
     """X-Trigger-Source header support in parse_execute_body."""

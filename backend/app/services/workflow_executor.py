@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone, tzinfo
 from functools import lru_cache
 from threading import Event, Lock, Thread, local
 from typing import Any
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse
 
 import httpx
 from simpleeval import DEFAULT_FUNCTIONS, EvalWithCompoundTypes, SimpleEval
@@ -6567,6 +6567,15 @@ class WorkflowExecutor:
                     "event": trigger_inputs.get("event", {}),
                     "headers": trigger_inputs.get("headers", {}),
                 }
+            elif node_type == "discordTrigger":
+                trigger_inputs = node_data.get("_initial_inputs", {})
+                output = {
+                    "interaction": trigger_inputs.get("interaction", {}),
+                    "type": trigger_inputs.get("type"),
+                    "data": trigger_inputs.get("data", {}),
+                    "headers": trigger_inputs.get("headers", {}),
+                    "triggered_at": trigger_inputs.get("triggered_at"),
+                }
             elif node_type == "telegramTrigger":
                 trigger_inputs = node_data.get("_initial_inputs", {})
                 output = {
@@ -7223,6 +7232,63 @@ class WorkflowExecutor:
                 output = {
                     "status": response.status_code,
                     "response": response.text,
+                }
+
+            elif node_type == "discord":
+                message_template = node_data.get("message", "$input.text")
+                message = self.evaluate_message_template(message_template, inputs, node_id)
+                credential_id = node_data.get("credentialId")
+                if not credential_id:
+                    raise ValueError("Discord node requires a credential")
+                if not str(message).strip():
+                    raise ValueError("Discord node requires a non-empty message")
+
+                username_template = str(node_data.get("username", "") or "").strip()
+                avatar_url_template = str(node_data.get("avatarUrl", "") or "").strip()
+
+                from app.db.session import SessionLocal
+                from app.services.encryption import decrypt_config
+
+                webhook_url = ""
+                with SessionLocal() as db:
+                    cred = self._get_accessible_credential(db, credential_id)
+                    if cred:
+                        config = decrypt_config(cred.encrypted_config)
+                        webhook_url = config.get("webhook_url", "")
+
+                if not webhook_url:
+                    raise ValueError("Discord credential requires webhook_url")
+
+                payload: dict[str, object] = {"content": message}
+                if username_template:
+                    payload["username"] = self.evaluate_message_template(
+                        username_template, inputs, node_id
+                    )
+                if avatar_url_template:
+                    payload["avatar_url"] = self.evaluate_message_template(
+                        avatar_url_template, inputs, node_id
+                    )
+
+                parsed_webhook_url = urlparse(webhook_url)
+                existing_query = parse_qsl(parsed_webhook_url.query, keep_blank_values=True)
+                filtered_query = [(key, value) for key, value in existing_query if key != "wait"]
+                filtered_query.append(("wait", "true"))
+                request_webhook_url = parsed_webhook_url._replace(
+                    query=urlencode(filtered_query, doseq=True)
+                ).geturl()
+
+                http_client = get_http_client()
+                response = http_client.post(request_webhook_url, json=payload)
+
+                if response.status_code >= 400:
+                    raise ValueError(f"Discord webhook error: {response.text}")
+
+                output = {
+                    "status": response.status_code,
+                    "response": response.text,
+                    "message": message,
+                    "username": payload.get("username"),
+                    "avatar_url": payload.get("avatar_url"),
                 }
 
             elif node_type == "telegram":
@@ -9847,6 +9913,9 @@ class WorkflowExecutor:
             elif node.get("type") == "slackTrigger":
                 node["data"] = node.get("data", {})
                 node["data"]["_initial_inputs"] = initial_inputs
+            elif node.get("type") == "discordTrigger":
+                node["data"] = node.get("data", {})
+                node["data"]["_initial_inputs"] = initial_inputs
             elif node.get("type") == "telegramTrigger":
                 node["data"] = node.get("data", {})
                 node["data"]["_initial_inputs"] = initial_inputs
@@ -11343,6 +11412,9 @@ def _execute_workflow_streaming_impl(
             node["data"] = node.get("data", {})
             node["data"]["_initial_inputs"] = inputs
         elif node.get("type") == "slackTrigger":
+            node["data"] = node.get("data", {})
+            node["data"]["_initial_inputs"] = inputs
+        elif node.get("type") == "discordTrigger":
             node["data"] = node.get("data", {})
             node["data"]["_initial_inputs"] = inputs
         elif node.get("type") == "telegramTrigger":

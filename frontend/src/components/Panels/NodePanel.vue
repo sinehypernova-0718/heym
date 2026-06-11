@@ -164,6 +164,8 @@ const icons = {
   telegram: MessageSquare,
   slack: MessageSquare,
   slackTrigger: MessageSquare,
+  discord: MessageSquare,
+  discordTrigger: MessageSquare,
   imapTrigger: Inbox,
   sendEmail: Mail,
   errorHandler: AlertTriangle,

@@ -45,6 +45,7 @@ const telegramBotToken = ref("");
 const telegramSecretToken = ref("");
 const webhookUrl = ref("");
 const signingSecret = ref("");
+const discordPublicKey = ref("");
 const imapHost = ref("");
 const imapPort = ref("993");
 const imapUsername = ref("");
@@ -95,6 +96,8 @@ const typeOptions = [
   { value: "bearer", label: CREDENTIAL_TYPE_LABELS.bearer },
   { value: "header", label: CREDENTIAL_TYPE_LABELS.header },
   { value: "telegram", label: CREDENTIAL_TYPE_LABELS.telegram },
+  { value: "discord", label: CREDENTIAL_TYPE_LABELS.discord },
+  { value: "discord_trigger", label: CREDENTIAL_TYPE_LABELS.discord_trigger },
   { value: "slack", label: CREDENTIAL_TYPE_LABELS.slack },
   { value: "slack_trigger", label: CREDENTIAL_TYPE_LABELS.slack_trigger },
   { value: "imap", label: CREDENTIAL_TYPE_LABELS.imap },
@@ -125,6 +128,7 @@ watch(
         telegramSecretToken.value = "";
         webhookUrl.value = "";
         signingSecret.value = "";
+        discordPublicKey.value = "";
         imapHost.value = "";
         imapPort.value = "993";
         imapUsername.value = "";
@@ -173,6 +177,7 @@ watch(
         telegramSecretToken.value = "";
         webhookUrl.value = "";
         signingSecret.value = "";
+        discordPublicKey.value = "";
         imapHost.value = "";
         imapPort.value = "993";
         imapUsername.value = "";
@@ -230,8 +235,12 @@ const isValid = computed(() => {
     return !!telegramBotToken.value.trim() || isEditing.value;
   } else if (type.value === "slack") {
     return !!webhookUrl.value.trim() || isEditing.value;
+  } else if (type.value === "discord") {
+    return !!webhookUrl.value.trim() || isEditing.value;
   } else if (type.value === "slack_trigger") {
     return !!signingSecret.value.trim() || isEditing.value;
+  } else if (type.value === "discord_trigger") {
+    return !!discordPublicKey.value.trim() || isEditing.value;
   } else if (type.value === "imap") {
     return (
       !!imapHost.value.trim() &&
@@ -346,6 +355,8 @@ function buildConfig(): CredentialConfig {
     return { api_key: cohereApiKey.value };
   } else if (type.value === "slack_trigger") {
     return { signing_secret: signingSecret.value };
+  } else if (type.value === "discord_trigger") {
+    return { public_key: discordPublicKey.value.trim() };
   } else if (type.value === "flaresolverr") {
     return { flaresolverr_url: flaresolverrUrl.value };
   } else if (type.value === "google_sheets") {
@@ -358,8 +369,12 @@ function buildConfig(): CredentialConfig {
       client_id: bqClientId.value.trim(),
       client_secret: bqClientSecret.value.trim(),
     };
+  } else if (type.value === "slack") {
+    return { webhook_url: webhookUrl.value.trim() };
+  } else if (type.value === "discord") {
+    return { webhook_url: webhookUrl.value.trim() };
   } else {
-    return { webhook_url: webhookUrl.value };
+    return { webhook_url: webhookUrl.value.trim() };
   }
 }
 
@@ -534,6 +549,7 @@ async function handleSave(): Promise<void> {
           telegramSecretToken.value.trim() ||
           webhookUrl.value.trim() ||
           signingSecret.value.trim() ||
+          discordPublicKey.value.trim() ||
           imapHost.value.trim() ||
           imapPort.value.trim() ||
           imapUsername.value.trim() ||
@@ -860,6 +876,21 @@ async function handleSave(): Promise<void> {
         </div>
       </template>
 
+      <template v-if="type === 'discord'">
+        <div class="space-y-2">
+          <Label for="cred-discord-webhook">Webhook URL</Label>
+          <Input
+            id="cred-discord-webhook"
+            v-model="webhookUrl"
+            placeholder="https://discord.com/api/webhooks/..."
+            :disabled="saving"
+          />
+          <p class="text-xs text-muted-foreground">
+            Discord incoming webhook URL from channel Integrations → Webhooks.
+          </p>
+        </div>
+      </template>
+
       <template v-if="type === 'slack_trigger'">
         <div class="space-y-2">
           <Label for="cred-slack-signing-secret">Signing Secret</Label>
@@ -872,6 +903,21 @@ async function handleSave(): Promise<void> {
           />
           <p class="text-xs text-muted-foreground">
             Found in your Slack App → Basic Information → App Credentials → Signing Secret.
+          </p>
+        </div>
+      </template>
+
+      <template v-if="type === 'discord_trigger'">
+        <div class="space-y-2">
+          <Label for="cred-discord-public-key">Application Public Key</Label>
+          <Input
+            id="cred-discord-public-key"
+            v-model="discordPublicKey"
+            :placeholder="isEditing ? '(re-enter to update)' : 'Paste your Discord Application Public Key'"
+            :disabled="saving"
+          />
+          <p class="text-xs text-muted-foreground">
+            Found in the Discord Developer Portal → your application → General Information → Public Key.
           </p>
         </div>
       </template>

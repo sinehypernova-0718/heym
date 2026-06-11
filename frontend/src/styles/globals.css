@@ -53,6 +53,7 @@
     --node-merge: 330 81% 60%;
     --node-set: 280 87% 60%;
     --node-slack: 330 80% 55%;
+    --node-discord: 235 86% 65%;
     --node-telegram: 196 92% 48%;
     --node-email: 195 80% 45%;
     --node-error: 0 84% 60%;
@@ -120,6 +121,7 @@
     --node-merge: 330 81% 65%;
     --node-set: 280 87% 65%;
     --node-slack: 330 78% 60%;
+    --node-discord: 235 84% 68%;
     --node-telegram: 196 88% 58%;
     --node-email: 195 78% 50%;
     --node-error: 0 84% 65%;

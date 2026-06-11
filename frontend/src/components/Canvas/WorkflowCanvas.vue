@@ -643,6 +643,8 @@ function handleNodeDoubleClick(event: { node: { id: string; data?: { nodeType?: 
     fieldToFocus = "userMessage";
   } else if (nodeType === "slack") {
     fieldToFocus = "message";
+  } else if (nodeType === "discord") {
+    fieldToFocus = "message";
   } else if (nodeType === "redis") {
     fieldToFocus = "redisKey";
   } else if (nodeType === "rag") {
@@ -891,6 +893,7 @@ function getDefaultNodeData(type: NodeType): WorkflowNode["data"] {
     },
     telegramTrigger: { label: "telegramTrigger", credentialId: "" },
     slack: { label: "slack", credentialId: "", message: "$input.text" },
+    discord: { label: "discord", credentialId: "", message: "$input.text", username: "", avatarUrl: "" },
     telegram: { label: "telegram", credentialId: "", chatId: "", message: "$input.text" },
     sendEmail: { label: "sendEmail", credentialId: "", to: "", subject: "", emailBody: "$input.text" },
     errorHandler: { label: "errorHandler", message: "$error.message" },
@@ -923,6 +926,7 @@ function getDefaultNodeData(type: NodeType): WorkflowNode["data"] {
     dataTable: { label: "dataTable", dataTableId: "", dataTableOperation: undefined, dataTableFilter: "{}", dataTableData: "{}", dataTableRowId: "", dataTableLimit: 100, dataTableSort: "" },
     drive: { label: "drive", driveOperation: undefined, driveFileId: "" },
     slackTrigger: { label: "slackTrigger", credentialId: "" },
+    discordTrigger: { label: "discordTrigger", credentialId: "" },
     mcpCall: {
       label: "mcpCall",
       connection: { id: "", transport: "sse", label: "", timeoutSeconds: 30, url: "", headers: {} },

@@ -9,6 +9,7 @@ Heym provides a variety of node types for building workflows. Use [expressions](
 | [Input](../nodes/input-node.md) | Text entry point for the workflow (HTTP/[webhook](./webhooks.md)) | 1 |
 | [Cron](../nodes/cron-node.md) | Trigger on a schedule (cron expression) | 1 |
 | [Telegram Trigger](../nodes/telegram-trigger-node.md) | Trigger when a Telegram bot webhook update arrives | 1 |
+| [Discord Trigger](../nodes/discord-trigger-node.md) | Trigger when Discord sends an application interaction webhook | 1 |
 | [IMAP Trigger](../nodes/imap-trigger-node.md) | Trigger when a new email arrives in an IMAP mailbox | 1 |
 | [WebSocket Trigger](../nodes/websocket-trigger-node.md) | Trigger from an outbound connection to an external WebSocket server | 1 |
 | [RabbitMQ](../nodes/rabbitmq-node.md) | Trigger when a message is received from a queue | 1 |
@@ -49,6 +50,7 @@ See [Triggers](./triggers.md) for all entry points.
 | [WebSocket Send](../nodes/websocket-send-node.md) | Connect to an external WebSocket and send one message | 1 | 1 |
 | [Telegram](../nodes/telegram-node.md) | Send Telegram bot messages | 1 | 1 |
 | [Slack](../nodes/slack-node.md) | Send Slack messages | 1 | 1 |
+| [Discord](../nodes/discord-node.md) | Send Discord webhook messages | 1 | 1 |
 | [Send Email](../nodes/send-email-node.md) | Send emails via SMTP | 1 | 1 |
 | [Redis](../nodes/redis-node.md) | Redis operations (set, get, hasKey, deleteKey) | 1 | 1 |
 | [Grist](../nodes/grist-node.md) | Read/write Grist spreadsheets | 1 | 1 |

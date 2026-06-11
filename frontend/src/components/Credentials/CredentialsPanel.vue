@@ -65,6 +65,9 @@ function getTypeIcon(type: CredentialType): typeof Brain {
       return Key;
     case "telegram":
       return MessageSquare;
+    case "discord":
+    case "discord_trigger":
+      return MessageSquare;
     case "slack":
       return MessageSquare;
     default:
@@ -86,6 +89,9 @@ function getTypeColor(type: CredentialType): string {
       return "bg-amber-500/10 text-amber-500";
     case "telegram":
       return "bg-sky-500/10 text-sky-500";
+    case "discord":
+    case "discord_trigger":
+      return "bg-indigo-500/10 text-indigo-500";
     case "slack":
       return "bg-emerald-500/10 text-emerald-500";
     default:

@@ -21,6 +21,8 @@ Some integration nodes do **not** require credentials. [WebSocket Trigger](../no
 | **SMTP** | [Send Email](../nodes/send-email-node.md) | `host`, `port`, `email`, `password` |
 | **IMAP** | [IMAP Trigger node](../nodes/imap-trigger-node.md) | `imap_host`, `imap_port`, `imap_username`, `imap_password` |
 | **Telegram** | [Telegram Trigger node](../nodes/telegram-trigger-node.md), [Telegram node](../nodes/telegram-node.md) | `bot_token`, optional `secret_token` |
+| **Discord** | [Discord node](../nodes/discord-node.md) | `webhook_url` |
+| **Discord Trigger** | [Discord Trigger node](../nodes/discord-trigger-node.md) | `public_key` |
 | **RabbitMQ** | [RabbitMQ node](../nodes/rabbitmq-node.md) | `rabbitmq_host`, `rabbitmq_username`, `rabbitmq_password` |
 | **Redis** | [Redis node](../nodes/redis-node.md) | `host`, `port`, `password` |
 | **Slack** | [Slack node](../nodes/slack-node.md) | `webhook_url` |

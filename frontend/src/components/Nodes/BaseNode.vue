@@ -42,6 +42,8 @@ const icons = {
   telegram: MessageSquare,
   slack: MessageSquare,
   slackTrigger: MessageSquare,
+  discord: MessageSquare,
+  discordTrigger: MessageSquare,
   imapTrigger: Inbox,
   sendEmail: Mail,
   errorHandler: AlertTriangle,
@@ -84,6 +86,8 @@ const nodeColorMap = {
   telegram: "node-telegram",
   slack: "node-slack",
   slackTrigger: "node-slack",
+  discord: "node-discord",
+  discordTrigger: "node-discord",
   imapTrigger: "node-email",
   sendEmail: "node-email",
   errorHandler: "node-error",
@@ -125,6 +129,7 @@ const hasInput = computed(
     && props.type !== "telegramTrigger"
     && props.type !== "websocketTrigger"
     && props.type !== "slackTrigger"
+    && props.type !== "discordTrigger"
     && props.type !== "imapTrigger"
     && !(props.type === "rabbitmq" && props.data.rabbitmqOperation === "receive")
 );

@@ -315,6 +315,8 @@ async def get_credentials_context_for_user(db: AsyncSession, user_id: uuid.UUID)
                 header_key = config.get("header_key", "")
                 header_value = config.get("header_value", "")
                 context[cred.name] = f"{header_key}: {header_value}" if header_key else header_value
+            elif cred.type == CredentialType.discord:
+                context[cred.name] = config.get("webhook_url", "")
             elif cred.type == CredentialType.slack:
                 context[cred.name] = config.get("webhook_url", "")
             else:

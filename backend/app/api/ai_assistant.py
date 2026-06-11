@@ -659,6 +659,8 @@ _PLACEHOLDER_CREDENTIAL_PATTERNS = (
 )
 
 _INTEGRATION_CREDENTIAL_NODE_TYPES = {
+    "discord",
+    "discordTrigger",
     "slack",
     "telegram",
     "imapTrigger",

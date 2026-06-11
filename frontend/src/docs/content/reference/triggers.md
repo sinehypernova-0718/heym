@@ -11,6 +11,7 @@ Start nodes (no incoming edges) that initiate execution:
 | [Input](../nodes/input-node.md) (textInput) | HTTP entry point. Receives `body`, `headers`, `query` from requests. |
 | [Cron](../nodes/cron-node.md) | Runs on a schedule (cron expression, e.g. `0 * * * *` for hourly). |
 | [Telegram Trigger](../nodes/telegram-trigger-node.md) | Starts when Telegram sends a bot webhook update to the node-specific webhook URL. |
+| [Discord Trigger](../nodes/discord-trigger-node.md) | Starts when Discord sends an Interactions API webhook to the node-specific endpoint. |
 | [IMAP Trigger](../nodes/imap-trigger-node.md) | Polls an IMAP mailbox and starts once for each newly detected email. |
 | [WebSocket Trigger](../nodes/websocket-trigger-node.md) | Opens an outbound client connection to an external socket and starts on selected socket events. |
 | [RabbitMQ](../nodes/rabbitmq-node.md) (receive) | Starts when a message is consumed from a RabbitMQ queue. |
@@ -28,6 +29,7 @@ Start nodes (no incoming edges) that initiate execution:
 | **WebSocket** | Outbound WebSocket trigger manager (leader worker, persistent client connections) | Optional per-node headers |
 | **RabbitMQ** | RabbitMQ consumer (leader worker) | N/A |
 | **Slack** | `POST /api/slack/webhook/{node_id}` | HMAC-SHA256 signing secret |
+| **Discord** | `POST /api/discord/webhook/{node_id}` | Ed25519 application public key |
 | **Telegram** | `POST /api/telegram/webhook/{node_id}` | Optional `x-telegram-bot-api-secret-token` |
 | **Editor** | Same as Webhook, via `workflowStore.executeWorkflow` | JWT |
 
@@ -64,6 +66,10 @@ The WebSocket trigger manager runs in the leader worker and keeps one outbound c
 
 Telegram sends bot webhook updates to `POST /api/telegram/webhook/{node_id}`. The payload is passed into the workflow as `update`, `message`, optional `callback_query`, sanitized `headers`, `trigger_node_id`, and `triggered_at`. If the selected credential has a secret token, Heym verifies `x-telegram-bot-api-secret-token` before execution.
 
+### Discord
+
+Discord sends interaction webhooks to `POST /api/discord/webhook/{node_id}`. The payload is passed into the workflow as `interaction`, `type`, `data`, sanitized `headers`, `trigger_node_id`, and `triggered_at`. Heym verifies the request using Ed25519 and the selected `discord_trigger` credential's application public key before execution.
+
 ### RabbitMQ
 
 The RabbitMQ consumer starts when the leader worker initializes. Workflows with `rabbitmq` nodes where `rabbitmqOperation === "receive"` get a consumer. Input includes `message_data` (body, headers, routing_key, etc.) and `triggered_by: "rabbitmq"`.
@@ -81,6 +87,7 @@ Execution history records `trigger_source` for every entry point:
 | `"imap"` | IMAP trigger manager |
 | `"websocket"` | Outbound WebSocket trigger manager |
 | `"telegram"` | Telegram bot webhook |
+| `"Discord"` | Discord interactions webhook |
 | `"MCP"` | MCP tool call |
 | `"portal"` | Portal execute |
 | `"dashboard_chat"` | AI assistant chat |
@@ -94,6 +101,7 @@ Execution history records `trigger_source` for every entry point:
 - **HTTP/Webhook**: `body`, `headers`, `query` from the request
 - **Cron**: `{"triggered_by": "cron"}`
 - **Telegram**: `update` + `message` + optional `callback_query` + sanitized `headers` + `triggered_by: "telegram"`
+- **Discord**: `interaction` + `type` + `data` + sanitized `headers` + `triggered_by: "Discord"`
 - **IMAP**: `email` + `triggered_by: "imap"` + `triggered_at`
 - **WebSocket**: `eventName` + `url` + `triggered_by: "websocket"` + `message` / `connection` / `close`
 - **RabbitMQ**: `message_data` + `triggered_by: "rabbitmq"`
@@ -105,6 +113,7 @@ Execution history records `trigger_source` for every entry point:
 - [Webhooks](./webhooks.md) – Webhook TTL, cache, rate limit, auth
 - [Workflow Structure](./workflow-structure.md) – Nodes and edges
 - [Node Types](./node-types.md) – [Input](../nodes/input-node.md), [Cron](../nodes/cron-node.md), [Telegram Trigger](../nodes/telegram-trigger-node.md), [IMAP Trigger](../nodes/imap-trigger-node.md), [WebSocket Trigger](../nodes/websocket-trigger-node.md), [RabbitMQ](../nodes/rabbitmq-node.md)
+- [Discord Trigger](../nodes/discord-trigger-node.md) – Discord interactions webhook trigger
 - [Quick Start](../getting-started/quick-start.md) – Build a workflow with Input
 - [Portal](./portal.md) – Portal trigger and chat UI
 - [Execution History](./execution-history.md) – View past runs and trigger_source
