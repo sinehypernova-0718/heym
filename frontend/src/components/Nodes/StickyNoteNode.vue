@@ -8,6 +8,7 @@ import type { NodeData, StickyNoteColor } from "@/types/workflow";
 
 import { cn } from "@/lib/utils";
 import { useWorkflowStore } from "@/stores/workflow";
+import { useRunbookPlayer } from "@/features/runbook/useRunbookPlayer";
 
 interface Props {
   id: string;
@@ -143,7 +144,10 @@ const canEdit = computed(() => props.resizable === true);
 const currentColor = computed<StickyNoteColor>(() => props.data.stickyColor ?? "yellow");
 const colorTheme = computed<StickyColorTheme>(() => STICKY_COLOR_THEMES[currentColor.value]);
 const displayTitle = computed(() => props.data.stickyTitle || DEFAULT_TITLE);
-const shouldShowPalette = computed(() => isPaletteVisible.value || isPaletteHovered.value);
+const { isRunbookPlaying } = useRunbookPlayer();
+const shouldShowPalette = computed(
+  () => !isRunbookPlaying.value && (isPaletteVisible.value || isPaletteHovered.value),
+);
 
 function renderMarkdown(raw: string): string {
   const html = marked(raw, { breaks: true, gfm: true }) as string;

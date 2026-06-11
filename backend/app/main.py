@@ -53,6 +53,7 @@ from app.db.session import async_session_maker
 from app.http_identity import HEYM_SERVER_AGENT
 from app.middleware.request_body_limit import RequestBodySizeLimitMiddleware
 from app.models.schemas import AppVersionResponse
+from app.observability.tracing import setup_tracing, shutdown_tracing
 from app.services.cron_scheduler import cron_scheduler
 from app.services.distributed_lock import lock_service
 from app.services.execution_cancellation import active_execution_registry
@@ -131,6 +132,7 @@ async def lifespan(app: FastAPI):
     await rabbitmq_consumer_manager.start()
     await websocket_trigger_manager.start()
     yield
+    shutdown_tracing()
     await websocket_trigger_manager.stop()
     await rabbitmq_consumer_manager.stop()
     await imap_trigger_manager.stop()
@@ -190,6 +192,10 @@ app = FastAPI(
     version=settings.resolved_version,
     lifespan=lifespan,
 )
+
+# Initialize OpenTelemetry tracing (no-op unless HEYM_OTEL_ENABLED=true). Must run
+# against the app instance so FastAPI inbound-context instrumentation can attach.
+setup_tracing(app)
 
 # Register before CORS so oversized-request 413 responses still receive CORS headers.
 app.add_middleware(

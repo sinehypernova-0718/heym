@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { BookOpen, ExternalLink, MoveRight, Sparkles, X } from "lucide-vue-next";
+import { BookOpen, ExternalLink, MoveRight, Play, Sparkles, X } from "lucide-vue-next";
 
 import ShowcaseDetails from "@/features/showcase/components/ShowcaseDetails.vue";
 import ShowcaseHighlights from "@/features/showcase/components/ShowcaseHighlights.vue";
@@ -23,6 +23,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "askAboutPage"): void;
+  (e: "runbook"): void;
   (e: "selectAction", action: ShowcaseAction): void;
   (e: "toggleDetail", detailId: string): void;
 }>();
@@ -143,6 +144,22 @@ const introContent = computed(() => getShowcaseIntroContent(props.definition.id)
               :is="actionIcon(action)"
               class="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-primary"
             />
+          </button>
+
+          <button
+            type="button"
+            class="group flex w-full items-center justify-between gap-3 rounded-2xl border border-indigo-500/20 bg-indigo-500/[0.08] px-4 py-3 text-left transition-colors duration-200 hover:border-indigo-500/35 hover:bg-indigo-500/[0.12]"
+            @click="emit('runbook')"
+          >
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-foreground">
+                Run the Runbook
+              </p>
+              <p class="mt-1 text-xs leading-5 text-muted-foreground">
+                Watch Heym build &amp; run a workflow end-to-end.
+              </p>
+            </div>
+            <Play class="h-4 w-4 shrink-0 text-indigo-500 transition-transform duration-200 group-hover:translate-x-0.5" />
           </button>
         </div>
       </div>

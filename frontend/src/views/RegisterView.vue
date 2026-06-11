@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ArrowRight, CheckCircle2, LogIn } from "lucide-vue-next";
+import { ArrowRight, CheckCircle2, Circle, LogIn } from "lucide-vue-next";
 
 import Button from "@/components/ui/Button.vue";
 import Card from "@/components/ui/Card.vue";
@@ -30,18 +30,67 @@ const password = ref("");
 const confirmPassword = ref("");
 const error = ref("");
 const loading = ref(false);
-const minPasswordLength = ref(8);
+const minPasswordLength = 8;
+
+interface PasswordRequirement {
+  id: string;
+  label: string;
+  met: boolean;
+}
+
+const passwordRequirements = computed((): PasswordRequirement[] => {
+  const pwd = password.value;
+  return [
+    {
+      id: "length",
+      label: `${minPasswordLength} characters`,
+      met: pwd.length >= minPasswordLength,
+    },
+    {
+      id: "digit",
+      label: "Number",
+      met: /[0-9]/.test(pwd),
+    },
+    {
+      id: "uppercase",
+      label: "Uppercase letter",
+      met: /[A-Z]/.test(pwd),
+    },
+    {
+      id: "lowercase",
+      label: "Lowercase letter",
+      met: /[a-z]/.test(pwd),
+    },
+  ];
+});
+
+function getPasswordValidationError(): string | null {
+  if (password.value.length < minPasswordLength) {
+    return `Password must be at least ${minPasswordLength} characters`;
+  }
+  if (!/[A-Z]/.test(password.value)) {
+    return "Password must contain at least one uppercase letter";
+  }
+  if (!/[a-z]/.test(password.value)) {
+    return "Password must contain at least one lowercase letter";
+  }
+  if (!/[0-9]/.test(password.value)) {
+    return "Password must contain at least one digit";
+  }
+  return null;
+}
 
 async function handleSubmit(): Promise<void> {
   error.value = "";
 
-  if (password.value !== confirmPassword.value) {
-    error.value = "Passwords do not match";
+  const passwordValidationError = getPasswordValidationError();
+  if (passwordValidationError) {
+    error.value = passwordValidationError;
     return;
   }
 
-  if (password.value.length < minPasswordLength.value) {
-    error.value = `Password must be at least ${minPasswordLength.value} characters`;
+  if (password.value !== confirmPassword.value) {
+    error.value = "Passwords do not match";
     return;
   }
 
@@ -96,22 +145,22 @@ const features = [
     <WorkflowHeroBackground />
 
     <div class="relative z-10 w-full max-w-full sm:max-w-md">
-      <Card class="auth-card relative w-full p-6 md:p-8 lg:p-10 animate-scale-in-bounce gradient-border-hover">
-        <div class="flex flex-col items-center mb-8">
+      <Card class="auth-card relative w-full p-5 md:p-6 lg:p-8 animate-scale-in-bounce gradient-border-hover">
+        <div class="flex flex-col items-center mb-6">
           <img
             src="/fav.svg"
             alt="Heym"
-            class="w-16 h-16 mb-6"
+            class="w-16 h-16 mb-4"
           >
           <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-center">
             Create your account
           </h1>
-          <p class="text-muted-foreground text-sm mt-2 text-center max-w-[280px]">
+          <p class="text-muted-foreground text-sm mt-1.5 text-center max-w-[280px]">
             Join thousands building AI workflows
           </p>
         </div>
 
-        <div class="features-list flex items-center justify-center flex-wrap gap-2 mb-6 text-xs text-muted-foreground">
+        <div class="features-list flex items-center justify-center flex-wrap gap-2 mb-5 text-xs text-muted-foreground">
           <div
             v-for="feature in features"
             :key="feature"
@@ -123,7 +172,7 @@ const features = [
         </div>
 
         <form
-          class="space-y-4"
+          class="space-y-3"
           @submit.prevent="handleSubmit"
         >
           <Transition
@@ -175,7 +224,7 @@ const features = [
             />
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
             <div class="space-y-2">
               <Label
                 for="password"
@@ -187,7 +236,8 @@ const features = [
                 id="password"
                 v-model="password"
                 type="password"
-                :placeholder="`Min ${minPasswordLength} chars`"
+                autocomplete="new-password"
+                placeholder="New password"
                 required
                 class="h-11 min-h-[44px]"
               />
@@ -204,6 +254,7 @@ const features = [
                 id="confirmPassword"
                 v-model="confirmPassword"
                 type="password"
+                autocomplete="new-password"
                 placeholder="Confirm"
                 required
                 class="h-11 min-h-[44px]"
@@ -211,10 +262,32 @@ const features = [
             </div>
           </div>
 
+          <ul
+            class="password-requirements grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-xs"
+            aria-label="Password requirements"
+          >
+            <li
+              v-for="requirement in passwordRequirements"
+              :key="requirement.id"
+              class="flex items-center gap-1.5"
+              :class="requirement.met ? 'text-primary' : 'text-muted-foreground'"
+            >
+              <CheckCircle2
+                v-if="requirement.met"
+                class="w-3.5 h-3.5 shrink-0"
+              />
+              <Circle
+                v-else
+                class="w-3.5 h-3.5 shrink-0"
+              />
+              <span>{{ requirement.label }}</span>
+            </li>
+          </ul>
+
           <Button
             type="submit"
             variant="gradient"
-            class="w-full h-12 min-h-[44px] text-base mt-2"
+            class="w-full h-12 min-h-[44px] text-base"
             :loading="loading"
           >
             Create account
@@ -222,7 +295,7 @@ const features = [
           </Button>
         </form>
 
-        <div class="divider relative my-8">
+        <div class="divider relative my-6">
           <div class="absolute inset-0 flex items-center">
             <div class="w-full border-t border-border" />
           </div>
@@ -274,10 +347,9 @@ const features = [
   gap: 12px 16px;
 }
 
-@media (max-width: 480px) {
+@media (max-height: 720px) {
   .features-list {
-    flex-direction: column;
-    align-items: flex-start;
+    display: none;
   }
 }
 </style>

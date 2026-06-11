@@ -14,6 +14,7 @@ import type { ShowcaseAction, ShowcaseContext } from "@/features/showcase/showca
 import { getDocPath } from "@/docs/manifest";
 import { onDismissOverlays, pushOverlayState } from "@/composables/useOverlayBackHandler";
 import { useShowcaseStore } from "@/stores/showcase";
+import { useRunbookPlayer } from "@/features/runbook/useRunbookPlayer";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -38,6 +39,7 @@ const emit = defineEmits<{
 const route = useRoute();
 const router = useRouter();
 const showcaseStore = useShowcaseStore();
+const { startRunbookNewWorkflow } = useRunbookPlayer();
 const isMobile = useMediaQuery("(max-width: 767px)");
 const MOBILE_FAB_STORAGE_KEY = "heym-showcase-mobile-fab-position";
 const MOBILE_FAB_EDGE_PADDING = 16;
@@ -313,6 +315,11 @@ function closeShowcase(): void {
   showcaseStore.closeAll();
 }
 
+async function handleRunbook(): Promise<void> {
+  closeShowcase();
+  await startRunbookNewWorkflow();
+}
+
 function toggleDetail(detailId: string): void {
   if (!props.context) return;
 
@@ -477,6 +484,7 @@ onUnmounted(() => {
       :ask-button-label="askButtonLabel"
       :ask-button-description="askButtonDescription"
       @ask-about-page="askAboutPage"
+      @runbook="handleRunbook"
       @close="closeShowcase"
       @select-action="selectAction"
       @toggle-detail="toggleDetail"
@@ -489,6 +497,7 @@ onUnmounted(() => {
       :ask-button-label="askButtonLabel"
       :ask-button-description="askButtonDescription"
       @ask-about-page="askAboutPage"
+      @runbook="handleRunbook"
       @close="closeShowcase"
       @select-action="selectAction"
       @toggle-detail="toggleDetail"

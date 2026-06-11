@@ -840,6 +840,65 @@ body,
   animation: heartbeat 1.8s ease-in-out infinite;
 }
 
+/* Runbook demo: grow/shrink pulse for highlighted controls (run button/tab). */
+@keyframes runbook-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+.runbook-pulse {
+  animation: runbook-pulse 1.2s ease-in-out infinite;
+}
+
+/* Runbook demo: subtle pulse for the left node-panel items. */
+@keyframes runbook-pulse-sm {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.01);
+  }
+}
+
+.runbook-pulse-sm {
+  animation: runbook-pulse-sm 1.2s ease-in-out infinite;
+}
+
+/* Runbook demo: hide the real cursor while the demo plays (simulated cursor shows instead). */
+body.runbook-playing,
+body.runbook-playing * {
+  cursor: none !important;
+}
+
+/* Runbook demo: simulated cursor that glides between panel, canvas and run. */
+.runbook-cursor {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  transform: translate(-3px, -2px);
+  transition:
+    left 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+    top 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+  filter: drop-shadow(0 2px 4px hsl(0 0% 0% / 0.45));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runbook-pulse,
+  .runbook-pulse-sm {
+    animation: none;
+  }
+
+  .runbook-cursor {
+    transition: none;
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;

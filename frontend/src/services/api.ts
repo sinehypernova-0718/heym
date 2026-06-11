@@ -1158,6 +1158,23 @@ export const voiceApi = {
   },
 };
 
+export interface ObservabilityStatus {
+  enabled: boolean;
+  endpoint: string;
+  service_name: string;
+  sampler_ratio: number;
+  capture_node_io: boolean;
+  instrumented: string[];
+  spans: string[];
+}
+
+export const observabilityApi = {
+  getStatus: async (): Promise<ObservabilityStatus> => {
+    const response = await api.get<ObservabilityStatus>("/config/observability");
+    return response.data;
+  },
+};
+
 export const gristApi = {
   getColumns: async (docId: string, tableId: string): Promise<{ id: string; name: string; type: string }[]> => {
     const response = await api.get<{ columns: { id: string; name: string; type: string }[] }>(

@@ -30,6 +30,7 @@ from simpleeval import DEFAULT_FUNCTIONS, EvalWithCompoundTypes, SimpleEval
 
 from app.api.data_tables import _coerce_row_data
 from app.http_identity import HEYM_USER_AGENT
+from app.observability import tracing
 from app.services.execution_cancellation import (
     clear_execution as _clear_sub_execution,
 )
@@ -1268,6 +1269,49 @@ class NodeResult:
     metadata: dict = field(default_factory=dict)
 
 
+def _annotate_node_span(span: object, result: "NodeResult") -> None:
+    """Attach status, timing, and (best-effort) LLM token attributes to a node span."""
+    try:
+        from opentelemetry.trace import Status, StatusCode
+
+        span.set_attribute("heym.node.status", result.status)  # type: ignore[attr-defined]
+        span.set_attribute(  # type: ignore[attr-defined]
+            "heym.node.duration_ms", float(result.execution_time_ms)
+        )
+        usage = result.output.get("usage") if isinstance(result.output, dict) else None
+        if isinstance(usage, dict):
+            for src_key, attr in (
+                ("prompt_tokens", "heym.llm.prompt_tokens"),
+                ("completion_tokens", "heym.llm.completion_tokens"),
+                ("total_tokens", "heym.llm.total_tokens"),
+            ):
+                value = usage.get(src_key)
+                if isinstance(value, (int, float)):
+                    span.set_attribute(attr, int(value))  # type: ignore[attr-defined]
+        model = result.output.get("model") if isinstance(result.output, dict) else None
+        if isinstance(model, str) and model:
+            span.set_attribute("heym.llm.model", model)  # type: ignore[attr-defined]
+        if result.status == "error":
+            span.set_status(Status(StatusCode.ERROR, result.error or "node error"))  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - observability must never break execution
+        pass
+
+
+def _attach_node_io(span: object, inputs: object, output: object, limit: int = 4096) -> None:
+    """Attach truncated node input/output JSON to a node span (opt-in, privacy-gated)."""
+    try:
+        for attr, value in (("heym.node.input", inputs), ("heym.node.output", output)):
+            try:
+                text = json.dumps(value, default=str, ensure_ascii=False)
+            except Exception:  # noqa: BLE001
+                text = str(value)
+            if len(text) > limit:
+                text = text[:limit] + "...(truncated)"
+            span.set_attribute(attr, text)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - observability must never break execution
+        pass
+
+
 @dataclass
 class SubWorkflowExecution:
     workflow_id: str
@@ -1607,6 +1651,9 @@ class WorkflowExecutor:
         self._bg_futures: list = []
         self._bg_futures_lock = Lock()
         self.configured_timezone = configured_timezone or get_configured_timezone()
+        # Active OTel context (with the workflow root span) captured during execute();
+        # re-attached inside worker threads so node spans nest under the workflow span.
+        self._otel_root_context: object | None = None
 
         for edge in self.edges:
             source = edge.get("source")
@@ -2729,6 +2776,7 @@ class WorkflowExecutor:
         batch_mode_enabled: bool = False,
         on_batch_status_update: Callable[[dict[str, Any]], None] | None = None,
         should_abort: Callable[[], str | None] | None = None,
+        request_timeout: float = 60.0,
     ) -> dict:
         if not credential_id or not model:
             return {
@@ -2996,6 +3044,7 @@ class WorkflowExecutor:
                             conversation_history=self.conversation_history,
                             on_status_update=on_batch_status_update,
                             should_abort=should_abort,
+                            request_timeout=request_timeout,
                         )
                     )
                 else:
@@ -3016,6 +3065,7 @@ class WorkflowExecutor:
                             image_input=image_input,
                             trace_context=trace_context,
                             conversation_history=self.conversation_history,
+                            request_timeout=request_timeout,
                         )
                     )
                 out = dict(result)
@@ -4080,6 +4130,7 @@ class WorkflowExecutor:
         max_tokens = node_data.get("maxTokens")
         tools = node_data.get("tools") or []
         tool_timeout_seconds = float(node_data.get("toolTimeoutSeconds") or 30)
+        request_timeout_seconds = float(node_data.get("requestTimeoutSeconds") or 60)
         max_tool_iterations = int(node_data.get("maxToolIterations") or 30)
         image_input_enabled = bool(node_data.get("imageInputEnabled", False))
         image_input_template = node_data.get("imageInput", "")
@@ -4715,6 +4766,7 @@ class WorkflowExecutor:
                             initial_prompt_tokens=resume_prompt_tokens,
                             initial_completion_tokens=resume_completion_tokens,
                             should_abort=should_abort_tool_loop,
+                            request_timeout=request_timeout_seconds,
                         )
                     )
                 else:
@@ -4734,6 +4786,7 @@ class WorkflowExecutor:
                             trace_context=trace_context,
                             conversation_history=conversation_history,
                             skills_included=skills_used or None,
+                            request_timeout=request_timeout_seconds,
                         )
                     )
             except Exception as e:
@@ -6298,6 +6351,40 @@ class WorkflowExecutor:
         allow_branch_skip: bool = True,
         on_retry: Callable[[NodeResult, int, int], None] | None = None,
     ) -> NodeResult:
+        """Public entry: wrap node execution in an OTel span (no-op when disabled)."""
+        if not tracing.is_enabled():
+            return self._execute_node_inner(node_id, inputs, allow_branch_skip, on_retry)
+
+        def _run() -> NodeResult:
+            tracer = tracing.get_tracer()
+            node = self.nodes.get(node_id, {})
+            node_data = node.get("data", {}) if isinstance(node, dict) else {}
+            with tracer.start_as_current_span("heym.node.execute") as span:
+                span.set_attribute("heym.node.id", str(node_id))
+                span.set_attribute("heym.node.type", node.get("type", "unknown"))
+                span.set_attribute("heym.node.label", node_data.get("label", node_id))
+                if self.workflow_id is not None:
+                    span.set_attribute("heym.workflow.id", str(self.workflow_id))
+                result = self._execute_node_inner(node_id, inputs, allow_branch_skip, on_retry)
+                _annotate_node_span(span, result)
+                if tracing.capture_node_io_enabled():
+                    _attach_node_io(span, inputs, result.output)
+                return result
+
+        # Re-attach the workflow root context so node spans nest under the workflow
+        # span even when this runs inside a ThreadPoolExecutor worker thread.
+        root_ctx = getattr(self, "_otel_root_context", None)
+        if root_ctx is not None:
+            return tracing.run_with_context(root_ctx, _run)
+        return _run()
+
+    def _execute_node_inner(
+        self,
+        node_id: str,
+        inputs: dict,
+        allow_branch_skip: bool = True,
+        on_retry: Callable[[NodeResult, int, int], None] | None = None,
+    ) -> NodeResult:
         start_time = time.time()
         self.check_cancelled()
         node = self.nodes[node_id]
@@ -6647,6 +6734,7 @@ class WorkflowExecutor:
                     batch_mode_enabled=batch_mode_enabled,
                     on_batch_status_update=batch_status_callback if batch_mode_enabled else None,
                     should_abort=batch_should_abort if batch_mode_enabled else None,
+                    request_timeout=float(node_data.get("requestTimeoutSeconds") or 60),
                 )
                 trace_id = self._pop_internal_trace_id(output)
                 if output.get("error"):
@@ -8613,6 +8701,8 @@ class WorkflowExecutor:
                 )
                 first_input = next(iter(inputs.values()), {})
                 output = first_input if isinstance(first_input, dict) else {"value": first_input}
+                output = dict(output)
+                output["logMessage"] = self._unwrap_value(resolved)
 
             elif node_type == "playwright":
                 output = self._execute_playwright_node(node_data, inputs, node_id, node_label)
@@ -9747,6 +9837,36 @@ class WorkflowExecutor:
         return results, error_flow_output
 
     def execute(self, workflow_id: uuid.UUID, initial_inputs: dict) -> ExecutionResult:
+        """Public entry: wrap the whole workflow run in an OTel root span."""
+        if not tracing.is_enabled():
+            return self._execute_inner(workflow_id, initial_inputs)
+
+        tracer = tracing.get_tracer()
+        from opentelemetry.trace import Status, StatusCode
+
+        with tracer.start_as_current_span("heym.workflow.execute") as span:
+            span.set_attribute("heym.workflow.id", str(workflow_id))
+            span.set_attribute("heym.node.count", len(self.nodes))
+            span.set_attribute("heym.workflow.test_mode", bool(self.test_mode))
+            span.set_attribute("heym.sub_workflow.depth", int(self._sub_workflow_invocation_depth))
+            # Capture the context (with the root span active) so node spans created in
+            # worker threads can re-attach it and nest correctly.
+            self._otel_root_context = tracing.capture_context()
+            try:
+                result = self._execute_inner(workflow_id, initial_inputs)
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                raise
+            finally:
+                self._otel_root_context = None
+            if getattr(result, "status", "") in ("error", "failed"):
+                span.set_status(Status(StatusCode.ERROR, "workflow failed"))
+            else:
+                span.set_attribute("heym.workflow.status", getattr(result, "status", ""))
+            return result
+
+    def _execute_inner(self, workflow_id: uuid.UUID, initial_inputs: dict) -> ExecutionResult:
         start_time = time.time()
         self.check_cancelled()
         node_results: list[NodeResult] = []
@@ -11176,7 +11296,38 @@ def build_node_start_message(
     return config.get("start_message") or f"[START] {node_label}"
 
 
-def execute_workflow_streaming(
+def execute_workflow_streaming(**kwargs):
+    """Public streaming entry: wrap the run in an OTel root span (no-op when disabled).
+
+    The canvas "Run" and portal use the streaming path, which has its own node
+    loop and does not call ``WorkflowExecutor.execute``. This wrapper opens the
+    ``heym.workflow.execute`` root span here so node spans nest under it.
+    """
+    if not tracing.is_enabled():
+        yield from _execute_workflow_streaming_impl(**kwargs)
+        return
+
+    from opentelemetry.trace import Status, StatusCode, set_span_in_context
+
+    tracer = tracing.get_tracer()
+    span = tracer.start_span("heym.workflow.execute")
+    try:
+        span.set_attribute("heym.workflow.id", str(kwargs.get("workflow_id", "")))
+        span.set_attribute("heym.node.count", len(kwargs.get("nodes") or []))
+        span.set_attribute("heym.workflow.test_mode", bool(kwargs.get("test_run", False)))
+        span.set_attribute("heym.execution.mode", "streaming")
+        yield from _execute_workflow_streaming_impl(
+            otel_root_context=set_span_in_context(span), **kwargs
+        )
+    except Exception as exc:  # noqa: BLE001 - observe then re-raise
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+        raise
+    finally:
+        span.end()
+
+
+def _execute_workflow_streaming_impl(
     workflow_id: uuid.UUID,
     nodes: list[dict],
     edges: list[dict],
@@ -11192,6 +11343,7 @@ def execute_workflow_streaming(
     executor_holder: dict | None = None,
     sse_node_config: dict | None = None,
     public_base_url: str = "",
+    otel_root_context: object | None = None,
 ):
     import queue
 
@@ -11213,6 +11365,10 @@ def execute_workflow_streaming(
     )
     if executor_holder is not None:
         executor_holder["executor"] = wf_executor
+    # Re-attach the streaming root span context so node spans (run in worker
+    # threads via execute_node) nest under heym.workflow.execute.
+    if otel_root_context is not None:
+        wf_executor._otel_root_context = otel_root_context
     start_time = time.time()
     node_results: list[NodeResult] = []
     has_error = False

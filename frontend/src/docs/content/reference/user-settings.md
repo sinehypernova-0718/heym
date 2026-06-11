@@ -1,10 +1,10 @@
-# User Settings
+# Settings
 
-The User Settings dialog lets you manage your profile, set persistent AI instructions, and update your account password. Open it by clicking your **name** in the top-right corner of the header.
+The Settings dialog lets you manage your profile, set persistent AI instructions, update your account password, configure chat voice, and review observability status. Open it by clicking the **gear icon / your name** in the top-right corner of the header.
 
 ## Opening the Dialog
 
-Click your **name/avatar badge** in the top-right of the header. The dialog opens with three tabs: **Profile**, **Security**, and **Voice**.
+Click the **gear (Settings) badge** in the top-right of the header. The dialog opens with four tabs: **Profile**, **Security**, **Voice**, and **Observability**.
 
 ## Profile Tab
 
@@ -66,6 +66,10 @@ If the current password is incorrect, an inline error message is shown. On succe
 
 The Voice tab configures spoken voice for the [Chat tab](../tabs/chat-tab.md): pick an **ElevenLabs credential** (or add one inline), choose a **Voice** from your ElevenLabs account, and **Save Voice Settings**. This enables per-message read-aloud and interactive voice mode. See [Chat Voice (TTS & STT)](./chat-voice.md) for the full flow.
 
+## Observability Tab
+
+The Observability tab shows the read-only status of [OpenTelemetry Tracing](./opentelemetry.md) for this instance: whether tracing is enabled, the OTLP endpoint, service name, sampler ratio, and which spans are emitted. Tracing is configured through `HEYM_OTEL_*` environment variables on the backend, so this tab does not edit anything. When tracing is disabled, the tab lists the environment variables needed to turn it on. Secrets such as OTLP auth headers are never shown here.
+
 ## What Is Not in This Dialog
 
 | Feature | Where to Find It |
@@ -82,3 +86,4 @@ The Voice tab configures spoken voice for the [Chat tab](../tabs/chat-tab.md): p
 - [MCP Tab](../tabs/mcp-tab.md) – MCP server API key and workflow tool exposure
 - [Credentials Tab](../tabs/credentials-tab.md) – API keys for AI nodes and integrations
 - [Security](./security.md) – Session management, rate limiting, credential encryption
+- [OpenTelemetry Tracing](./opentelemetry.md) – Distributed tracing for workflow and node executions

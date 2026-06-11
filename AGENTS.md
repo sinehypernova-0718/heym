@@ -87,6 +87,12 @@ The canvas **expression evaluate** dialog (`/expressions/evaluate`, `ExpressionE
 - **When changing any of the above:** extend or add cases in `backend/tests/test_expression_evaluator_service.py` (and related executor tests if behavior crosses modules). Prefer one shared helper over node-specific string eval.
 - **Anti-pattern:** Resolving user expressions with ad-hoc `eval` / string concat outside these paths — causes preview vs run mismatches.
 
+### OpenTelemetry tracing (keep span seams aligned)
+OTel tracing is env-gated (`HEYM_OTEL_ENABLED`, disabled by default) and bootstrapped in `backend/app/observability/tracing.py` from `app/main.py`'s `setup_tracing(app)`. Spans are added at two seams only:
+- `WorkflowExecutor.execute` wraps a `heym.workflow.execute` root span and stores the active OTel context in `self._otel_root_context`.
+- `WorkflowExecutor.execute_node` wraps a `heym.node.execute` child span and re-attaches `self._otel_root_context` so node spans nest under the workflow span across `ThreadPoolExecutor` workers (see `tracing.run_with_context`).
+- **When changing the executor's parallel/thread submit logic or these two methods:** preserve the context capture/re-attach, and extend `backend/tests/test_observability_tracing.py`. Custom attributes use the `heym.*` prefix. Tracing must never break execution (failures are swallowed); the read-only status lives at `GET /api/config/observability`.
+
 ## Repository Layout
 ```
 heymrun/

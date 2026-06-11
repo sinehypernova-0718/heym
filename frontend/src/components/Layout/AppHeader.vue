@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { BookOpen, ExternalLink, LogOut, Moon, Search, Sun, User } from "lucide-vue-next";
+import { BookOpen, ExternalLink, LogOut, Moon, Search, Settings, Sun } from "lucide-vue-next";
 
 import UserSettingsDialog from "@/components/Layout/UserSettingsDialog.vue";
 import Button from "@/components/ui/Button.vue";
@@ -22,7 +22,7 @@ const themeStore = useThemeStore();
 const versionStore = useVersionStore();
 const voiceStore = useVoiceStore();
 const showSettingsDialog = ref(false);
-const settingsInitialTab = ref<"profile" | "security" | "voice">("profile");
+const settingsInitialTab = ref<"profile" | "security" | "voice" | "observability">("profile");
 
 watch(
   () => voiceStore.openVoiceSettingsSignal,
@@ -113,11 +113,11 @@ async function handleLogout(): Promise<void> {
           v-if="authStore.user"
           type="button"
           class="user-badge hidden md:flex items-center gap-2.5 text-sm mr-2 px-3 py-2 rounded-xl cursor-pointer hover:opacity-80 transition-opacity text-left"
-          title="User Settings"
+          title="Settings"
           @click="settingsInitialTab = 'profile'; showSettingsDialog = true; pushOverlayState()"
         >
           <div class="flex items-center justify-center w-7 h-7 rounded-lg bg-primary/15 text-primary shrink-0">
-            <User class="w-4 h-4" />
+            <Settings class="w-4 h-4" />
           </div>
           <span class="font-medium text-foreground">{{ authStore.user.name }}</span>
         </button>

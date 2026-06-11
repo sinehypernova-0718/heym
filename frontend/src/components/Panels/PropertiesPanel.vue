@@ -57,6 +57,7 @@ import type { DataTableListItem } from "@/types/dataTable";
 import type { GeneratedFile } from "@/types/file";
 import { useAuthStore } from "@/stores/auth";
 import { useWorkflowStore, type ValidationError } from "@/stores/workflow";
+import { useRunbookPlayer } from "@/features/runbook/useRunbookPlayer";
 
 import type { NodeType } from "@/types/workflow";
 import type { WebSocketTriggerEventName } from "@/types/workflow";
@@ -1131,6 +1132,7 @@ const selectedNodeEvaluateDialogLabel = computed((): string => {
 });
 
 const isExecuting = computed(() => workflowStore.isExecuting);
+const { isRunbookPlaying } = useRunbookPlayer();
 const hasNodes = computed(() => workflowStore.nodes.length > 0);
 
 const lastExecutedNode = computed(() => {
@@ -5381,11 +5383,13 @@ onUnmounted(() => {
         <span class="hidden md:inline">Properties</span>
       </button>
       <button
+        data-runbook-run
         :class="cn(
           'flex-1 px-3 py-2 min-h-[44px] text-sm font-medium transition-all flex items-center justify-center gap-2 rounded-lg',
           activeTab === 'config'
             ? 'text-primary bg-primary/10 shadow-sm'
-            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+          isRunbookPlaying && 'runbook-pulse'
         )"
         @click="activeTab = 'config'"
       >
@@ -6294,6 +6298,21 @@ onUnmounted(() => {
               </div>
 
               <div class="space-y-2 pt-2 border-t">
+                <Label>Request Timeout (seconds)</Label>
+                <Input
+                  type="number"
+                  :model-value="String(selectedNode.data.requestTimeoutSeconds ?? 60)"
+                  min="1"
+                  max="3600"
+                  placeholder="60"
+                  @update:model-value="updateNodeData('requestTimeoutSeconds', parseInt($event, 10) || 60)"
+                />
+                <p class="text-xs text-muted-foreground">
+                  Max seconds to wait for the model response before timing out
+                </p>
+              </div>
+
+              <div class="space-y-2 pt-2 border-t">
                 <Label>JSON Output Parser</Label>
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
@@ -6631,6 +6650,20 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="space-y-2 pt-2 border-t">
+              <Label>Request Timeout (seconds)</Label>
+              <Input
+                type="number"
+                :model-value="String(selectedNode.data.requestTimeoutSeconds ?? 60)"
+                min="1"
+                max="3600"
+                placeholder="60"
+                @update:model-value="updateNodeData('requestTimeoutSeconds', parseInt($event, 10) || 60)"
+              />
+              <p class="text-xs text-muted-foreground">
+                Max seconds to wait for the model response before timing out
+              </p>
+            </div>
+            <div class="space-y-2 pt-2 border-t">
               <div class="flex items-center gap-2">
                 <input
                   id="agent-orchestrator"
@@ -6747,7 +6780,7 @@ onUnmounted(() => {
                 type="number"
                 :model-value="String(selectedNode.data.toolTimeoutSeconds ?? 30)"
                 min="1"
-                max="300"
+                max="3600"
                 placeholder="30"
                 @update:model-value="updateNodeData('toolTimeoutSeconds', parseInt($event, 10) || 30)"
               />
@@ -6874,7 +6907,7 @@ onUnmounted(() => {
                         type="number"
                         :model-value="String(conn.timeoutSeconds ?? 30)"
                         min="1"
-                        max="300"
+                        max="3600"
                         placeholder="30"
                         @update:model-value="updateAgentMCPConnection(idx, 'timeoutSeconds', parseInt($event, 10) || 30)"
                       />
@@ -7143,7 +7176,7 @@ onUnmounted(() => {
                       type="number"
                       :model-value="String(skill.timeoutSeconds ?? 30)"
                       min="1"
-                      max="300"
+                      max="3600"
                       placeholder="30"
                       @update:model-value="updateAgentSkill(idx, 'timeoutSeconds', parseInt($event, 10) || 30)"
                     />
@@ -11545,7 +11578,7 @@ onUnmounted(() => {
                         type="number"
                         :model-value="String(selectedNode.data.connection?.timeoutSeconds ?? 30)"
                         min="1"
-                        max="300"
+                        max="3600"
                         placeholder="30"
                         @update:model-value="updateMCPCallConnectionField('timeoutSeconds', parseInt($event, 10) || 30)"
                       />
@@ -12233,6 +12266,7 @@ onUnmounted(() => {
 
           <Button
             class="w-full min-w-0"
+            :class="isRunbookPlaying && 'runbook-pulse'"
             :loading="isExecuting"
             :disabled="!hasNodes || !!runBodyError"
             @click="handleExecute"

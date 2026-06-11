@@ -1,6 +1,6 @@
 import os
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 # Known placeholder values that must not be used in production
@@ -68,6 +68,21 @@ class Settings(BaseSettings):
     mcp_protocol_max_concurrency: int = 20
     mcp_sse_max_sessions: int = 100
     app_version: str = ""
+
+    # OpenTelemetry tracing (disabled by default -> zero overhead).
+    # Env var names use the HEYM_OTEL_ prefix to keep a dedicated namespace.
+    otel_enabled: bool = Field(default=False, validation_alias="HEYM_OTEL_ENABLED")
+    otel_exporter_otlp_endpoint: str = Field(
+        default="", validation_alias="HEYM_OTEL_EXPORTER_OTLP_ENDPOINT"
+    )
+    otel_exporter_otlp_headers: str = Field(
+        default="", validation_alias="HEYM_OTEL_EXPORTER_OTLP_HEADERS"
+    )
+    otel_service_name: str = Field(default="heym", validation_alias="HEYM_OTEL_SERVICE_NAME")
+    otel_traces_sampler_ratio: float = Field(
+        default=1.0, validation_alias="HEYM_OTEL_TRACES_SAMPLER_RATIO"
+    )
+    otel_capture_node_io: bool = Field(default=False, validation_alias="HEYM_OTEL_CAPTURE_NODE_IO")
 
     @property
     def resolved_version(self) -> str:

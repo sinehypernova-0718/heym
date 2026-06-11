@@ -478,11 +478,13 @@ class LLMService:
         api_key: str,
         base_url: str | None = None,
         trace_context: LLMTraceContext | None = None,
+        request_timeout: float = LLM_REQUEST_TIMEOUT,
     ) -> None:
         self.credential_type = credential_type
         self.api_key = api_key
         self.base_url = base_url
         self.trace_context = trace_context
+        self.request_timeout = request_timeout
 
     def _get_client(self) -> tuple[OpenAI, str]:
         """Get OpenAI client configured for the credential type."""
@@ -490,7 +492,7 @@ class LLMService:
             return OpenAI(
                 api_key=self.api_key,
                 base_url=GOOGLE_OPENAI_BASE_URL,
-                timeout=LLM_REQUEST_TIMEOUT,
+                timeout=self.request_timeout,
             ), "Google"
 
         if self.credential_type == CredentialType.custom:
@@ -502,11 +504,11 @@ class LLMService:
             return OpenAI(
                 api_key=self.api_key,
                 base_url=base,
-                timeout=LLM_REQUEST_TIMEOUT,
+                timeout=self.request_timeout,
             ), "Custom"
 
         # OpenAI (default)
-        client_kwargs: dict[str, Any] = {"api_key": self.api_key, "timeout": LLM_REQUEST_TIMEOUT}
+        client_kwargs: dict[str, Any] = {"api_key": self.api_key, "timeout": self.request_timeout}
         if self.base_url:
             client_kwargs["base_url"] = self.base_url
         return OpenAI(**client_kwargs), "OpenAI"
@@ -2033,9 +2035,12 @@ async def execute_llm(
     skills_included: list[str] | None = None,
     content_only: bool = False,
     extra_body: dict[str, Any] | None = None,
+    request_timeout: float = LLM_REQUEST_TIMEOUT,
 ) -> dict[str, Any]:
     cred_type = CredentialType(credential_type)
-    service = LLMService(cred_type, api_key, base_url, trace_context=trace_context)
+    service = LLMService(
+        cred_type, api_key, base_url, trace_context=trace_context, request_timeout=request_timeout
+    )
     return await service.execute(
         model=model,
         system_instruction=system_instruction,
@@ -2068,9 +2073,12 @@ async def execute_llm_batch(
     skills_included: list[str] | None = None,
     on_status_update: Callable[[dict[str, Any]], None] | None = None,
     should_abort: Callable[[], str | None] | None = None,
+    request_timeout: float = LLM_REQUEST_TIMEOUT,
 ) -> dict[str, Any]:
     cred_type = CredentialType(credential_type)
-    service = LLMService(cred_type, api_key, base_url, trace_context=trace_context)
+    service = LLMService(
+        cred_type, api_key, base_url, trace_context=trace_context, request_timeout=request_timeout
+    )
     return await service.execute_batch(
         model=model,
         system_instruction=system_instruction,
@@ -2232,7 +2240,11 @@ def _unified_tool_executor(
         from app.services.mcp_tool_executor import execute_mcp_tool
 
         connection = tool_def.get("_connection") or {}
-        return execute_mcp_tool(connection, name, args, timeout_seconds)
+        # The MCP connection's own "Timeout (s)" governs tool execution, mirroring
+        # the tool-listing path (workflow_executor._list_mcp_tools). Fall back to
+        # the agent-level toolTimeoutSeconds only when the connection has none.
+        mcp_timeout = float(connection.get("timeoutSeconds") or timeout_seconds)
+        return execute_mcp_tool(connection, name, args, mcp_timeout)
     if tool_def.get("_source") == "skill":
         from app.services.skill_python_executor import SkillExecutionResult, execute_skill_python
 
@@ -2306,9 +2318,12 @@ async def execute_llm_with_tools(
     initial_prompt_tokens: int = 0,
     initial_completion_tokens: int = 0,
     should_abort: Callable[[], str | None] | None = None,
+    request_timeout: float = LLM_REQUEST_TIMEOUT,
 ) -> dict[str, Any]:
     cred_type = CredentialType(credential_type)
-    service = LLMService(cred_type, api_key, base_url, trace_context=trace_context)
+    service = LLMService(
+        cred_type, api_key, base_url, trace_context=trace_context, request_timeout=request_timeout
+    )
     return await service.execute_with_tools(
         model=model,
         system_instruction=system_instruction,
