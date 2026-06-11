@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import APIRouter, HTTPException, Request, status
@@ -38,6 +39,7 @@ _DISCORD_TIMESTAMP_TOLERANCE_SECONDS = 300
 _INTERACTION_PING = 1
 _RESPONSE_PONG = 1
 _RESPONSE_DEFERRED_CHANNEL_MESSAGE = 5
+_DISCORD_MESSAGE_MAX_LENGTH = 2000
 
 _SENSITIVE_HEADERS: frozenset[str] = frozenset(
     {
@@ -58,6 +60,77 @@ _SENSITIVE_HEADERS: frozenset[str] = frozenset(
 def _normalize_public_key_hex(public_key: str) -> str:
     """Strip whitespace and lowercase a Discord application public key."""
     return public_key.strip().replace(" ", "").lower()
+
+
+def _truncate_discord_content(content: str) -> str:
+    """Clamp outbound Discord content to the platform message limit."""
+    trimmed = content.strip()
+    if len(trimmed) <= _DISCORD_MESSAGE_MAX_LENGTH:
+        return trimmed
+    return trimmed[: _DISCORD_MESSAGE_MAX_LENGTH - 3].rstrip() + "..."
+
+
+def _coerce_discord_followup_content(value: Any) -> str | None:
+    """Convert workflow outputs into a user-visible Discord follow-up message."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return _truncate_discord_content(trimmed) if trimmed else None
+    if isinstance(value, (bool, int, float)):
+        return _truncate_discord_content(str(value))
+    if isinstance(value, dict):
+        for key in ("result", "content", "message", "text", "error"):
+            if key in value:
+                return _coerce_discord_followup_content(value.get(key))
+        serialized = json.dumps(value, ensure_ascii=False)
+        if serialized not in {"{}", "[]", '""'}:
+            return _truncate_discord_content(serialized)
+        return None
+    if isinstance(value, list):
+        if not value:
+            return None
+        return _truncate_discord_content(json.dumps(value, ensure_ascii=False))
+    return _truncate_discord_content(str(value))
+
+
+def _extract_discord_followup_content(workflow_outputs: dict[str, Any]) -> str | None:
+    """Choose the best follow-up body from final workflow outputs."""
+    if not workflow_outputs:
+        return None
+    if len(workflow_outputs) == 1:
+        return _coerce_discord_followup_content(next(iter(workflow_outputs.values())))
+    return _coerce_discord_followup_content(workflow_outputs)
+
+
+async def _send_discord_followup_message(
+    interaction_body: dict[str, Any],
+    workflow_outputs: dict[str, Any],
+) -> None:
+    """Send the final workflow output back to the deferred Discord interaction."""
+    application_id = str(interaction_body.get("application_id") or "").strip()
+    interaction_token = str(interaction_body.get("token") or "").strip()
+    if not application_id or not interaction_token:
+        logger.info("Discord interaction missing application_id or token; skipping follow-up")
+        return
+
+    content = _extract_discord_followup_content(workflow_outputs)
+    if not content:
+        logger.info("Workflow produced no usable Discord follow-up content")
+        return
+
+    followup_url = f"https://discord.com/api/v10/webhooks/{application_id}/{interaction_token}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(followup_url, json={"content": content})
+        if response.status_code >= 400:
+            logger.warning(
+                "Discord follow-up failed with status %s: %s",
+                response.status_code,
+                response.text,
+            )
+            return
+
+    logger.info("Discord follow-up sent successfully")
 
 
 def _verify_discord_signature(
@@ -221,6 +294,7 @@ async def _execute_workflow_background(
                 workflow.id,
                 result.status,
             )
+            await _send_discord_followup_message(interaction_body, result.outputs)
 
     except Exception:
         logger.exception(

@@ -343,5 +343,55 @@ class TestDiscordCredentialRequirements(unittest.IsolatedAsyncioTestCase):
         self.assertIn("public key", ctx.exception.detail.lower())
 
 
+class TestDiscordFollowUpHelpers(unittest.IsolatedAsyncioTestCase):
+    async def test_send_followup_uses_output_result(self) -> None:
+        from app.api.discord import _send_discord_followup_message
+
+        interaction_body = {
+            "application_id": "1234567890",
+            "token": "interaction-token",
+        }
+        workflow_outputs = {"reply": {"result": "Hello from workflow"}}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"id":"1"}'
+
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        mock_client_factory = MagicMock()
+        mock_client_factory.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_factory.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.api.discord.httpx.AsyncClient", return_value=mock_client_factory):
+            await _send_discord_followup_message(interaction_body, workflow_outputs)
+
+        mock_client.post.assert_awaited_once_with(
+            "https://discord.com/api/v10/webhooks/1234567890/interaction-token",
+            json={"content": "Hello from workflow"},
+        )
+
+    async def test_send_followup_skips_empty_outputs(self) -> None:
+        from app.api.discord import _send_discord_followup_message
+
+        interaction_body = {
+            "application_id": "1234567890",
+            "token": "interaction-token",
+        }
+
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock()
+
+        mock_client_factory = MagicMock()
+        mock_client_factory.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_factory.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.api.discord.httpx.AsyncClient", return_value=mock_client_factory):
+            await _send_discord_followup_message(interaction_body, {"reply": {"result": "   "}})
+
+        mock_client.post.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

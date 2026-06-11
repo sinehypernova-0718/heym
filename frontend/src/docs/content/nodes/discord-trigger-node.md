@@ -58,15 +58,15 @@ After the node triggers, downstream nodes can access:
 
 ## Example Workflow
 
-**Discord slash command → LLM → Discord webhook**
+**Discord slash command → LLM → Output**
 
 ```
-discordTrigger → llm → discord
+discordTrigger → llm → output
 ```
 
 - **Discord Trigger** label: `discordEvent`
 - **LLM** user message: `"Reply to this Discord command: $discordEvent.data.name"`
-- **Discord** message: `$llm.text`
+- **Output** message: `$llm.text`
 
 ## Security
 
@@ -77,8 +77,9 @@ discordTrigger → llm → discord
 
 ## Notes
 
-- Heym returns a deferred Discord response immediately and runs the workflow in the background
+- Heym returns a deferred Discord response immediately, runs the workflow in the background, and posts the final workflow output as a Discord follow-up when an `Output` node produces content
 - The interactions URL is derived from the node ID and stays stable even if the workflow is renamed
+- Use a regular [Discord Node](./discord-node.md) only when you also want a separate webhook post in addition to the interaction follow-up
 - One `discordTrigger` node is usually enough; use **Switch** or **Condition** downstream to route different interaction types
 
 ## Related

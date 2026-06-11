@@ -119,6 +119,12 @@ class TestDiscordExecutorBranch(unittest.TestCase):
         self.assertIsNotNone(discord_result)
         self.assertEqual(discord_result["status"], "success")
         self.assertEqual(discord_result["output"]["status"], 204)
+        self.assertEqual(discord_result["output"]["message"], "Received: hello")
+        self.assertEqual(discord_result["output"]["username"], "Heym Bot")
+        self.assertEqual(
+            discord_result["output"]["avatar_url"],
+            "https://example.com/heym.png",
+        )
 
         mock_http_client.post.assert_called_once_with(
             "https://discord.com/api/webhooks/123/abc?wait=true",

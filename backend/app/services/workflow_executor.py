@@ -7198,6 +7198,9 @@ class WorkflowExecutor:
                 output = {
                     "status": response.status_code,
                     "response": response.text,
+                    "message": message,
+                    "username": payload.get("username"),
+                    "avatar_url": payload.get("avatar_url"),
                 }
 
             elif node_type == "telegram":
